@@ -1,5 +1,7 @@
 WAILS := $(shell go env GOPATH)/bin/wails
 
+.PHONY: dev build install
+
 dev:
 	$(WAILS) dev
 
@@ -10,5 +12,6 @@ build:
 	$(WAILS) build
 
 install: build
+	rm -rf /Applications/bish.app
 	cp -r build/bin/bish.app /Applications/bish.app
 	xattr -dr com.apple.quarantine /Applications/bish.app

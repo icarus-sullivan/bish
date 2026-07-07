@@ -684,19 +684,38 @@ func (a *App) reloadTree() {
 // -- Window methods --
 
 func (a *App) NewWindow() error {
-	exe, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	return exec.Command(exe).Start()
+	return launchNewInstance()
 }
 
 func (a *App) OpenRecentInNewWindow(path string) error {
+	return launchNewInstance("--project", path)
+}
+
+// launchNewInstance starts another bish window. If running from a macOS .app
+// bundle, it relaunches via `open -n` so the new process shares the bundle's
+// Dock icon instead of appearing as its own generic Dock entry.
+func launchNewInstance(args ...string) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	return exec.Command(exe, "--project", path).Start()
+	if bundle, ok := appBundlePath(exe); ok {
+		openArgs := append([]string{"-n", bundle}, "--args")
+		openArgs = append(openArgs, args...)
+		return exec.Command("open", openArgs...).Start()
+	}
+	return exec.Command(exe, args...).Start()
+}
+
+// appBundlePath returns the .app bundle root for an executable path inside
+// Contents/MacOS, e.g. "/A/bish.app/Contents/MacOS/bish" -> "/A/bish.app".
+func appBundlePath(exe string) (string, bool) {
+	const marker = ".app/Contents/MacOS/"
+	i := strings.Index(exe, marker)
+	if i == -1 {
+		return "", false
+	}
+	return exe[:i+len(".app")], true
 }
 
 func (a *App) GetCWD() string {
@@ -738,6 +757,7 @@ func (a *App) openProjectDir(dir string) error {
 	a.projectRoot = dir
 	a.projectCfg = cfg
 	a.projectMu.Unlock()
+	runtime.WindowSetTitle(a.ctx, filepath.Base(dir))
 	a.reloadTree()
 	// restore saved expansion from previous session
 	if len(cfg.ExpandedPaths) > 0 {
@@ -781,6 +801,7 @@ func (a *App) CloseProject() {
 	a.projectRoot = ""
 	a.projectCfg = nil
 	a.projectMu.Unlock()
+	runtime.WindowSetTitle(a.ctx, "bish")
 	a.reloadTree()
 	runtime.EventsEmit(a.ctx, "project:change", "")
 	runtime.EventsEmit(a.ctx, "project:commands", nil)
