@@ -33,12 +33,42 @@
 
   function patchSearchPanel(root: HTMLElement) {
     const panel = root.querySelector<HTMLElement>('.cm-search')
-    if (!panel || panel.querySelector('.cm-row-break')) return
-    const replaceField = panel.querySelector<HTMLElement>('input[name="replace"]')
-    if (!replaceField) return
-    const spacer = document.createElement('div')
-    spacer.className = 'cm-row-break'
-    panel.insertBefore(spacer, replaceField)
+    if (!panel) return
+
+    // disable auto-capitalize/correct on all text inputs
+    panel.querySelectorAll<HTMLInputElement>('input[type=text]').forEach(el => {
+      el.setAttribute('autocapitalize', 'none')
+      el.setAttribute('autocorrect', 'off')
+      el.setAttribute('autocomplete', 'off')
+      el.setAttribute('spellcheck', 'false')
+    })
+
+    // replace button text with arrows + add tooltips
+    const nextBtn = panel.querySelector<HTMLButtonElement>('button[name="next"]')
+    const prevBtn = panel.querySelector<HTMLButtonElement>('button[name="prev"]')
+    const selBtn  = panel.querySelector<HTMLButtonElement>('button[name="select"]')
+    if (nextBtn && nextBtn.textContent !== '↓') { nextBtn.textContent = '↓'; nextBtn.title = 'Next match' }
+    if (prevBtn && prevBtn.textContent !== '↑') { prevBtn.textContent = '↑'; prevBtn.title = 'Previous match' }
+    if (selBtn)  selBtn.title = 'Select all matches'
+
+    // add tooltips to toggle labels
+    panel.querySelectorAll<HTMLElement>('label').forEach(label => {
+      const cb = label.querySelector<HTMLInputElement>('input[type=checkbox]')
+      if (!cb) return
+      if (cb.name === 'case') label.title = 'Match case'
+      if (cb.name === 're')   label.title = 'Use regex'
+      if (cb.name === 'word') label.title = 'Match whole word'
+    })
+
+    // row break before replace input (only once)
+    if (!panel.querySelector('.cm-row-break')) {
+      const replaceField = panel.querySelector<HTMLElement>('input[name="replace"]')
+      if (replaceField) {
+        const spacer = document.createElement('div')
+        spacer.className = 'cm-row-break'
+        panel.insertBefore(spacer, replaceField)
+      }
+    }
   }
   let saving = $state(false)
   let saveError = $state('')
@@ -487,20 +517,32 @@
   .cm-container { flex: 1; overflow: hidden; min-height: 0; }
   .cm-container :global(.cm-editor) { height: 100%; }
 
-  /* ── CodeMirror search panel toggle icons ── */
+  /* ── CodeMirror search panel layout & icons ── */
   :global(.cm-search) {
     display: flex !important;
     flex-wrap: wrap !important;
     align-items: center !important;
     gap: 6px !important;
     padding: 10px 14px !important;
-    row-gap: 8px !important;
+    row-gap: 4px !important;
   }
   :global(.cm-search br) { display: none; }
   :global(.cm-row-break) {
+    order: 10;
     flex-basis: 100%;
     height: 0;
   }
+  /* row 1 ordering: find → toggles → arrows → all */
+  :global(.cm-textfield[name="search"])  { order: 1; }
+  :global(.cm-search label)              { order: 2; }
+  :global(.cm-search button[name="prev"]) { order: 3; }
+  :global(.cm-search button[name="next"]) { order: 4; }
+  :global(.cm-search button[name="select"]) { order: 5; }
+  /* row 2 */
+  :global(.cm-textfield[name="replace"])      { order: 11; }
+  :global(.cm-search button[name="replace"])  { order: 12; }
+  :global(.cm-search button[name="replaceAll"]) { order: 13; }
+  :global(.cm-search button[name="close"])    { order: 99; }
   :global(.cm-search label) {
     display: flex !important;
     align-items: center !important;
@@ -533,6 +575,28 @@
   :global(.cm-search label:has([name="case"])::after) { content: "Aa" !important; }
   :global(.cm-search label:has([name="re"])::after)   { content: ".*" !important; }
   :global(.cm-search label:has([name="word"])::after) { content: "ab" !important; }
+  /* next / prev as icon-sized arrow buttons */
+  :global(.cm-search button[name="next"]),
+  :global(.cm-search button[name="prev"]) {
+    width: 26px !important;
+    height: 26px !important;
+    padding: 0 !important;
+    font-size: 14px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border: 1px solid transparent !important;
+    background: none !important;
+    color: var(--muted) !important;
+    cursor: pointer !important;
+    border-radius: 4px !important;
+    transition: color 0.08s, background 0.08s !important;
+  }
+  :global(.cm-search button[name="next"]:hover),
+  :global(.cm-search button[name="prev"]:hover) {
+    color: var(--foreground) !important;
+    background: var(--bg-hover) !important;
+  }
   :global(.cm-search input[type=checkbox]) {
     position: absolute !important;
     opacity: 0 !important;

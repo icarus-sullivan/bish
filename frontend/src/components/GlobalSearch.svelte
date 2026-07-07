@@ -119,6 +119,10 @@
           bind:value={query}
           class="input"
           placeholder="Search…"
+          autocapitalize="none"
+          autocorrect="off"
+          autocomplete="off"
+          spellcheck="false"
         />
         <div class="toggles">
           <button
@@ -146,6 +150,10 @@
           bind:value={replaceText}
           class="input"
           placeholder="Replace with…"
+          autocapitalize="none"
+          autocorrect="off"
+          autocomplete="off"
+          spellcheck="false"
           onkeydown={(e) => { if (e.key === 'Enter') runReplace() }}
         />
         <button class="btn" onclick={runReplace} disabled={replacing || !query.trim()}>
