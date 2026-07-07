@@ -1,6 +1,11 @@
 WAILS := $(shell go env GOPATH)/bin/wails
 
-.PHONY: dev build install darwin
+.PHONY: init dev build install darwin
+
+init:
+	go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+	go mod download
+	cd frontend && pnpm install
 
 dev:
 	$(WAILS) dev
