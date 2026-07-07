@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { showGlobalSearch, openFileTab, cwd, projectRoot } from '../lib/stores'
+  import { showGlobalSearch, openFileTab, cwd, projectRoot, pendingGoto } from '../lib/stores'
   import { SearchInFiles, ReplaceInFiles } from '../lib/wails'
   import { get } from 'svelte/store'
   import type { SearchResultDTO } from '../lib/wails'
@@ -81,6 +81,7 @@
   }
 
   function openResult(r: SearchResultDTO) {
+    pendingGoto.set({ path: r.file, line: r.line, col: r.col })
     openFileTab(r.file)
     showGlobalSearch.set(false)
   }

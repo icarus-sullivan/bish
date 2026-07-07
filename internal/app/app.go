@@ -583,6 +583,31 @@ func (a *App) FSDelete(path string) error {
 	return nil
 }
 
+func (a *App) FSDeletePaths(paths []string) error {
+	if len(paths) == 0 {
+		return nil
+	}
+	choice, err := runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
+		Type:          runtime.QuestionDialog,
+		Title:         "Delete",
+		Message:       fmt.Sprintf("Delete %d items? This cannot be undone.", len(paths)),
+		Buttons:       []string{"Delete", "Cancel"},
+		DefaultButton: "Cancel",
+		CancelButton:  "Cancel",
+	})
+	if err != nil || choice != "Delete" {
+		return err
+	}
+	var firstErr error
+	for _, p := range paths {
+		if err := os.RemoveAll(p); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	a.reloadTree()
+	return firstErr
+}
+
 func (a *App) FSCopyPath(path string) string {
 	return path
 }
@@ -903,13 +928,32 @@ func (a *App) DeleteProjectCommand(id string) error {
 	return nil
 }
 
-func (a *App) AddProjectCommand(command, cwd string) error {
+func (a *App) RenameProjectCommand(id, name string) error {
+	a.projectMu.Lock()
+	if a.projectCfg == nil {
+		a.projectMu.Unlock()
+		return nil
+	}
+	a.projectCfg.Rename(id, name)
+	cfg := a.projectCfg
+	a.projectMu.Unlock()
+	if err := project.Save(cfg); err != nil {
+		return err
+	}
+	runtime.EventsEmit(a.ctx, "project:commands", cfg.Cmds)
+	return nil
+}
+
+func (a *App) AddProjectCommand(command, cwd, name string) error {
 	a.projectMu.Lock()
 	if a.projectCfg == nil {
 		a.projectMu.Unlock()
 		return fmt.Errorf("no project open")
 	}
-	a.projectCfg.Add(command, cwd)
+	cmd := a.projectCfg.Add(command, cwd)
+	if name != "" {
+		cmd.Name = name
+	}
 	cfg := a.projectCfg
 	a.projectMu.Unlock()
 	if err := project.Save(cfg); err != nil {

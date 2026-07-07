@@ -34,6 +34,9 @@ export const showPalette = writable<boolean>(false)
 // global file search
 export const showGlobalSearch = writable<boolean>(false)
 
+// jump target consumed by FileViewer after opening a file (line 1-based, col 0-based)
+export const pendingGoto = writable<{ path: string; line: number; col: number } | null>(null)
+
 // panel visibility
 export const showLeft = writable<boolean>(true)
 export const showRight = writable<boolean>(true)

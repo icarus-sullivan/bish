@@ -1,7 +1,7 @@
 <script lang="ts">
   import { commands, focusedPane, selectedCommand, projectRoot, projectCommands, cwd } from '../lib/stores'
   import ContextMenu from './ContextMenu.svelte'
-  import { RunCommand, RenameCommand, DeleteCommand, RunProjectCommand, DeleteProjectCommand, AddCommand, AddProjectCommand } from '../lib/wails'
+  import { RunCommand, RenameCommand, DeleteCommand, RunProjectCommand, DeleteProjectCommand, RenameProjectCommand, AddCommand, AddProjectCommand } from '../lib/wails'
   import { IconPlus, IconPlayerPlayFilled } from '@tabler/icons-svelte'
   import { get } from 'svelte/store'
 
@@ -28,7 +28,7 @@
     if (!addCommand.trim()) { addError = 'Command is required'; return }
     const dir = addCwd.trim() || get(cwd)
     if (isProject) {
-      await AddProjectCommand(addCommand.trim(), dir).catch((e: any) => { addError = String(e) })
+      await AddProjectCommand(addCommand.trim(), dir, addName.trim()).catch((e: any) => { addError = String(e) })
     } else {
       await AddCommand(addName.trim(), dir, addCommand.trim()).catch((e: any) => { addError = String(e) })
     }
@@ -56,13 +56,16 @@
   }
 
   function startRename(id: string) {
-    const cmd = $commands.find(c => c.id === id)
+    const cmd = isProject
+      ? $projectCommands.find(c => c.id === id)
+      : $commands.find(c => c.id === id)
     if (cmd) renaming = { id, value: cmd.name || cmd.command }
   }
 
   async function commitRename() {
     if (!renaming) return
-    await RenameCommand(renaming.id, renaming.value)
+    if (isProject) await RenameProjectCommand(renaming.id, renaming.value)
+    else await RenameCommand(renaming.id, renaming.value)
     renaming = null
   }
 
@@ -70,6 +73,7 @@
     if (isProject) {
       return [
         { label: 'Run', action: () => run(id) },
+        { label: 'Rename', action: () => startRename(id) },
         { label: 'Delete', action: () => DeleteProjectCommand(id), danger: true },
       ]
     }
@@ -111,9 +115,18 @@
             tabindex="0"
             onkeydown={(e) => e.key === 'Enter' && run(cmd.id)}
           >
-            <button class="play-btn" onclick={(e) => { e.stopPropagation(); run(cmd.id) }} title="Run"><IconPlayerPlayFilled size={10} /></button>
-            <span class="cmd-name">{cmd.command}</span>
-            <span class="dir-badge">{dirName(cmd.directory)}</span>
+            {#if renaming?.id === cmd.id}
+              <input
+                class="rename-input"
+                bind:value={renaming.value}
+                onblur={commitRename}
+                onkeydown={(e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') renaming = null }}
+              />
+            {:else}
+              <button class="play-btn" onclick={(e) => { e.stopPropagation(); run(cmd.id) }} title="Run"><IconPlayerPlayFilled size={10} /></button>
+              <span class="cmd-name" title={cmd.command}>{cmd.name || cmd.command}</span>
+              <span class="dir-badge">{dirName(cmd.directory)}</span>
+            {/if}
           </div>
         {/each}
       {/if}
@@ -141,7 +154,7 @@
               />
             {:else}
               <button class="play-btn" onclick={(e) => { e.stopPropagation(); run(cmd.id) }} title="Run"><IconPlayerPlayFilled size={10} /></button>
-              <span class="cmd-name">{cmd.name || cmd.command}</span>
+              <span class="cmd-name" title={cmd.command}>{cmd.name || cmd.command}</span>
               <span class="dir-badge">{dirName(cmd.cwd)}</span>
             {/if}
           </div>
@@ -166,11 +179,9 @@
         <input class="add-input" bind:value={addCommand} placeholder="command *"
           autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false"
           onkeydown={(e) => { if (e.key === 'Enter') submitAdd(); if (e.key === 'Escape') showAdd = false }} />
-        {#if !isProject}
         <input class="add-input" bind:value={addName} placeholder="name (optional)"
           autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false"
           onkeydown={(e) => { if (e.key === 'Enter') submitAdd(); if (e.key === 'Escape') showAdd = false }} />
-        {/if}
         <input class="add-input" bind:value={addCwd} placeholder="working directory (optional)"
           autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false"
           onkeydown={(e) => { if (e.key === 'Enter') submitAdd(); if (e.key === 'Escape') showAdd = false }} />

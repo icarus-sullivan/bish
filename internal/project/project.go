@@ -11,6 +11,7 @@ import (
 
 type Cmd struct {
 	ID        string `json:"id"`
+	Name      string `json:"name,omitempty"`
 	Command   string `json:"command"`
 	Directory string `json:"directory"`
 }
@@ -68,6 +69,15 @@ func (c *Config) Add(command, dir string) *Cmd {
 	}
 	c.Cmds = append(c.Cmds, cmd)
 	return cmd
+}
+
+func (c *Config) Rename(id, name string) {
+	for _, cmd := range c.Cmds {
+		if cmd.ID == id {
+			cmd.Name = name
+			return
+		}
+	}
 }
 
 func (c *Config) Delete(id string) {

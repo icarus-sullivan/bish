@@ -6,16 +6,17 @@ export {
   GetProcesses, KillProcess, RestartProcess, GetProcessLogs,
   GetCommands, RunCommand, DeleteCommand, RenameCommand, AddCommand,
   GetTreeNodes, ToggleTreeNode, CdToPath,
-  FSNewFile, FSNewFolder, FSRename, FSDelete, FSCopyPath, FSRevealInFinder,
+  FSNewFile, FSNewFolder, FSRename, FSDelete, FSDeletePaths, FSCopyPath, FSRevealInFinder,
   WritePTY, ResizePTY,
   GetGalleryImages, GetCurrentGalleryPath, IsVideo,
   GetTheme, GetConfig, SaveConfig,
   ReadFile, WriteFile,
   OpenProject, CloseProject, GetProjectRoot, GetAllFiles, GetCWD,
   NewWindow, SaveNewFile,
-  GetProjectCommands, GetRecentProjects, OpenRecentProject, DeleteProjectCommand, RunProjectCommand, AddProjectCommand,
+  GetProjectCommands, GetRecentProjects, OpenRecentProject, DeleteProjectCommand, RunProjectCommand, AddProjectCommand, RenameProjectCommand,
   NewTerminal, CloseTerminal, WritePTYTab, ResizePTYTab,
   SearchInFiles, ReplaceInFiles,
+  GetProjectSymbols,
   ReadFileBase64,
   RefreshTree, CollapseAllTree,
 } from '../../wailsjs/go/app/App'
@@ -27,9 +28,10 @@ export interface Process {
   status: 'running' | 'stopped' | 'crashed'; exit_code: number
 }
 export interface SavedCommand { id: string; name: string; cwd: string; command: string }
-export interface ProjectCmd { id: string; command: string; directory: string }
+export interface ProjectCmd { id: string; name?: string; command: string; directory: string }
 export interface RecentEntry { path: string; name: string }
 export interface SearchResultDTO { file: string; line: number; col: number; text: string }
+export interface SymbolInfo { name: string; kind: string; file: string; importPath: string; pkg: string }
 export interface TreeNode {
   name: string; path: string; isDir: boolean; depth: number
   expanded: boolean; selected: boolean

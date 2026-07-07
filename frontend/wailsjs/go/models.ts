@@ -18,6 +18,26 @@ export namespace app {
 	        this.text = source["text"];
 	    }
 	}
+	export class Symbol {
+	    name: string;
+	    kind: string;
+	    file: string;
+	    importPath: string;
+	    pkg: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Symbol(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.kind = source["kind"];
+	        this.file = source["file"];
+	        this.importPath = source["importPath"];
+	        this.pkg = source["pkg"];
+	    }
+	}
 	export class ThemeDTO {
 	    background: string;
 	    foreground: string;
@@ -177,6 +197,7 @@ export namespace project {
 	
 	export class Cmd {
 	    id: string;
+	    name?: string;
 	    command: string;
 	    directory: string;
 	
@@ -187,6 +208,7 @@ export namespace project {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
+	        this.name = source["name"];
 	        this.command = source["command"];
 	        this.directory = source["directory"];
 	    }

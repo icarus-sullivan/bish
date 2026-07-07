@@ -4,7 +4,7 @@
   import { EditorState } from '@codemirror/state'
   import { defaultKeymap, historyKeymap, indentMore, indentLess } from '@codemirror/commands'
   import { search, searchKeymap } from '@codemirror/search'
-  import { completionKeymap } from '@codemirror/autocomplete'
+  import { completionKeymap, acceptCompletion } from '@codemirror/autocomplete'
   import { syntaxHighlighting, HighlightStyle, StreamLanguage } from '@codemirror/language'
   import { Prec } from '@codemirror/state'
   import { basicSetup } from 'codemirror'
@@ -19,7 +19,9 @@
   import { go } from '@codemirror/lang-go'
   import { shell } from '@codemirror/legacy-modes/mode/shell'
   import { ReadFile, WriteFile, SaveNewFile } from '../lib/wails'
-  import { currentThemeName, cwd, projectRoot, updateTabPath, closeTab } from '../lib/stores'
+  import { currentThemeName, cwd, projectRoot, updateTabPath, closeTab, pendingGoto } from '../lib/stores'
+  import { codeIntel, intelKindFor } from '../lib/codeintel'
+  import { invalidateSymbols } from '../lib/autoimport'
   import { get } from 'svelte/store'
 
   const UNTITLED = '__new__'
@@ -382,6 +384,7 @@
     }
     if (!container) return
 
+    const lang = langFor(p)
     view = new EditorView({
       state: EditorState.create({
         doc: content,
@@ -389,11 +392,12 @@
           basicSetup,
           bishTheme(isDark()),
           highlightFor(themeName),
-          langFor(p),
+          lang,
+          ...codeIntel(p, get(projectRoot) || get(cwd), lang, intelKindFor(p)),
           search({ top: true }),
           // Highest priority: always consume Tab so focus never escapes the editor
           Prec.highest(keymap.of([
-            { key: 'Tab',       run: (v) => { indentMore(v); return true } },
+            { key: 'Tab',       run: (v) => acceptCompletion(v) || (indentMore(v), true) },
             { key: 'Shift-Tab', run: (v) => { indentLess(v); return true } },
           ])),
           keymap.of([
@@ -414,7 +418,27 @@
     panelObserver?.disconnect()
     panelObserver = new MutationObserver(() => patchSearchPanel(container))
     panelObserver.observe(container, { childList: true, subtree: true })
+
+    applyGoto()
   }
+
+  // jump to a pending line/col target (set by global search) once we're the
+  // viewer for that path — covers both fresh loads and already-open tabs
+  function applyGoto() {
+    const g = get(pendingGoto)
+    if (!g || !view || g.path !== path) return
+    const doc = view.state.doc
+    const line = doc.line(Math.max(1, Math.min(g.line, doc.lines)))
+    const pos = Math.min(line.from + Math.max(0, g.col), line.to)
+    view.dispatch({
+      selection: { anchor: pos },
+      effects: EditorView.scrollIntoView(pos, { y: 'center' }),
+    })
+    view.focus()
+    pendingGoto.set(null)
+  }
+
+  $effect(() => { $pendingGoto; applyGoto() })
 
   // Reload when path or theme changes
   $effect(() => { load(path, $currentThemeName) })
@@ -436,6 +460,7 @@
         await WriteFile(path, view.state.doc.toString())
         modified = false
       }
+      invalidateSymbols()
     } catch (e: any) {
       saveError = String(e)
     } finally {

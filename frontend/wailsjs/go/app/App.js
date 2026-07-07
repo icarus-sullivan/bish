@@ -6,8 +6,8 @@ export function AddCommand(arg1, arg2, arg3) {
   return window['go']['app']['App']['AddCommand'](arg1, arg2, arg3);
 }
 
-export function AddProjectCommand(arg1, arg2) {
-  return window['go']['app']['App']['AddProjectCommand'](arg1, arg2);
+export function AddProjectCommand(arg1, arg2, arg3) {
+  return window['go']['app']['App']['AddProjectCommand'](arg1, arg2, arg3);
 }
 
 export function CdToPath(arg1) {
@@ -40,6 +40,10 @@ export function FSCopyPath(arg1) {
 
 export function FSDelete(arg1) {
   return window['go']['app']['App']['FSDelete'](arg1);
+}
+
+export function FSDeletePaths(arg1) {
+  return window['go']['app']['App']['FSDeletePaths'](arg1);
 }
 
 export function FSNewFile(arg1, arg2) {
@@ -98,6 +102,10 @@ export function GetProjectRoot() {
   return window['go']['app']['App']['GetProjectRoot']();
 }
 
+export function GetProjectSymbols(arg1) {
+  return window['go']['app']['App']['GetProjectSymbols'](arg1);
+}
+
 export function GetRecentProjects() {
   return window['go']['app']['App']['GetRecentProjects']();
 }
@@ -152,6 +160,10 @@ export function RefreshTree() {
 
 export function RenameCommand(arg1, arg2) {
   return window['go']['app']['App']['RenameCommand'](arg1, arg2);
+}
+
+export function RenameProjectCommand(arg1, arg2) {
+  return window['go']['app']['App']['RenameProjectCommand'](arg1, arg2);
 }
 
 export function ReplaceInFiles(arg1, arg2, arg3, arg4, arg5, arg6) {

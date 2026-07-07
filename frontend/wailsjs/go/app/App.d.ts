@@ -8,7 +8,7 @@ import {app} from '../models';
 
 export function AddCommand(arg1:string,arg2:string,arg3:string):Promise<void>;
 
-export function AddProjectCommand(arg1:string,arg2:string):Promise<void>;
+export function AddProjectCommand(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function CdToPath(arg1:string):Promise<void>;
 
@@ -25,6 +25,8 @@ export function DeleteProjectCommand(arg1:string):Promise<void>;
 export function FSCopyPath(arg1:string):Promise<string>;
 
 export function FSDelete(arg1:string):Promise<void>;
+
+export function FSDeletePaths(arg1:Array<string>):Promise<void>;
 
 export function FSNewFile(arg1:string,arg2:string):Promise<void>;
 
@@ -54,6 +56,8 @@ export function GetProjectCommands():Promise<Array<project.Cmd>>;
 
 export function GetProjectRoot():Promise<string>;
 
+export function GetProjectSymbols(arg1:string):Promise<Array<app.Symbol>>;
+
 export function GetRecentProjects():Promise<Array<project.RecentEntry>>;
 
 export function GetTheme():Promise<app.ThemeDTO>;
@@ -81,6 +85,8 @@ export function ReadFileBase64(arg1:string):Promise<string>;
 export function RefreshTree():Promise<void>;
 
 export function RenameCommand(arg1:string,arg2:string):Promise<void>;
+
+export function RenameProjectCommand(arg1:string,arg2:string):Promise<void>;
 
 export function ReplaceInFiles(arg1:string,arg2:string,arg3:string,arg4:boolean,arg5:boolean,arg6:boolean):Promise<number>;
 
