@@ -770,8 +770,14 @@ func (a *App) RunProjectCommand(id string) error {
 	if found == nil {
 		return fmt.Errorf("command %s not found", id)
 	}
-	line := fmt.Sprintf("cd %q && %s\n", found.Directory, found.Command)
-	_, err := a.shell.Write([]byte(line))
+	// write <cwd>\t<cmd>\n to the w-file — same path as the `w` shell function,
+	// so the process manager picks it up and shows it in the process list
+	f, err := os.OpenFile(a.wFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = fmt.Fprintf(f, "%s\t%s\n", found.Directory, found.Command)
 	return err
 }
 

@@ -138,7 +138,7 @@
     function onMove(ev: MouseEvent) {
       if (target === 'left')   leftWidth.set(Math.max(160, Math.min(500, startLeft + ev.clientX - startX)))
       else if (target === 'right')  rightWidth.set(Math.max(160, Math.min(500, startRight - (ev.clientX - startX))))
-      else if (target === 'vsplit') processHeight.set(Math.max(80, startPH + ev.clientY - startY))
+      else if (target === 'vsplit') processHeight.set(Math.max(80, Math.min(startPH + ev.clientY - startY, window.innerHeight - 200)))
     }
     function onUp() {
       window.removeEventListener('mousemove', onMove)
