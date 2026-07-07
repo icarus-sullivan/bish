@@ -190,6 +190,10 @@ export function SearchInFiles(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['app']['App']['SearchInFiles'](arg1, arg2, arg3, arg4, arg5);
 }
 
+export function SetQuitRequested() {
+  return window['go']['app']['App']['SetQuitRequested']();
+}
+
 export function ToggleTreeNode(arg1) {
   return window['go']['app']['App']['ToggleTreeNode'](arg1);
 }

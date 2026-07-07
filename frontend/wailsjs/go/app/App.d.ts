@@ -100,6 +100,8 @@ export function SaveNewFile(arg1:string,arg2:string):Promise<string>;
 
 export function SearchInFiles(arg1:string,arg2:string,arg3:boolean,arg4:boolean,arg5:boolean):Promise<Array<app.SearchResultDTO>>;
 
+export function SetQuitRequested():Promise<void>;
+
 export function ToggleTreeNode(arg1:string):Promise<void>;
 
 export function TriggerNewFile():Promise<void>;

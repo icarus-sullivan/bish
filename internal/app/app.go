@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/csullivan/bish/internal/commands"
@@ -42,28 +43,37 @@ var skipDirs = map[string]bool{
 }
 
 type App struct {
-	mgr              *process.Manager
-	cmdStore         *commands.Store
-	cmdMu            sync.Mutex
-	shell            *bishpty.PTY
-	terminals        map[string]*bishpty.PTY
-	terminalsMu      sync.Mutex
-	termCount        int
-	fileTree         *tree.Tree
-	treeMu           sync.Mutex
-	cwd              string
-	cwdFile          string
-	wFilePath        string
-	wFilePos         int64
-	galleryFile      string
-	galleryCur       string
-	projectRoot      string
-	projectCfg       *project.Config
-	projectMu        sync.Mutex
-	cfg              config.Config
-	ctx              context.Context
-	DockMenuUpdater  func()
-	StartupProject   string
+	mgr                    *process.Manager
+	cmdStore               *commands.Store
+	cmdMu                  sync.Mutex
+	shell                  *bishpty.PTY
+	terminals              map[string]*bishpty.PTY
+	terminalsMu            sync.Mutex
+	termCount              int
+	fileTree               *tree.Tree
+	treeMu                 sync.Mutex
+	cwd                    string
+	cwdFile                string
+	wFilePath              string
+	wFilePos               int64
+	galleryFile            string
+	galleryCur             string
+	projectRoot            string
+	projectCfg             *project.Config
+	projectMu              sync.Mutex
+	cfg                    config.Config
+	ctx                    context.Context
+	DockMenuUpdater        func()
+	QuitInterceptInstaller func()
+	StartupProject         string
+	NoRestore              bool
+	quitRequested          atomic.Bool
+}
+
+// SetQuitRequested marks that the user chose Quit (vs. closing this window
+// individually), so Shutdown knows to keep this project in the restore session.
+func (a *App) SetQuitRequested() {
+	a.quitRequested.Store(true)
 }
 
 func New(cfg config.Config, mgr *process.Manager, store *commands.Store,
@@ -89,15 +99,41 @@ func (a *App) Startup(ctx context.Context) {
 	go a.pollWLoop()
 	go a.pollGalleryLoop()
 	go a.refreshLoop()
+	if a.QuitInterceptInstaller != nil {
+		a.QuitInterceptInstaller()
+	}
 	if a.StartupProject != "" {
 		go a.openProjectDir(a.StartupProject) //nolint
+	} else if !a.NoRestore {
+		go a.restoreSession()
 	}
 	if a.DockMenuUpdater != nil {
 		a.DockMenuUpdater()
 	}
 }
 
+// restoreSession reopens the project windows that were still open the last
+// time bish quit (Cmd+Q), skipping any that were closed individually.
+func (a *App) restoreSession() {
+	paths, _ := project.LoadSession()
+	if len(paths) == 0 {
+		return
+	}
+	a.openProjectDir(paths[0]) //nolint
+	for _, p := range paths[1:] {
+		launchNewInstance("--project", p) //nolint
+	}
+}
+
 func (a *App) Shutdown(ctx context.Context) {
+	if !a.quitRequested.Load() {
+		a.projectMu.Lock()
+		root := a.projectRoot
+		a.projectMu.Unlock()
+		if root != "" {
+			project.RemoveFromSession(root) //nolint
+		}
+	}
 	a.mgr.KillAll()
 	a.shell.Close()
 	a.terminalsMu.Lock()
@@ -684,7 +720,9 @@ func (a *App) reloadTree() {
 // -- Window methods --
 
 func (a *App) NewWindow() error {
-	return launchNewInstance()
+	// --no-restore: this is a deliberate blank window, not a cold start —
+	// it shouldn't re-trigger session restore in the spawned process.
+	return launchNewInstance("--no-restore")
 }
 
 func (a *App) OpenRecentInNewWindow(path string) error {
@@ -771,7 +809,8 @@ func (a *App) openProjectDir(dir string) error {
 	fmt.Fprintf(a.shell, "cd %q\n", dir) //nolint
 	runtime.EventsEmit(a.ctx, "project:change", dir)
 	runtime.EventsEmit(a.ctx, "project:commands", cfg.Cmds)
-	project.AddRecent(dir) //nolint
+	project.AddRecent(dir)    //nolint
+	project.AddToSession(dir) //nolint
 	if a.DockMenuUpdater != nil {
 		go a.DockMenuUpdater()
 	}
@@ -798,9 +837,13 @@ func (a *App) OpenRecentProject(path string) error {
 
 func (a *App) CloseProject() {
 	a.projectMu.Lock()
+	root := a.projectRoot
 	a.projectRoot = ""
 	a.projectCfg = nil
 	a.projectMu.Unlock()
+	if root != "" {
+		project.RemoveFromSession(root) //nolint
+	}
 	runtime.WindowSetTitle(a.ctx, "bish")
 	a.reloadTree()
 	runtime.EventsEmit(a.ctx, "project:change", "")

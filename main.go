@@ -13,10 +13,10 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
 
 	"github.com/csullivan/bish/internal/app"
-	"github.com/csullivan/bish/internal/project"
 	"github.com/csullivan/bish/internal/commands"
 	"github.com/csullivan/bish/internal/config"
 	"github.com/csullivan/bish/internal/process"
+	"github.com/csullivan/bish/internal/project"
 	bishpty "github.com/csullivan/bish/internal/pty"
 )
 
@@ -27,6 +27,7 @@ func main() {
 	var shellPath string
 	var projectPath string
 	var install bool
+	var noRestore bool
 
 	root := &cobra.Command{
 		Use:   "bish",
@@ -35,7 +36,7 @@ func main() {
 			if install {
 				return runInstall()
 			}
-			return run(themeName, shellPath, projectPath)
+			return run(themeName, shellPath, projectPath, noRestore)
 		},
 	}
 
@@ -43,6 +44,7 @@ func main() {
 	root.Flags().StringVar(&shellPath, "shell", "", "shell to use (default: $SHELL)")
 	root.Flags().StringVar(&projectPath, "project", "", "open project at path on startup")
 	root.Flags().BoolVar(&install, "install", false, "print shell setup to stdout")
+	root.Flags().BoolVar(&noRestore, "no-restore", false, "skip session restore on startup (used internally for New Window)")
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -117,7 +119,7 @@ func buildMenu(a *app.App) *menu.Menu {
 	return appMenu
 }
 
-func run(themeName, shellPath, projectPath string) error {
+func run(themeName, shellPath, projectPath string, noRestore bool) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("config: %w", err)
@@ -158,14 +160,16 @@ func run(themeName, shellPath, projectPath string) error {
 
 	a := app.New(cfg, mgr, store, shell, cwd, cwdFile, wFilePath, galleryFile)
 	a.StartupProject = projectPath
+	a.NoRestore = noRestore
 	globalApp = a
 	a.DockMenuUpdater = func() {
 		entries, _ := project.LoadRecent()
 		setBishDockMenuFromRecents(entries)
 	}
+	a.QuitInterceptInstaller = installQuitIntercept
 
 	return wails.Run(&options.App{
-		Menu: buildMenu(a),
+		Menu:   buildMenu(a),
 		Title:  "bish",
 		Width:  1400,
 		Height: 900,
