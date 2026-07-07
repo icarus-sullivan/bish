@@ -4,7 +4,7 @@ export { EventsOn as on, EventsOff as off } from '../../wailsjs/runtime/runtime'
 // Re-export all bound methods so components can import by name
 export {
   GetProcesses, KillProcess, RestartProcess, GetProcessLogs,
-  GetCommands, RunCommand, DeleteCommand, RenameCommand,
+  GetCommands, RunCommand, DeleteCommand, RenameCommand, AddCommand,
   GetTreeNodes, ToggleTreeNode, CdToPath,
   FSNewFile, FSNewFolder, FSRename, FSDelete, FSCopyPath, FSRevealInFinder,
   WritePTY, ResizePTY,
@@ -13,7 +13,7 @@ export {
   ReadFile, WriteFile,
   OpenProject, CloseProject, GetProjectRoot, GetAllFiles, GetCWD,
   NewWindow, SaveNewFile,
-  GetProjectCommands, GetRecentProjects, OpenRecentProject, DeleteProjectCommand, RunProjectCommand,
+  GetProjectCommands, GetRecentProjects, OpenRecentProject, DeleteProjectCommand, RunProjectCommand, AddProjectCommand,
   NewTerminal, CloseTerminal, WritePTYTab, ResizePTYTab,
   SearchInFiles, ReplaceInFiles,
   ReadFileBase64,

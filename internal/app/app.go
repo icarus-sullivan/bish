@@ -42,26 +42,28 @@ var skipDirs = map[string]bool{
 }
 
 type App struct {
-	mgr         *process.Manager
-	cmdStore    *commands.Store
-	cmdMu       sync.Mutex
-	shell       *bishpty.PTY
-	terminals   map[string]*bishpty.PTY
-	terminalsMu sync.Mutex
-	termCount   int
-	fileTree    *tree.Tree
-	treeMu      sync.Mutex
-	cwd         string
-	cwdFile     string
-	wFilePath   string
-	wFilePos    int64
-	galleryFile string
-	galleryCur  string
-	projectRoot string
-	projectCfg  *project.Config
-	projectMu   sync.Mutex
-	cfg         config.Config
-	ctx         context.Context
+	mgr              *process.Manager
+	cmdStore         *commands.Store
+	cmdMu            sync.Mutex
+	shell            *bishpty.PTY
+	terminals        map[string]*bishpty.PTY
+	terminalsMu      sync.Mutex
+	termCount        int
+	fileTree         *tree.Tree
+	treeMu           sync.Mutex
+	cwd              string
+	cwdFile          string
+	wFilePath        string
+	wFilePos         int64
+	galleryFile      string
+	galleryCur       string
+	projectRoot      string
+	projectCfg       *project.Config
+	projectMu        sync.Mutex
+	cfg              config.Config
+	ctx              context.Context
+	DockMenuUpdater  func()
+	StartupProject   string
 }
 
 func New(cfg config.Config, mgr *process.Manager, store *commands.Store,
@@ -87,6 +89,12 @@ func (a *App) Startup(ctx context.Context) {
 	go a.pollWLoop()
 	go a.pollGalleryLoop()
 	go a.refreshLoop()
+	if a.StartupProject != "" {
+		go a.openProjectDir(a.StartupProject) //nolint
+	}
+	if a.DockMenuUpdater != nil {
+		a.DockMenuUpdater()
+	}
 }
 
 func (a *App) Shutdown(ctx context.Context) {
@@ -350,7 +358,10 @@ func (a *App) GetProcesses() []*process.Process {
 }
 
 func (a *App) KillProcess(id string) error {
-	return a.mgr.Kill(id)
+	a.mgr.Remove(id)
+	runtime.EventsEmit(a.ctx, "processes:update", a.mgr.List())
+	a.mgr.SaveToDisk() //nolint
+	return nil
 }
 
 func (a *App) RestartProcess(id string) error {
@@ -388,9 +399,29 @@ func (a *App) RunCommand(id string) error {
 	if found == nil {
 		return fmt.Errorf("command %s not found", id)
 	}
-	line := fmt.Sprintf("cd %q && %s\n", found.CWD, found.Command)
-	_, err := a.shell.Write([]byte(line))
+	// Both one-off and long-running commands go through the w-file flow
+	// so they appear in the Processes panel.
+	f, err := os.OpenFile(a.wFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = fmt.Fprintf(f, "%s\t%s\n", found.CWD, found.Command)
 	return err
+}
+
+func (a *App) AddCommand(name, cwd, command string) error {
+	a.cmdMu.Lock()
+	a.cmdStore.Add(name, cwd, command)
+	err := a.cmdStore.Save()
+	cmds := make([]*commands.SavedCommand, len(a.cmdStore.Commands))
+	copy(cmds, a.cmdStore.Commands)
+	a.cmdMu.Unlock()
+	if err != nil {
+		return err
+	}
+	runtime.EventsEmit(a.ctx, "commands:update", cmds)
+	return nil
 }
 
 func (a *App) DeleteCommand(id string) error {
@@ -660,6 +691,14 @@ func (a *App) NewWindow() error {
 	return exec.Command(exe).Start()
 }
 
+func (a *App) OpenRecentInNewWindow(path string) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	return exec.Command(exe, "--project", path).Start()
+}
+
 func (a *App) GetCWD() string {
 	return a.cwd
 }
@@ -713,6 +752,9 @@ func (a *App) openProjectDir(dir string) error {
 	runtime.EventsEmit(a.ctx, "project:change", dir)
 	runtime.EventsEmit(a.ctx, "project:commands", cfg.Cmds)
 	project.AddRecent(dir) //nolint
+	if a.DockMenuUpdater != nil {
+		go a.DockMenuUpdater()
+	}
 	return nil
 }
 
@@ -788,6 +830,22 @@ func (a *App) DeleteProjectCommand(id string) error {
 		return nil
 	}
 	a.projectCfg.Delete(id)
+	cfg := a.projectCfg
+	a.projectMu.Unlock()
+	if err := project.Save(cfg); err != nil {
+		return err
+	}
+	runtime.EventsEmit(a.ctx, "project:commands", cfg.Cmds)
+	return nil
+}
+
+func (a *App) AddProjectCommand(command, cwd string) error {
+	a.projectMu.Lock()
+	if a.projectCfg == nil {
+		a.projectMu.Unlock()
+		return fmt.Errorf("no project open")
+	}
+	a.projectCfg.Add(command, cwd)
 	cfg := a.projectCfg
 	a.projectMu.Unlock()
 	if err := project.Save(cfg); err != nil {

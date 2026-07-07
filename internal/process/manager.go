@@ -164,6 +164,20 @@ func (m *Manager) Kill(id string) error {
 	return nil
 }
 
+func (m *Manager) Remove(id string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, p := range m.Processes {
+		if p.ID == id {
+			if p.cmd != nil && p.cmd.Process != nil {
+				p.cmd.Process.Kill() //nolint
+			}
+			m.Processes = append(m.Processes[:i], m.Processes[i+1:]...)
+			return
+		}
+	}
+}
+
 func (m *Manager) Restart(id string) error {
 	m.mu.Lock()
 	p := m.find(id)

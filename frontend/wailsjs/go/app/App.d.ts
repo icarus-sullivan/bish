@@ -6,6 +6,10 @@ import {process} from '../models';
 import {project} from '../models';
 import {app} from '../models';
 
+export function AddCommand(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function AddProjectCommand(arg1:string,arg2:string):Promise<void>;
+
 export function CdToPath(arg1:string):Promise<void>;
 
 export function CloseProject():Promise<void>;
@@ -65,6 +69,8 @@ export function NewTerminal():Promise<string>;
 export function NewWindow():Promise<void>;
 
 export function OpenProject():Promise<string>;
+
+export function OpenRecentInNewWindow(arg1:string):Promise<void>;
 
 export function OpenRecentProject(arg1:string):Promise<void>;
 

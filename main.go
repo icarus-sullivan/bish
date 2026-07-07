@@ -20,9 +20,12 @@ import (
 	bishpty "github.com/csullivan/bish/internal/pty"
 )
 
+var globalApp *app.App
+
 func main() {
 	var themeName string
 	var shellPath string
+	var projectPath string
 	var install bool
 
 	root := &cobra.Command{
@@ -32,12 +35,13 @@ func main() {
 			if install {
 				return runInstall()
 			}
-			return run(themeName, shellPath)
+			return run(themeName, shellPath, projectPath)
 		},
 	}
 
 	root.Flags().StringVar(&themeName, "theme", "", "theme (default, light, catppuccin, gruvbox, nord, tokyo-night)")
 	root.Flags().StringVar(&shellPath, "shell", "", "shell to use (default: $SHELL)")
+	root.Flags().StringVar(&projectPath, "project", "", "open project at path on startup")
 	root.Flags().BoolVar(&install, "install", false, "print shell setup to stdout")
 
 	if err := root.Execute(); err != nil {
@@ -113,7 +117,7 @@ func buildMenu(a *app.App) *menu.Menu {
 	return appMenu
 }
 
-func run(themeName, shellPath string) error {
+func run(themeName, shellPath, projectPath string) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("config: %w", err)
@@ -153,6 +157,12 @@ func run(themeName, shellPath string) error {
 	}
 
 	a := app.New(cfg, mgr, store, shell, cwd, cwdFile, wFilePath, galleryFile)
+	a.StartupProject = projectPath
+	globalApp = a
+	a.DockMenuUpdater = func() {
+		entries, _ := project.LoadRecent()
+		setBishDockMenuFromRecents(entries)
+	}
 
 	return wails.Run(&options.App{
 		Menu: buildMenu(a),

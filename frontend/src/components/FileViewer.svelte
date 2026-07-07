@@ -604,4 +604,20 @@
     height: 0 !important;
     pointer-events: none !important;
   }
+  /* close button — matches .close-btn in viewer bar */
+  :global(.cm-search button[name="close"]) {
+    border: none !important;
+    background: none !important;
+    color: var(--muted) !important;
+    font-size: 13px !important;
+    padding: 5px 8px !important;
+    line-height: 1 !important;
+    border-radius: 3px !important;
+    cursor: pointer !important;
+    transition: color 0.1s, background 0.1s !important;
+  }
+  :global(.cm-search button[name="close"]:hover) {
+    color: var(--foreground) !important;
+    background: var(--bg-hover) !important;
+  }
 </style>

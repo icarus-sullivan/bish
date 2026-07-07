@@ -23,7 +23,6 @@
   import GlobalSearch from './components/GlobalSearch.svelte'
   import ProcessLogs from './components/ProcessLogs.svelte'
   import { OpenProject } from './lib/wails'
-  import { WindowGetPosition, WindowSetPosition } from '../wailsjs/runtime/runtime'
   import { projectRoot } from './lib/stores'
 
   type Pane = 'processes' | 'commands' | 'terminal' | 'tree'
@@ -96,6 +95,9 @@
       focusedPane.set('terminal')
     }
     if (e.key === 'Escape') {
+      // If focus was inside a CM search panel, CM already handled it — don't also close the tab.
+      // e.target retains its ancestor chain even after CM removes the panel from the DOM.
+      if ((e.target as HTMLElement).closest?.('.cm-search')) return
       const active = get(activeTabId)
       const t = $tabs.find(tt => tt.id === active)
       if (t && t.type !== 'terminal') closeTab(active)
@@ -104,25 +106,6 @@
 
   async function openProject() {
     await OpenProject().catch(() => {})
-  }
-
-  async function startWindowDrag(e: MouseEvent) {
-    if ((e.target as HTMLElement).closest('button, select, input, a')) return
-    e.preventDefault()
-    const pos = await WindowGetPosition()
-    const startSX = e.screenX
-    const startSY = e.screenY
-    const initX = pos.x
-    const initY = pos.y
-    function onMove(mv: MouseEvent) {
-      WindowSetPosition(initX + mv.screenX - startSX, initY + mv.screenY - startSY)
-    }
-    function onUp() {
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-    }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
   }
 
   type ResizeTarget = 'left' | 'right' | 'vsplit'
@@ -154,8 +137,8 @@
 <div class="root">
 
   <!-- ─── titlebar ─── -->
-  <div class="titlebar" onmousedown={startWindowDrag}>
-    <div class="traffic-spacer"></div>
+  <div class="titlebar">
+    <div class="traffic-spacer" style="--wails-draggable:drag"></div>
     <div class="toolbar">
 
       <div class="theme-picker" title="Switch theme">
@@ -167,7 +150,7 @@
         </select>
       </div>
 
-      <div class="tb-fill"></div>
+      <div class="tb-fill" style="--wails-draggable:drag"></div>
 
       <div class="panel-toggles">
         <button class="tb-btn" onclick={() => showLeft.update(v => !v)} title="Toggle sidebar">
@@ -308,12 +291,11 @@
   /* ─── titlebar ─── */
   .titlebar {
     display: flex;
-    align-items: center;
+    align-items: stretch;
     height: 38px;
     flex-shrink: 0;
     background: var(--bg-raised);
     border-bottom: 1px solid var(--border);
-    cursor: default;
   }
   .traffic-spacer {
     width: 80px;
@@ -326,6 +308,7 @@
     flex: 1;
     padding-right: 10px;
   }
+  .tb-fill { flex: 1; align-self: stretch; cursor: default; }
   .ml-auto { margin-left: auto; }
 
   .tb-btn {
@@ -343,7 +326,6 @@
   .tb-btn:hover { color: var(--foreground); background: var(--bg-hover); }
   .tb-btn.active { color: var(--foreground); background: var(--bg-hover); }
 
-  .tb-fill { flex: 1; }
   .panel-toggles { display: flex; gap: 1px; }
 
 
