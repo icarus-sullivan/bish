@@ -180,6 +180,19 @@ export function closeAllTabs(): string[] {
   return bulkClose(get(tabs))
 }
 
+export function reorderTabs(fromId: string, beforeId: string | null) {
+  tabs.update(ts => {
+    const fromIdx = ts.findIndex(t => t.id === fromId)
+    if (fromIdx === -1) return ts
+    const tab = ts[fromIdx]
+    const rest = ts.filter(t => t.id !== fromId)
+    if (beforeId === null) return [...rest, tab]
+    const toIdx = rest.findIndex(t => t.id === beforeId)
+    if (toIdx === -1) return [...rest, tab]
+    return [...rest.slice(0, toIdx), tab, ...rest.slice(toIdx)]
+  })
+}
+
 export function updateTabPath(tabId: string, newPath: string) {
   const label = newPath.split('/').pop() || newPath
   tabs.update(ts => ts.map(t =>

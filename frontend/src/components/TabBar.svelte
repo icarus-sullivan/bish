@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tabs, activeTabId, closeTab, addTerminalTab,
            closeTabsToRight, closeTabsToLeft, closeOtherTabs, closeAllTabs,
-           type Tab } from '../lib/stores'
+           reorderTabs, type Tab } from '../lib/stores'
   import { NewTerminal, CloseTerminal } from '../lib/wails'
   import { IconTerminal2, IconFile, IconListDetails, IconPlus, IconX } from '@tabler/icons-svelte'
   import ContextMenu from './ContextMenu.svelte'
@@ -25,6 +25,48 @@
     if (tab.type === 'terminal') return IconTerminal2
     if (tab.type === 'logs') return IconListDetails
     return IconFile
+  }
+
+  // drag-to-reorder
+  let dragSrcId = $state<string | null>(null)
+  // tab id to insert before, or null = append at end
+  let dropBeforeId = $state<string | null | '__end__'>('__end__')
+
+  function onDragStart(e: DragEvent, tab: Tab) {
+    dragSrcId = tab.id
+    e.dataTransfer!.effectAllowed = 'move'
+  }
+
+  function onDragOver(e: DragEvent, tab: Tab) {
+    if (!dragSrcId) return
+    e.preventDefault()
+    e.dataTransfer!.dropEffect = 'move'
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    if (e.clientX < rect.left + rect.width / 2) {
+      dropBeforeId = tab.id
+    } else {
+      const idx = $tabs.findIndex(t => t.id === tab.id)
+      dropBeforeId = idx < $tabs.length - 1 ? $tabs[idx + 1].id : '__end__'
+    }
+  }
+
+  function onDragOverEnd(e: DragEvent) {
+    if (!dragSrcId) return
+    e.preventDefault()
+    e.dataTransfer!.dropEffect = 'move'
+    dropBeforeId = '__end__'
+  }
+
+  function onDrop(e: DragEvent) {
+    e.preventDefault()
+    if (dragSrcId) reorderTabs(dragSrcId, dropBeforeId === '__end__' ? null : dropBeforeId)
+    dragSrcId = null
+    dropBeforeId = '__end__'
+  }
+
+  function onDragEnd() {
+    dragSrcId = null
+    dropBeforeId = '__end__'
   }
 
   // right-click context menu
@@ -79,6 +121,13 @@
     <button
       class="tab"
       class:active={$activeTabId === tab.id}
+      class:dragging={dragSrcId === tab.id}
+      class:drop-before={dragSrcId !== null && dragSrcId !== tab.id && dropBeforeId === tab.id}
+      draggable="true"
+      ondragstart={(e) => onDragStart(e, tab)}
+      ondragover={(e) => onDragOver(e, tab)}
+      ondrop={onDrop}
+      ondragend={onDragEnd}
       onclick={() => activeTabId.set(tab.id)}
       oncontextmenu={(e) => showTabMenu(e, tab)}
     >
@@ -91,7 +140,14 @@
       {/if}
     </button>
   {/each}
-  <button class="new-terminal" onclick={newTerminal} title="New Terminal">
+  <button
+    class="new-terminal"
+    class:drop-end={dragSrcId !== null && dropBeforeId === '__end__'}
+    ondragover={onDragOverEnd}
+    ondrop={onDrop}
+    onclick={newTerminal}
+    title="New Terminal"
+  >
     <IconPlus size={12} />
   </button>
 </div>
@@ -176,4 +232,23 @@
     transition: color 0.1s;
   }
   .new-terminal:hover { color: var(--foreground); }
+
+  .tab.dragging { opacity: 0.35; }
+
+  .tab.drop-before,
+  .new-terminal.drop-end {
+    position: relative;
+  }
+  .tab.drop-before::before,
+  .new-terminal.drop-end::before {
+    content: '';
+    position: absolute;
+    left: -1px;
+    top: 5px;
+    bottom: 5px;
+    width: 2px;
+    background: var(--accent);
+    border-radius: 1px;
+    pointer-events: none;
+  }
 </style>
