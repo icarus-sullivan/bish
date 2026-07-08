@@ -321,7 +321,9 @@ func (a *App) pollWLoop() {
 				cwd, cmdStr := parts[0], parts[1]
 				a.mgr.Add(cmdStr, cwd, "") //nolint
 				a.projectMu.Lock()
-				if a.projectCfg != nil {
+				// only save into the project if the command ran inside it —
+				// otherwise commands leak into whatever project happens to be open
+				if a.projectCfg != nil && strings.HasPrefix(cwd+"/", a.projectRoot+"/") {
 					a.projectCfg.Add(cmdStr, cwd)
 					project.Save(a.projectCfg) //nolint
 				}
@@ -961,6 +963,27 @@ func (a *App) AddProjectCommand(command, cwd, name string) error {
 	}
 	runtime.EventsEmit(a.ctx, "project:commands", cfg.Cmds)
 	return nil
+}
+
+func (a *App) GetProjectUI() *project.UIState {
+	a.projectMu.Lock()
+	defer a.projectMu.Unlock()
+	if a.projectCfg == nil {
+		return nil
+	}
+	return a.projectCfg.UI
+}
+
+func (a *App) SaveProjectUI(ui project.UIState) error {
+	a.projectMu.Lock()
+	if a.projectCfg == nil {
+		a.projectMu.Unlock()
+		return nil
+	}
+	a.projectCfg.UI = &ui
+	cfg := a.projectCfg
+	a.projectMu.Unlock()
+	return project.Save(cfg)
 }
 
 func (a *App) GetRecentProjects() []*project.RecentEntry {

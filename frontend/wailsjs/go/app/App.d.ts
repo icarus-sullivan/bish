@@ -58,6 +58,8 @@ export function GetProjectRoot():Promise<string>;
 
 export function GetProjectSymbols(arg1:string):Promise<Array<app.Symbol>>;
 
+export function GetProjectUI():Promise<project.UIState>;
+
 export function GetRecentProjects():Promise<Array<project.RecentEntry>>;
 
 export function GetTheme():Promise<app.ThemeDTO>;
@@ -103,6 +105,8 @@ export function RunProjectCommand(arg1:string):Promise<void>;
 export function SaveConfig(arg1:config.Config):Promise<void>;
 
 export function SaveNewFile(arg1:string,arg2:string):Promise<string>;
+
+export function SaveProjectUI(arg1:project.UIState):Promise<void>;
 
 export function SearchInFiles(arg1:string,arg2:string,arg3:boolean,arg4:boolean,arg5:boolean):Promise<Array<app.SearchResultDTO>>;
 

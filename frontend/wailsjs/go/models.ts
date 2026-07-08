@@ -227,6 +227,62 @@ export namespace project {
 	        this.name = source["name"];
 	    }
 	}
+	export class SavedTab {
+	    type: string;
+	    path: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SavedTab(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.type = source["type"];
+	        this.path = source["path"];
+	    }
+	}
+	export class UIState {
+	    left_width?: number;
+	    right_width?: number;
+	    process_height?: number;
+	    show_left?: boolean;
+	    show_right?: boolean;
+	    tabs?: SavedTab[];
+	    active_tab?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new UIState(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.left_width = source["left_width"];
+	        this.right_width = source["right_width"];
+	        this.process_height = source["process_height"];
+	        this.show_left = source["show_left"];
+	        this.show_right = source["show_right"];
+	        this.tabs = this.convertValues(source["tabs"], SavedTab);
+	        this.active_tab = source["active_tab"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 
 }
 

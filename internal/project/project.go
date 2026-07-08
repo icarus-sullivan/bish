@@ -16,10 +16,27 @@ type Cmd struct {
 	Directory string `json:"directory"`
 }
 
+type SavedTab struct {
+	Type string `json:"type"` // file | media
+	Path string `json:"path"`
+}
+
+// UIState is per-project frontend layout, saved so reopening is painless.
+type UIState struct {
+	LeftWidth     int        `json:"left_width,omitempty"`
+	RightWidth    int        `json:"right_width,omitempty"`
+	ProcessHeight int        `json:"process_height,omitempty"`
+	ShowLeft      *bool      `json:"show_left,omitempty"`
+	ShowRight     *bool      `json:"show_right,omitempty"`
+	Tabs          []SavedTab `json:"tabs,omitempty"`
+	ActiveTab     string     `json:"active_tab,omitempty"`
+}
+
 type Config struct {
 	CWD           string   `json:"cwd"`
 	Cmds          []*Cmd   `json:"cmds"`
 	ExpandedPaths []string `json:"expanded_paths,omitempty"`
+	UI            *UIState `json:"ui,omitempty"`
 }
 
 func configDir() string {

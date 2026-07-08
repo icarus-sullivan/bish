@@ -106,6 +106,10 @@ export function GetProjectSymbols(arg1) {
   return window['go']['app']['App']['GetProjectSymbols'](arg1);
 }
 
+export function GetProjectUI() {
+  return window['go']['app']['App']['GetProjectUI']();
+}
+
 export function GetRecentProjects() {
   return window['go']['app']['App']['GetRecentProjects']();
 }
@@ -196,6 +200,10 @@ export function SaveConfig(arg1) {
 
 export function SaveNewFile(arg1, arg2) {
   return window['go']['app']['App']['SaveNewFile'](arg1, arg2);
+}
+
+export function SaveProjectUI(arg1) {
+  return window['go']['app']['App']['SaveProjectUI'](arg1);
 }
 
 export function SearchInFiles(arg1, arg2, arg3, arg4, arg5) {

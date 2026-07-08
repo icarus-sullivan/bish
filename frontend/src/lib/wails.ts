@@ -14,6 +14,7 @@ export {
   OpenProject, CloseProject, GetProjectRoot, GetAllFiles, GetCWD,
   NewWindow, SaveNewFile,
   GetProjectCommands, GetRecentProjects, OpenRecentProject, DeleteProjectCommand, RunProjectCommand, AddProjectCommand, RenameProjectCommand,
+  GetProjectUI, SaveProjectUI,
   NewTerminal, CloseTerminal, WritePTYTab, ResizePTYTab,
   SearchInFiles, ReplaceInFiles,
   GetProjectSymbols,
