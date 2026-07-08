@@ -86,6 +86,10 @@ export function GetGalleryImages(arg1) {
   return window['go']['app']['App']['GetGalleryImages'](arg1);
 }
 
+export function GetMediaBase() {
+  return window['go']['app']['App']['GetMediaBase']();
+}
+
 export function GetProcessLogs(arg1) {
   return window['go']['app']['App']['GetProcessLogs'](arg1);
 }
@@ -128,6 +132,18 @@ export function IsVideo(arg1) {
 
 export function KillProcess(arg1) {
   return window['go']['app']['App']['KillProcess'](arg1);
+}
+
+export function LSPSend(arg1, arg2) {
+  return window['go']['app']['App']['LSPSend'](arg1, arg2);
+}
+
+export function LSPStart(arg1, arg2) {
+  return window['go']['app']['App']['LSPStart'](arg1, arg2);
+}
+
+export function LSPStop(arg1) {
+  return window['go']['app']['App']['LSPStop'](arg1);
 }
 
 export function NewTerminal() {

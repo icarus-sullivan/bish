@@ -2,7 +2,7 @@
   import { onMount } from 'svelte'
   import { focusedPane, galleryMode, cwd, showLeft, showRight,
            leftWidth, rightWidth, processHeight, currentThemeName,
-           showPalette, showGlobalSearch, tabs, activeTabId, openFileTab, closeTab } from './lib/stores'
+           showPalette, showGlobalSearch, tabs, activeTabId, openFileTab, closeTab, reopenMainTab } from './lib/stores'
   import { get } from 'svelte/store'
   import { initEvents } from './lib/events'
   import ProcessList from './components/ProcessList.svelte'
@@ -24,6 +24,8 @@
   import ProcessLogs from './components/ProcessLogs.svelte'
   import { OpenProject } from './lib/wails'
   import { projectRoot } from './lib/stores'
+  import lightModeIcon from './assets/light_mode.svg'
+  import darkModeIcon from './assets/dark_mode.svg'
 
   type Pane = 'processes' | 'commands' | 'terminal' | 'tree'
   const paneOrder: Pane[] = ['processes', 'commands', 'terminal', 'tree']
@@ -92,6 +94,7 @@
       e.preventDefault()
       const termTab = $tabs.find(t => t.type === 'terminal')
       if (termTab) activeTabId.set(termTab.id)
+      else reopenMainTab()
       focusedPane.set('terminal')
     }
     if (e.key === 'Escape') {
@@ -198,6 +201,31 @@
       {:else}
         <TabBar />
         <div class="tab-content">
+          {#if $tabs.length === 0}
+            <div class="welcome">
+              <img class="welcome-mark"
+                   src={currentTheme === 'light' ? lightModeIcon : darkModeIcon}
+                   alt="bish" draggable="false" />
+              <div class="welcome-rows">
+                <button class="welcome-row" onclick={openProject}>
+                  <span>Open Project</span>
+                  <span class="keys"><kbd>⌘</kbd><kbd>O</kbd></span>
+                </button>
+                <button class="welcome-row" onclick={() => showPalette.set(true)}>
+                  <span>Go to File</span>
+                  <span class="keys"><kbd>⌘</kbd><kbd>P</kbd></span>
+                </button>
+                <button class="welcome-row" onclick={() => showGlobalSearch.set(true)}>
+                  <span>Search in Files</span>
+                  <span class="keys"><kbd>⇧</kbd><kbd>⌘</kbd><kbd>F</kbd></span>
+                </button>
+                <button class="welcome-row" onclick={reopenMainTab}>
+                  <span>Open Terminal</span>
+                  <span class="keys"><kbd>⏎</kbd></span>
+                </button>
+              </div>
+            </div>
+          {/if}
           {#each $tabs as tab (tab.id)}
             {#if tab.type === 'terminal'}
               <div class="tab-pane" style="display:{$activeTabId === tab.id ? 'flex' : 'none'}">
@@ -373,11 +401,18 @@
   .pane-flex { flex: 1; min-height: 80px; flex-shrink: 1; overflow: hidden; }
 
   .vsplit-handle {
-    height: 4px;
+    height: 1px;
     cursor: ns-resize;
     flex-shrink: 0;
     background: var(--border);
     transition: background 0.1s;
+    position: relative;
+  }
+  /* wider hit-target without affecting visual */
+  .vsplit-handle::before {
+    content: '';
+    position: absolute;
+    inset: -3px 0;
   }
   .vsplit-handle:hover, .vsplit-handle:active { background: var(--border-focused); }
 
@@ -415,6 +450,53 @@
     height: 100%;
     flex-direction: column;
     overflow: hidden;
+  }
+  .welcome {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 28px;
+    user-select: none;
+  }
+  .welcome-mark {
+    width: 160px;
+    height: 160px;
+    opacity: 0.9;
+  }
+  .welcome-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 260px;
+  }
+  .welcome-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 32px;
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 13px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: color 0.1s, background 0.1s;
+  }
+  .welcome-row:hover { color: var(--foreground); background: var(--bg-hover); }
+  .welcome-row .keys { display: flex; gap: 4px; }
+  .welcome-row kbd {
+    font-family: inherit;
+    font-size: 11px;
+    line-height: 1;
+    padding: 4px 6px;
+    border-radius: 4px;
+    background: var(--bg-hover);
+    border: 1px solid var(--border);
+    color: var(--muted);
   }
   .right-col {
     display: flex;

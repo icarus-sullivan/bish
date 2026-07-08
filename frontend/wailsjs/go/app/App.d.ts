@@ -48,6 +48,8 @@ export function GetCurrentGalleryPath():Promise<string>;
 
 export function GetGalleryImages(arg1:string):Promise<Array<string>>;
 
+export function GetMediaBase():Promise<string>;
+
 export function GetProcessLogs(arg1:string):Promise<Array<string>>;
 
 export function GetProcesses():Promise<Array<process.Process>>;
@@ -69,6 +71,12 @@ export function GetTreeNodes():Promise<Array<app.TreeNodeDTO>>;
 export function IsVideo(arg1:string):Promise<boolean>;
 
 export function KillProcess(arg1:string):Promise<void>;
+
+export function LSPSend(arg1:string,arg2:string):Promise<void>;
+
+export function LSPStart(arg1:string,arg2:string):Promise<boolean>;
+
+export function LSPStop(arg1:string):Promise<void>;
 
 export function NewTerminal():Promise<string>;
 

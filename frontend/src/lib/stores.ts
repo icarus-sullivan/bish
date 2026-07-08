@@ -37,6 +37,10 @@ export const showGlobalSearch = writable<boolean>(false)
 // jump target consumed by FileViewer after opening a file (line 1-based, col 0-based)
 export const pendingGoto = writable<{ path: string; line: number; col: number } | null>(null)
 
+// focus request consumed by FileViewer — set on every openFileTab so the
+// editor grabs focus even when its tab was already active (no remount)
+export const pendingFocus = writable<string | null>(null)
+
 // panel visibility
 export const showLeft = writable<boolean>(true)
 export const showRight = writable<boolean>(true)
@@ -68,6 +72,7 @@ export const tabs = writable<Tab[]>([{ id: 'main', type: 'terminal', label: 'Ter
 export const activeTabId = writable<string>('main')
 
 export function openFileTab(path: string, forceText = false) {
+  pendingFocus.set(path)
   if (path === '__new__') {
     const id = 'file:__new__:' + Date.now()
     tabs.update(ts => [...ts, { id, type: 'file', label: 'Untitled', path: '__new__' }])
@@ -105,6 +110,15 @@ export function openLogsTab(processId: string, label: string) {
   activeTabId.set(id)
 }
 
+// Reopen the main terminal tab. Its PTY stays alive in Go while the tab is
+// closed, so this reattaches; only new output appears (like an app restart).
+export function reopenMainTab() {
+  if (!get(tabs).some(t => t.id === 'main')) {
+    tabs.update(ts => [{ id: 'main', type: 'terminal', label: 'Terminal' } as Tab, ...ts])
+  }
+  activeTabId.set('main')
+}
+
 export function addTerminalTab(id: string) {
   const count = get(tabs).filter(t => t.type === 'terminal').length + 1
   const label = count === 1 ? 'Terminal' : `Terminal ${count}`
@@ -114,15 +128,13 @@ export function addTerminalTab(id: string) {
 
 export function closeTab(id: string) {
   const current = get(tabs)
-  if (id === 'main' && current.filter(t => t.type === 'terminal').length <= 1) return
   const idx = current.findIndex(t => t.id === id)
   if (idx === -1) return
   const newTabs = current.filter(t => t.id !== id)
-  if (newTabs.length === 0) newTabs.push({ id: 'main', type: 'terminal', label: 'Terminal' })
   tabs.set(newTabs)
   if (get(activeTabId) === id) {
     const newIdx = Math.min(idx, newTabs.length - 1)
-    activeTabId.set(newTabs[newIdx].id)
+    activeTabId.set(newIdx >= 0 ? newTabs[newIdx].id : '')
   }
 }
 
@@ -131,24 +143,16 @@ function bulkClose(toRemove: Tab[]): string[] {
   const current = get(tabs)
   const removeIds = new Set(toRemove.map(t => t.id))
 
-  // Never remove the main terminal if it would leave no terminals
-  const remainingTerminals = current.filter(t => t.type === 'terminal' && !removeIds.has(t.id))
-  if (remainingTerminals.length === 0) {
-    // keep main terminal
-    removeIds.delete('main')
-  }
-
   const ptyClosed = toRemove
     .filter(t => t.type === 'terminal' && t.id !== 'main' && removeIds.has(t.id))
     .map(t => t.id)
 
-  let newTabs = current.filter(t => !removeIds.has(t.id))
-  if (newTabs.length === 0) newTabs = [{ id: 'main', type: 'terminal', label: 'Terminal' }]
+  const newTabs = current.filter(t => !removeIds.has(t.id))
   tabs.set(newTabs)
 
   const active = get(activeTabId)
   if (removeIds.has(active)) {
-    activeTabId.set(newTabs[Math.min(0, newTabs.length - 1)].id)
+    activeTabId.set(newTabs.length > 0 ? newTabs[0].id : '')
   }
 
   return ptyClosed

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { galleryImages, galleryIndex, galleryMode } from '../lib/stores'
-  import { ReadFileBase64 } from '../lib/wails'
+  import { ReadFileBase64, mediaUrl } from '../lib/wails'
 
   let slideshow: ReturnType<typeof setInterval> | null = null
   let slideshowActive = $state(false)
@@ -32,11 +32,8 @@
     return /\.(mp4|mov|webm|mkv|avi)$/i.test(path)
   }
 
-  // Videos still need HTTP range-request streaming; images use IPC to avoid
-  // dev-mode routing issues (Vite dev server doesn't proxy /localfile).
-  function videoUrl(path: string) {
-    return `/localfile?path=${encodeURIComponent(path)}`
-  }
+  // Videos stream over the localhost media server (mediaUrl); images use IPC
+  // to avoid dev-mode routing issues (Vite dev server doesn't proxy /localfile).
 
   const mimeForPath = (path: string) => {
     const ext = path.split('.').pop()?.toLowerCase() ?? ''
@@ -73,7 +70,7 @@
 
     <div class="viewer">
       {#if isVideo(current)}
-        <video src={videoUrl(current)} autoplay controls class="media"></video>
+        <video src={mediaUrl(current)} autoplay controls class="media"></video>
       {:else if imageSrc}
         <img src={imageSrc} alt={filename} class="media" />
       {:else}

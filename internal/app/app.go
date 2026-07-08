@@ -17,6 +17,7 @@ import (
 
 	"github.com/csullivan/bish/internal/commands"
 	"github.com/csullivan/bish/internal/config"
+	"github.com/csullivan/bish/internal/lsp"
 	"github.com/csullivan/bish/internal/process"
 	"github.com/csullivan/bish/internal/project"
 	bishpty "github.com/csullivan/bish/internal/pty"
@@ -61,11 +62,13 @@ type App struct {
 	projectRoot            string
 	projectCfg             *project.Config
 	projectMu              sync.Mutex
+	lsp                    *lsp.Manager
 	cfg                    config.Config
 	ctx                    context.Context
 	DockMenuUpdater        func()
 	QuitInterceptInstaller func()
 	StartupProject         string
+	MediaBase              string
 	NoRestore              bool
 	quitRequested          atomic.Bool
 }
@@ -94,6 +97,9 @@ func New(cfg config.Config, mgr *process.Manager, store *commands.Store,
 
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
+	a.lsp = lsp.NewManager(func(event string, data ...interface{}) {
+		runtime.EventsEmit(a.ctx, event, data...)
+	})
 	go a.readPTYLoopFor("main", a.shell)
 	go a.pollCWDLoop()
 	go a.pollWLoop()
@@ -134,6 +140,7 @@ func (a *App) Shutdown(ctx context.Context) {
 			project.RemoveFromSession(root) //nolint
 		}
 	}
+	a.lsp.StopAll()
 	a.mgr.KillAll()
 	a.shell.Close()
 	a.terminalsMu.Lock()
@@ -640,6 +647,22 @@ func (a *App) WriteFile(path, content string) error {
 
 // -- PTY methods --
 
+// LSPStart lazily spawns the language server for lang rooted at root.
+// Returns false when no server is installed (frontend falls back to the
+// heuristic autoimport) or the lang is in crash backoff.
+func (a *App) LSPStart(lang, root string) bool {
+	return a.lsp.Start(lang, root)
+}
+
+// LSPSend forwards one JSON-RPC message (headerless) to the lang's server.
+func (a *App) LSPSend(lang, msg string) error {
+	return a.lsp.Send(lang, msg)
+}
+
+func (a *App) LSPStop(lang string) {
+	a.lsp.Stop(lang)
+}
+
 func (a *App) WritePTY(data string) error {
 	_, err := a.shell.Write([]byte(data))
 	return err
@@ -756,14 +779,15 @@ func (a *App) OpenRecentInNewWindow(path string) error {
 	return launchNewInstance("--project", path)
 }
 
-// launchNewInstance starts another bish window. If running from a macOS .app
-// bundle, it relaunches via `open -n` so the new process shares the bundle's
-// Dock icon instead of appearing as its own generic Dock entry.
+// launchNewInstance starts another bish window as a separate process.
+// --child-window makes the new instance run with the accessory activation
+// policy (no own Dock icon), so all windows collapse under the primary's icon.
 func launchNewInstance(args ...string) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err
 	}
+	args = append(args, "--child-window")
 	if bundle, ok := appBundlePath(exe); ok {
 		openArgs := append([]string{"-n", bundle}, "--args")
 		openArgs = append(openArgs, args...)
@@ -814,6 +838,7 @@ func (a *App) SaveNewFile(content, defaultDir string) (string, error) {
 // -- Project methods --
 
 func (a *App) openProjectDir(dir string) error {
+	a.lsp.StopAll() // stale servers point at the old root
 	cfg, err := project.Load(dir)
 	if err != nil {
 		cfg = &project.Config{CWD: dir}
@@ -863,6 +888,7 @@ func (a *App) OpenRecentProject(path string) error {
 }
 
 func (a *App) CloseProject() {
+	a.lsp.StopAll()
 	a.projectMu.Lock()
 	root := a.projectRoot
 	a.projectRoot = ""
@@ -963,6 +989,12 @@ func (a *App) AddProjectCommand(command, cwd, name string) error {
 	}
 	runtime.EventsEmit(a.ctx, "project:commands", cfg.Cmds)
 	return nil
+}
+
+// GetMediaBase returns the localhost media-server URL prefix; append an
+// URL-encoded absolute path. Empty when the server failed to start.
+func (a *App) GetMediaBase() string {
+	return a.MediaBase
 }
 
 func (a *App) GetProjectUI() *project.UIState {

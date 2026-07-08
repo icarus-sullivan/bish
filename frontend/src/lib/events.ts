@@ -1,5 +1,5 @@
 import { waitForWails, on, GetProcesses, GetCommands, GetTreeNodes, GetTheme, GetGalleryImages, GetCWD,
-         GetProjectRoot, GetProjectCommands, GetProjectUI, SaveProjectUI } from './wails'
+         GetProjectRoot, GetProjectCommands, GetProjectUI, SaveProjectUI, initMediaBase } from './wails'
 import {
   processes, commands, treeNodes, cwd,
   galleryMode, galleryImages, theme, projectRoot,
@@ -11,6 +11,7 @@ import { get } from 'svelte/store'
 
 export async function initEvents() {
   await waitForWails()
+  await initMediaBase()
 
   // Load initial data
   const [procs, cmds, nodes, t, initialCwd, root, pcmds] = await Promise.all([
@@ -74,7 +75,7 @@ async function loadProjectUI() {
     const ui: any = await GetProjectUI().catch(() => null)
     // swap out the previous project's file/media tabs
     tabs.update(ts => ts.filter(t => t.type === 'terminal' || t.type === 'logs'))
-    activeTabId.set('main')
+    activeTabId.set(get(tabs)[0]?.id ?? '')
     if (!ui) return
     if (ui.left_width) leftWidth.set(ui.left_width)
     if (ui.right_width) rightWidth.set(ui.right_width)

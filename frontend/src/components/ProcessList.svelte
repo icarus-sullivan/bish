@@ -88,8 +88,7 @@
     height: 100%;
     overflow: hidden;
     position: relative;
-    border-right: 1px solid var(--border);
-    border-bottom: 1px solid var(--border);
+    /* right + bottom edges drawn by the split handles beside this pane */
   }
 
   .header {
@@ -97,7 +96,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 0 12px;
-    height: 30px;
+    height: 32px;
     flex-shrink: 0;
     background: var(--bg-raised);
     border-bottom: 1px solid var(--border);

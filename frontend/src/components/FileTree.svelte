@@ -283,7 +283,7 @@
     display: flex;
     align-items: center;
     padding: 0 12px;
-    height: 30px;
+    height: 32px;
     flex-shrink: 0;
     background: var(--bg-raised);
     border-bottom: 1px solid var(--border);

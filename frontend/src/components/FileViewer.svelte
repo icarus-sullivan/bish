@@ -19,7 +19,7 @@
   import { go } from '@codemirror/lang-go'
   import { shell } from '@codemirror/legacy-modes/mode/shell'
   import { ReadFile, WriteFile, SaveNewFile } from '../lib/wails'
-  import { currentThemeName, cwd, projectRoot, updateTabPath, closeTab, pendingGoto } from '../lib/stores'
+  import { currentThemeName, cwd, projectRoot, updateTabPath, closeTab, pendingGoto, pendingFocus } from '../lib/stores'
   import { codeIntel, intelKindFor } from '../lib/codeintel'
   import { invalidateSymbols } from '../lib/autoimport'
   import { get } from 'svelte/store'
@@ -420,6 +420,12 @@
     panelObserver.observe(container, { childList: true, subtree: true })
 
     applyGoto()
+    // Steal focus from the (hidden) terminal — its xterm textarea keeps DOM
+    // focus otherwise, so typing would still go to the shell.
+    view.focus()
+    // consume any pending focus request; leaving it set would suppress the
+    // store notification the next time this same path is picked
+    if (get(pendingFocus) === p) pendingFocus.set(null)
   }
 
   // jump to a pending line/col target (set by global search) once we're the
@@ -439,6 +445,15 @@
   }
 
   $effect(() => { $pendingGoto; applyGoto() })
+
+  // re-focus when this file is re-picked (palette/tree) while already the
+  // active tab — no remount happens, so load()'s focus never runs
+  $effect(() => {
+    if ($pendingFocus === path && view) {
+      view.focus()
+      pendingFocus.set(null)
+    }
+  })
 
   // Reload when path or theme changes
   $effect(() => { load(path, $currentThemeName) })

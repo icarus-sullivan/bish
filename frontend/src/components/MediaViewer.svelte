@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ReadFileBase64 } from '../lib/wails'
+  import { ReadFileBase64, mediaUrl } from '../lib/wails'
 
   let { path }: { path: string } = $props()
 
@@ -25,7 +25,7 @@
     }).catch(() => { src = '' })
   })
 
-  const videoUrl = $derived(`/localfile?path=${encodeURIComponent(path)}`)
+  const videoUrl = $derived(mediaUrl(path))
   const filename = $derived(path.split('/').pop() ?? '')
 </script>
 

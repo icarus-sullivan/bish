@@ -29,6 +29,7 @@ func main() {
 	var projectPath string
 	var install bool
 	var noRestore bool
+	var childWindow bool
 
 	root := &cobra.Command{
 		Use:   "bish",
@@ -37,7 +38,7 @@ func main() {
 			if install {
 				return runInstall()
 			}
-			return run(themeName, shellPath, projectPath, noRestore)
+			return run(themeName, shellPath, projectPath, noRestore, childWindow)
 		},
 	}
 
@@ -46,6 +47,8 @@ func main() {
 	root.Flags().StringVar(&projectPath, "project", "", "open project at path on startup")
 	root.Flags().BoolVar(&install, "install", false, "print shell setup to stdout")
 	root.Flags().BoolVar(&noRestore, "no-restore", false, "skip session restore on startup (used internally for New Window)")
+	root.Flags().BoolVar(&childWindow, "child-window", false, "run without own Dock icon (used internally for extra windows)")
+	root.Flags().MarkHidden("child-window") //nolint
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -53,7 +56,8 @@ func main() {
 }
 
 func runInstall() error {
-	fmt.Print(`# bish shell integration — add to ~/.zshrc or ~/.bashrc:
+	// os.Stdout.WriteString: the script's printf '%s' trips go vet's fmt check
+	os.Stdout.WriteString(`# bish shell integration — add to ~/.zshrc or ~/.bashrc:
 #   eval "$(bish --install)"
 
 # Sync CWD with bish (BISH_CWD_FILE is set by bish at launch).
@@ -120,9 +124,13 @@ func buildMenu(a *app.App) *menu.Menu {
 	return appMenu
 }
 
-func run(themeName, shellPath, projectPath string, noRestore bool) error {
+func run(themeName, shellPath, projectPath string, noRestore, childWindow bool) error {
 	// GUI launches get launchd's minimal env; recover PATH etc. from a login shell.
 	shellenv.LoadLoginEnv(shellenv.DefaultShell())
+
+	if childWindow {
+		hideDockIcon()
+	}
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -164,6 +172,7 @@ func run(themeName, shellPath, projectPath string, noRestore bool) error {
 
 	a := app.New(cfg, mgr, store, shell, cwd, cwdFile, wFilePath, galleryFile)
 	a.StartupProject = projectPath
+	a.MediaBase = startMediaServer()
 	a.NoRestore = noRestore
 	globalApp = a
 	a.DockMenuUpdater = func() {

@@ -201,7 +201,7 @@
     flex-direction: column;
     height: 100%;
     overflow: hidden;
-    border-right: 1px solid var(--border);
+    /* right edge drawn by the hsplit handle beside this pane */
   }
 
   .header {
@@ -209,7 +209,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 0 12px;
-    height: 30px;
+    height: 32px;
     flex-shrink: 0;
     background: var(--bg-raised);
     border-bottom: 1px solid var(--border);

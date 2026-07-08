@@ -18,9 +18,24 @@ export {
   NewTerminal, CloseTerminal, WritePTYTab, ResizePTYTab,
   SearchInFiles, ReplaceInFiles,
   GetProjectSymbols,
+  LSPStart, LSPSend, LSPStop,
   ReadFileBase64,
   RefreshTree, CollapseAllTree,
 } from '../../wailsjs/go/app/App'
+
+import { GetMediaBase } from '../../wailsjs/go/app/App'
+
+// Videos must stream over real HTTP (WKWebView can't play media through the
+// wails:// scheme). Base is fetched once at startup; '' falls back to the
+// in-webview route.
+let mediaBase = ''
+export async function initMediaBase() {
+  mediaBase = await GetMediaBase().catch(() => '')
+}
+export function mediaUrl(path: string): string {
+  const enc = encodeURIComponent(path)
+  return mediaBase ? mediaBase + enc : `/localfile?path=${enc}`
+}
 
 // Types
 export interface Process {
