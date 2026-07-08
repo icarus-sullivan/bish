@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/csullivan/bish/internal/logs"
+	"github.com/csullivan/bish/internal/shellenv"
 )
 
 type Status string
@@ -78,11 +79,8 @@ func (m *Manager) Add(cmdStr, cwd, name string) (*Process, error) {
 		}
 	}
 
-	shell := os.Getenv("SHELL")
-	if shell == "" {
-		shell = "/bin/zsh"
-	}
-	cmd := exec.Command(shell, "-c", cmdStr)
+	// -l so .zprofile (brew shellenv etc.) applies to background commands.
+	cmd := exec.Command(shellenv.DefaultShell(), "-l", "-c", cmdStr)
 	cmd.Dir = cwd
 
 	lb := logs.NewBuffer()

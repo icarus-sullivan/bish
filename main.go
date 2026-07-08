@@ -18,6 +18,7 @@ import (
 	"github.com/csullivan/bish/internal/process"
 	"github.com/csullivan/bish/internal/project"
 	bishpty "github.com/csullivan/bish/internal/pty"
+	"github.com/csullivan/bish/internal/shellenv"
 )
 
 var globalApp *app.App
@@ -120,6 +121,9 @@ func buildMenu(a *app.App) *menu.Menu {
 }
 
 func run(themeName, shellPath, projectPath string, noRestore bool) error {
+	// GUI launches get launchd's minimal env; recover PATH etc. from a login shell.
+	shellenv.LoadLoginEnv(shellenv.DefaultShell())
+
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("config: %w", err)

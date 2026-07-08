@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { treeNodes, focusedPane, openFileTab, projectRoot, isMediaPath } from '../lib/stores'
+  import { treeNodes, focusedPane, openFileTab, projectRoot, isMediaPath, pendingGoto } from '../lib/stores'
   import ContextMenu from './ContextMenu.svelte'
   import { ToggleTreeNode, CdToPath, FSNewFile, FSNewFolder, FSRename, FSDelete, FSDeletePaths, FSCopyPath, FSRevealInFinder, CloseProject, RefreshTree, CollapseAllTree } from '../lib/wails'
   import type { TreeNode } from '../lib/wails'
@@ -149,7 +149,12 @@
     creating = null
     if (!value.trim()) return
     if (isFolder) await FSNewFolder(dirPath, value.trim())
-    else await FSNewFile(dirPath, value.trim())
+    else {
+      const path = dirPath + '/' + value.trim()
+      await FSNewFile(dirPath, value.trim())
+      pendingGoto.set({ path, line: 1, col: 0 })
+      openFileTab(path)
+    }
   }
 
   function autoFocus(el: HTMLInputElement) { el.focus() }

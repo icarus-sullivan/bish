@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/creack/pty"
+
+	"github.com/csullivan/bish/internal/shellenv"
 )
 
 type PTY struct {
@@ -18,10 +20,7 @@ type PTY struct {
 
 func New(shell, cwdFile, wFilePath, galleryFilePath string) (*PTY, error) {
 	if shell == "" {
-		shell = os.Getenv("SHELL")
-	}
-	if shell == "" {
-		shell = "/bin/zsh"
+		shell = shellenv.DefaultShell()
 	}
 
 	pid := os.Getpid()
@@ -51,7 +50,8 @@ func New(shell, cwdFile, wFilePath, galleryFilePath string) (*PTY, error) {
 		}
 	}
 
-	cmd := exec.Command(shell)
+	// Login shell, same as Terminal.app/iTerm — loads zprofile/bash_profile.
+	cmd := exec.Command(shell, "-l")
 	cmd.Env = env
 
 	f, err := pty.Start(cmd)
