@@ -74,6 +74,7 @@ export interface Tab {
   baseLabel?: string  // terminal tabs: original label, restored when title clears
   path?: string       // file + media tabs
   processId?: string  // logs tabs
+  modified?: boolean  // file tabs: unsaved changes
 }
 
 const MEDIA_EXTS = new Set(['png','jpg','jpeg','gif','webp','bmp','tiff','tif','svg','ico',
@@ -149,10 +150,16 @@ export function addTerminalTab(id: string) {
   activeTabId.set(id)
 }
 
+export function setTabModified(id: string, modified: boolean) {
+  tabs.update(ts => ts.map(t => t.id === id ? { ...t, modified } : t))
+}
+
 export function closeTab(id: string) {
   const current = get(tabs)
   const idx = current.findIndex(t => t.id === id)
   if (idx === -1) return
+  if (current[idx].modified &&
+      !window.confirm(`Discard unsaved changes to ${current[idx].label}?`)) return
   const newTabs = current.filter(t => t.id !== id)
   tabs.set(newTabs)
   if (get(activeTabId) === id) {

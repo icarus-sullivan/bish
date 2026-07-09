@@ -87,6 +87,8 @@
       // If focus was inside a CM search panel, CM already handled it — don't also close the tab.
       // e.target retains its ancestor chain even after CM removes the panel from the DOM.
       if ((e.target as HTMLElement).closest?.('.cm-search')) return
+      // CM consumed it (dismissed autocomplete, cancelled selection) — not a close request
+      if (e.defaultPrevented) return
       const active = get(activeTabId)
       const t = $tabs.find(tt => tt.id === active)
       if (t && t.type !== 'terminal') closeTab(active)

@@ -19,7 +19,7 @@
   import { go } from '@codemirror/lang-go'
   import { shell } from '@codemirror/legacy-modes/mode/shell'
   import { ReadFile, WriteFile, SaveNewFile, mediaUrl } from '../lib/wails'
-  import { currentThemeName, cwd, projectRoot, updateTabPath, closeTab, pendingGoto, pendingFocus } from '../lib/stores'
+  import { currentThemeName, cwd, projectRoot, updateTabPath, closeTab, setTabModified, pendingGoto, pendingFocus } from '../lib/stores'
   import { codeIntel, intelKindFor } from '../lib/codeintel'
   import { invalidateSymbols } from '../lib/autoimport'
   import { gitBlame, refreshBlame } from '../lib/gitblame'
@@ -40,6 +40,12 @@
   let view: EditorView | null = null
   let modified = $state(false)
   let panelObserver: MutationObserver | undefined
+
+  // keep the tab store in sync so closeTab can guard against losing edits
+  function setModified(m: boolean) {
+    modified = m
+    setTabModified(tabId, m)
+  }
 
   function patchSearchPanel(root: HTMLElement) {
     const panel = root.querySelector<HTMLElement>('.cm-search')
@@ -423,7 +429,7 @@
   async function load(p: string, themeName: string) {
     view?.destroy()
     view = null
-    modified = false
+    setModified(false)
     saveError = ''
     preview = false
 
@@ -462,7 +468,7 @@
             ...completionKeymap,
           ]),
           EditorView.updateListener.of((upd) => {
-            if (upd.docChanged) modified = true
+            if (upd.docChanged) setModified(true)
           }),
         ],
       }),
@@ -523,12 +529,12 @@
         const realPath = await SaveNewFile(view.state.doc.toString(), dir)
         if (realPath) {
           updateTabPath(tabId, realPath)
-          modified = false
+          setModified(false)
         }
       } else {
         if (get(formatOnSave)) await lspFormat(view).catch(() => {})
         await WriteFile(path, view.state.doc.toString())
-        modified = false
+        setModified(false)
         refreshBlame(view)
       }
       invalidateSymbols()
