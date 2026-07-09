@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	github.com/creack/pty v1.1.21
+	github.com/fsnotify/fsnotify v1.10.1
 	github.com/spf13/cobra v1.8.1
 	github.com/wailsapp/wails/v2 v2.12.0
 )

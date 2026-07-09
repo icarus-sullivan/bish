@@ -24,6 +24,7 @@ type Symbol struct {
 var symbolExts = map[string]bool{
 	".go": true, ".js": true, ".mjs": true, ".cjs": true,
 	".ts": true, ".tsx": true, ".jsx": true, ".py": true,
+	".svelte": true,
 }
 
 const maxSymbolFileSize = 512 * 1024 // ponytail: size cap, raise if someone hits it
@@ -92,6 +93,9 @@ func fileSymbols(path, root, modPath string) []Symbol {
 		syms = goSymbols(path, root, modPath)
 	case ".py":
 		syms = pySymbols(path)
+	case ".svelte":
+		// a component's one export is itself: default import named by filename
+		syms = []Symbol{{Name: strings.TrimSuffix(filepath.Base(path), ".svelte"), Kind: "default", File: path}}
 	default:
 		syms = jsSymbols(path)
 	}

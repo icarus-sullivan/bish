@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
   import { Terminal } from '@xterm/xterm'
   import { FitAddon } from '@xterm/addon-fit'
   import { Unicode11Addon } from '@xterm/addon-unicode11'
+  import { WebglAddon } from '@xterm/addon-webgl'
+  import { SearchAddon } from '@xterm/addon-search'
   import '@xterm/xterm/css/xterm.css'
-  import { focusedPane, theme, activeTabId } from '../lib/stores'
+  import { focusedPane, theme, activeTabId, setTerminalTitle } from '../lib/stores'
   import { get } from 'svelte/store'
   import { on, WritePTY, ResizePTY, WritePTYTab, ResizePTYTab } from '../lib/wails'
   import { OnFileDrop, OnFileDropOff } from '../../wailsjs/runtime/runtime'
@@ -14,6 +15,29 @@
   let container: HTMLDivElement
   let term: Terminal
   let fitAddon: FitAddon
+  let searchAddon: SearchAddon
+
+  // term-wrap renders (and sizes) immediately; the terminal itself isn't even
+  // constructed until the container has real layout, and stays hidden until
+  // the renderer is decided — no intermediate frame is ever visible
+  let ready = $state(false)
+
+  // find-in-terminal bar
+  let showFind = $state(false)
+  let findQuery = $state('')
+  let findInput: HTMLInputElement | undefined = $state()
+
+  function closeFind() {
+    showFind = false
+    findQuery = ''
+    searchAddon?.clearDecorations()
+    term?.focus()
+  }
+  function findKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape') { e.preventDefault(); closeFind() }
+    else if (e.key === 'Enter' && e.shiftKey) { e.preventDefault(); searchAddon?.findPrevious(findQuery) }
+    else if (e.key === 'Enter') { e.preventDefault(); searchAddon?.findNext(findQuery) }
+  }
 
   function themeFor(t: any) {
     const cs = getComputedStyle(document.documentElement)
@@ -36,7 +60,10 @@
     }
   }
 
-  onMount(() => {
+  // Runs only once the container has non-zero layout — every metrics-derived
+  // step (open, fit, webgl atlas) sees final dimensions, so there is nothing
+  // to flash or correct afterwards.
+  function setupTerminal(): () => void {
     term = new Terminal({
       fontFamily: '"SF Mono", Menlo, Monaco, "Courier New", monospace',
       fontSize: 13,
@@ -51,15 +78,33 @@
 
     fitAddon = new FitAddon()
     const unicode11 = new Unicode11Addon()
+    searchAddon = new SearchAddon()
     term.loadAddon(fitAddon)
     term.loadAddon(unicode11)
+    term.loadAddon(searchAddon)
     term.unicode.activeVersion = '11'
     term.open(container)
     fitAddon.fit()
 
+    // GPU renderer (what VSCode uses); no GL / context loss → DOM fallback
+    try {
+      const gl = new WebglAddon()
+      gl.onContextLoss(() => gl.dispose())
+      term.loadAddon(gl)
+    } catch (err) {
+      console.error('webgl addon failed, using DOM renderer', err)
+    }
+    // reveal one frame later: first visible paint is the final renderer
+    requestAnimationFrame(() => { ready = true })
+
     term.attachCustomKeyEventHandler((e) => {
       if (e.ctrlKey && e.key === 'b' && e.type === 'keydown') {
         focusedPane.set('processes')
+        return false
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'f' && e.type === 'keydown') {
+        showFind = true
+        requestAnimationFrame(() => findInput?.focus())
         return false
       }
       return true
@@ -67,11 +112,17 @@
 
     const isMain = terminalId === 'main'
     term.onData((data) => isMain ? WritePTY(data) : WritePTYTab(terminalId, data))
+    // OSC 0/2 title escapes (set by preexec in the bish shell init, or by
+    // programs like claude/vim themselves) → tab label
+    term.onTitleChange((t) => setTerminalTitle(terminalId, t))
 
     const dataEvent = isMain ? 'pty:data' : 'pty:data:' + terminalId
     const exitEvent = isMain ? 'pty:exit' : 'pty:exit:' + terminalId
-    on(dataEvent, (data: string) => term.write(data))
-    on(exitEvent, () => term.write('\r\n\x1b[2m[process exited]\x1b[0m\r\n'))
+    // keep the cancellers: a leaked listener writes to a disposed terminal on
+    // remount (close tab → Enter), throwing inside the event dispatch and
+    // starving the new terminal of pty:data entirely
+    const offData = on(dataEvent, (data: string) => term.write(data))
+    const offExit = on(exitEvent, () => term.write('\r\n\x1b[2m[process exited]\x1b[0m\r\n'))
 
     const resizeObserver = new ResizeObserver(() => {
       fitAddon.fit()
@@ -106,6 +157,8 @@
     }, false)
 
     return () => {
+      offData()
+      offExit()
       unsubActive()
       unsubPane()
       unsubTheme()
@@ -113,11 +166,65 @@
       OnFileDropOff()
       term.dispose()
     }
-  })
+  }
+
+  // Boot the terminal only when the element has real layout. Element sized on
+  // mount → boot now; mounted under display:none → wait for first layout.
+  // ponytail: a hidden-mounted terminal misses pty:data until first shown —
+  // terminal tabs are always created active, so that path is theoretical.
+  function initTerm(el: HTMLDivElement) {
+    container = el
+    let cleanup: (() => void) | undefined
+    // let waiter: ResizeObserver | undefined
+    // if (el.offsetWidth > 0 && el.offsetHeight > 0) {
+    //   cleanup = setupTerminal()
+    // } else {
+    //   waiter = new ResizeObserver(() => {
+    //     if (el.offsetWidth === 0 || el.offsetHeight === 0) return
+    //     waiter!.disconnect()
+    //     waiter = undefined
+    //     cleanup = setupTerminal()
+    //   })
+    //   waiter.observe(el)
+    // }
+    // return {
+    //   destroy() {
+    //     waiter?.disconnect()
+    //     cleanup?.()
+    //   },
+    // }
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        console.log('loading terminal')
+        cleanup = setupTerminal()
+      })
+    })
+
+    return {
+      destroy() {
+        cleanup?.()
+      }
+    }
+  }
 </script>
 
 <div class="term-wrap">
-  <div bind:this={container} class="term-container"></div>
+  {#if showFind}
+    <div class="find-bar">
+      <input
+        bind:this={findInput}
+        bind:value={findQuery}
+        placeholder="Find…"
+        spellcheck="false"
+        onkeydown={findKeydown}
+        oninput={() => searchAddon?.findNext(findQuery, { incremental: true })}
+      />
+      <button class="find-btn" onclick={() => searchAddon?.findPrevious(findQuery)} title="Previous (⇧⏎)">↑</button>
+      <button class="find-btn" onclick={() => searchAddon?.findNext(findQuery)} title="Next (⏎)">↓</button>
+      <button class="find-btn" onclick={closeFind} title="Close (Esc)">✕</button>
+    </div>
+  {/if}
+  <div use:initTerm class="term-container" style:visibility={ready ? 'visible' : 'hidden'}></div>
 </div>
 
 <style>
@@ -125,7 +232,47 @@
     width: 100%;
     height: 100%;
     overflow: hidden;
+    position: relative;
   }
+  .find-bar {
+    position: absolute;
+    top: 6px;
+    right: 14px;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 5px 6px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 4px 16px var(--shadow-color);
+  }
+  .find-bar input {
+    background: var(--background);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--foreground);
+    font-size: 12px;
+    font-family: "SF Mono", Menlo, monospace;
+    padding: 3px 8px;
+    width: 180px;
+    outline: none;
+  }
+  .find-bar input:focus { border-color: var(--accent); }
+  .find-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 3px 4px;
+    border-radius: 3px;
+    transition: color 0.1s, background 0.1s;
+  }
+  .find-btn:hover { color: var(--foreground); background: var(--bg-hover); }
   .term-container {
     width: 100%;
     height: 100%;

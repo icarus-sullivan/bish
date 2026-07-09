@@ -92,12 +92,14 @@
 <div class="panel" class:focused={$focusedPane === 'commands'}>
   <div class="header">
     <span class="header-label">{isProject ? 'Project Commands' : 'Saved Commands'}</span>
-    {#if isProject}
-      {#if $projectCommands.length}<span class="header-count">{$projectCommands.length}</span>{/if}
-    {:else}
-      {#if visibleCommands.length}<span class="header-count">{visibleCommands.length}</span>{/if}
-    {/if}
-    <button class="header-btn" onclick={openAdd} title="Add command"><IconPlus size={13} /></button>
+    <div class="header-right">
+      {#if isProject}
+        {#if $projectCommands.length}<span class="header-count">{$projectCommands.length}</span>{/if}
+      {:else}
+        {#if visibleCommands.length}<span class="header-count">{visibleCommands.length}</span>{/if}
+      {/if}
+      <button class="header-btn" onclick={openAdd} title="Add command"><IconPlus size={13} /></button>
+    </div>
   </div>
   <div class="list">
     {#if isProject}
@@ -223,6 +225,12 @@
     transition: color 0.15s;
   }
   .panel.focused .header-label { color: var(--accent); }
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: auto;
+  }
   .header-count {
     font-size: 10px;
     color: var(--muted);

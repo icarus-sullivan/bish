@@ -1,5 +1,69 @@
 export namespace app {
 	
+	export class BlameLine {
+	    sha: string;
+	    author: string;
+	    time: number;
+	    summary: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new BlameLine(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sha = source["sha"];
+	        this.author = source["author"];
+	        this.time = source["time"];
+	        this.summary = source["summary"];
+	    }
+	}
+	export class GitFileStatus {
+	    status: string;
+	    path: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new GitFileStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.status = source["status"];
+	        this.path = source["path"];
+	    }
+	}
+	export class GitStatusDTO {
+	    branch: string;
+	    files: GitFileStatus[];
+	
+	    static createFrom(source: any = {}) {
+	        return new GitStatusDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.branch = source["branch"];
+	        this.files = this.convertValues(source["files"], GitFileStatus);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class SearchResultDTO {
 	    file: string;
 	    line: number;
@@ -116,11 +180,29 @@ export namespace commands {
 
 export namespace config {
 	
+	export class PersistConfig {
+	    panel_width: boolean;
+	    right_sidebar: boolean;
+	    right_panel: boolean;
+	    tabs: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new PersistConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.panel_width = source["panel_width"];
+	        this.right_sidebar = source["right_sidebar"];
+	        this.right_panel = source["right_panel"];
+	        this.tabs = source["tabs"];
+	    }
+	}
 	export class Config {
 	    theme: string;
 	    shell: string;
-	    left_width_pct: number;
-	    right_width_pct: number;
+	    format_on_save: boolean;
+	    persist?: PersistConfig;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -130,9 +212,27 @@ export namespace config {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.theme = source["theme"];
 	        this.shell = source["shell"];
-	        this.left_width_pct = source["left_width_pct"];
-	        this.right_width_pct = source["right_width_pct"];
+	        this.format_on_save = source["format_on_save"];
+	        this.persist = this.convertValues(source["persist"], PersistConfig);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }
@@ -242,13 +342,11 @@ export namespace project {
 	    }
 	}
 	export class UIState {
-	    left_width?: number;
 	    right_width?: number;
-	    process_height?: number;
-	    show_left?: boolean;
 	    show_right?: boolean;
 	    tabs?: SavedTab[];
 	    active_tab?: string;
+	    right_panel?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new UIState(source);
@@ -256,13 +354,11 @@ export namespace project {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.left_width = source["left_width"];
 	        this.right_width = source["right_width"];
-	        this.process_height = source["process_height"];
-	        this.show_left = source["show_left"];
 	        this.show_right = source["show_right"];
 	        this.tabs = this.convertValues(source["tabs"], SavedTab);
 	        this.active_tab = source["active_tab"];
+	        this.right_panel = source["right_panel"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

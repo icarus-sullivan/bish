@@ -2,8 +2,10 @@ package app
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,6 +16,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/fsnotify/fsnotify"
 
 	"github.com/csullivan/bish/internal/commands"
 	"github.com/csullivan/bish/internal/config"
@@ -36,6 +40,8 @@ var videoExts = map[string]bool{
 	".mp4": true, ".mov": true, ".webm": true, ".mkv": true, ".avi": true,
 }
 
+const maxSearchFileSize = 2 * 1024 * 1024 // ponytail: skip huge files in search/replace; raise if it bites
+
 var skipDirs = map[string]bool{
 	".git": true, "node_modules": true, "vendor": true,
 	"dist": true, "__pycache__": true, ".next": true,
@@ -53,6 +59,7 @@ type App struct {
 	termCount              int
 	fileTree               *tree.Tree
 	treeMu                 sync.Mutex
+	fsw                    *fsnotify.Watcher
 	cwd                    string
 	cwdFile                string
 	wFilePath              string
@@ -105,6 +112,7 @@ func (a *App) Startup(ctx context.Context) {
 	go a.pollWLoop()
 	go a.pollGalleryLoop()
 	go a.refreshLoop()
+	a.startWatcher()
 	if a.QuitInterceptInstaller != nil {
 		a.QuitInterceptInstaller()
 	}
@@ -385,13 +393,19 @@ func (a *App) pollGalleryLoop() {
 }
 
 func (a *App) refreshLoop() {
+	var last []byte
 	for {
 		select {
 		case <-a.ctx.Done():
 			return
 		case <-time.After(2 * time.Second):
 			a.mgr.Refresh()
-			runtime.EventsEmit(a.ctx, "processes:update", a.mgr.List())
+			// emit only on change — idle app does zero store writes/re-renders
+			cur, err := json.Marshal(a.mgr.List())
+			if err != nil || !bytes.Equal(cur, last) {
+				last = cur
+				runtime.EventsEmit(a.ctx, "processes:update", a.mgr.List())
+			}
 		}
 	}
 }
@@ -518,6 +532,7 @@ func (a *App) ToggleTreeNode(path string) {
 	expanded := a.fileTree.ExpandedPaths()
 	a.treeMu.Unlock()
 	runtime.EventsEmit(a.ctx, "tree:update", nodes)
+	a.rearmWatcher()
 	go a.saveExpandedPaths(expanded)
 }
 
@@ -765,6 +780,7 @@ func (a *App) reloadTree() {
 	nodes := a.flatNodes()
 	a.treeMu.Unlock()
 	runtime.EventsEmit(a.ctx, "tree:update", nodes)
+	a.rearmWatcher()
 }
 
 // -- Window methods --
@@ -1081,11 +1097,17 @@ func (a *App) SearchInFiles(dir, query string, caseSensitive, wholeWord, useRege
 				}
 				walk(fullPath, depth+1)
 			} else {
+				if info, err := e.Info(); err != nil || info.Size() > maxSearchFileSize {
+					continue
+				}
 				f, err := os.Open(fullPath)
 				if err != nil {
 					continue
 				}
 				scanner := bufio.NewScanner(f)
+				// default 64KB line cap silently aborts files with long
+				// (minified) lines — raise it so matches after them aren't lost
+				scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 				lineNum := 0
 				for scanner.Scan() {
 					lineNum++
@@ -1154,6 +1176,9 @@ func (a *App) ReplaceInFiles(dir, query, replacement string, caseSensitive, whol
 				}
 				walk(fullPath, depth+1) //nolint
 			} else {
+				if info, err := e.Info(); err != nil || info.Size() > maxSearchFileSize {
+					continue
+				}
 				content, err := os.ReadFile(fullPath)
 				if err != nil {
 					continue

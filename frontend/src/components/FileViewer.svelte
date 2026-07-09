@@ -18,11 +18,19 @@
   import { yaml } from '@codemirror/lang-yaml'
   import { go } from '@codemirror/lang-go'
   import { shell } from '@codemirror/legacy-modes/mode/shell'
-  import { ReadFile, WriteFile, SaveNewFile } from '../lib/wails'
+  import { ReadFile, WriteFile, SaveNewFile, mediaUrl } from '../lib/wails'
   import { currentThemeName, cwd, projectRoot, updateTabPath, closeTab, pendingGoto, pendingFocus } from '../lib/stores'
   import { codeIntel, intelKindFor } from '../lib/codeintel'
   import { invalidateSymbols } from '../lib/autoimport'
+  import { gitBlame, refreshBlame } from '../lib/gitblame'
+  import { lspFormat } from '../lib/lsp'
+  import { formatOnSave } from '../lib/stores'
+  import { indentUnit } from '@codemirror/language'
+  import { svelte } from '@replit/codemirror-lang-svelte'
   import { get } from 'svelte/store'
+  import { marked } from 'marked'
+  import DOMPurify from 'dompurify'
+  import { IconEye, IconCode } from '@tabler/icons-svelte'
 
   const UNTITLED = '__new__'
 
@@ -77,6 +85,35 @@
 
   const filename = $derived(path === UNTITLED ? 'Untitled' : (path.split('/').pop() ?? ''))
 
+  // ─── markdown preview ─────────────────────────────────────────────────────
+  const isMarkdown = $derived(['md', 'markdown'].includes(path.split('.').pop()?.toLowerCase() ?? ''))
+  let preview = $state(false)
+  let previewHtml = $state('')
+
+  async function togglePreview() {
+    if (!preview) {
+      if (!view) return
+      // sanitize is the trust boundary: the webview exposes window.go, so
+      // unsanitized README HTML would be arbitrary backend calls
+      const raw = await marked.parse(view.state.doc.toString())
+      previewHtml = rewriteImages(DOMPurify.sanitize(raw))
+    }
+    preview = !preview
+    if (!preview) view?.focus()
+  }
+
+  // relative image srcs don't resolve against the webview origin — route
+  // them through the media endpoint like MediaViewer does
+  function rewriteImages(htmlStr: string): string {
+    const dir = path.substring(0, path.lastIndexOf('/'))
+    const doc = new DOMParser().parseFromString(htmlStr, 'text/html')
+    doc.querySelectorAll('img').forEach(img => {
+      const src = img.getAttribute('src') ?? ''
+      if (src && !/^(https?:|data:|\/)/.test(src)) img.src = mediaUrl(dir + '/' + src)
+    })
+    return doc.body.innerHTML
+  }
+
   // ─── language detection ───────────────────────────────────────────────────
   function langFor(p: string) {
     const ext = p.split('.').pop()?.toLowerCase() ?? ''
@@ -86,13 +123,27 @@
     if (ext === 'jsx')                          return javascript({ jsx: true })
     if (ext === 'py')                           return python()
     if (ext === 'css')                          return css()
-    if (['html','svelte','vue'].includes(ext))  return html()
+    if (ext === 'svelte')                       return svelte()
+    if (['html','vue'].includes(ext))           return html()
     if (ext === 'json')                         return json()
     if (['md','markdown'].includes(ext))        return markdown()
     if (['yaml','yml'].includes(ext))           return yaml()
     if (ext === 'go')                           return go()
     if (['sh','bash','zsh','fish'].includes(ext)) return StreamLanguage.define(shell)
     return []
+  }
+
+  // majority indent style of the first ~200 lines: tab, 4 or 2 spaces
+  function detectIndent(content: string): string {
+    let tabs = 0, two = 0, four = 0
+    for (const line of content.split('\n', 200)) {
+      if (line.startsWith('\t')) tabs++
+      else if (line.startsWith('    ')) four++
+      else if (line.startsWith('  ') && line[2] !== ' ') two++
+    }
+    if (tabs > two && tabs > four) return '\t'
+    if (four > two) return '    '
+    return '  '
   }
 
   // ─── per-theme syntax highlight palettes ─────────────────────────────────
@@ -374,6 +425,7 @@
     view = null
     modified = false
     saveError = ''
+    preview = false
 
     let content = ''
     if (p !== UNTITLED) {
@@ -392,8 +444,10 @@
           basicSetup,
           bishTheme(isDark()),
           highlightFor(themeName),
+          indentUnit.of(detectIndent(content)),
           lang,
           ...codeIntel(p, get(projectRoot) || get(cwd), lang, intelKindFor(p)),
+          ...(p !== UNTITLED ? [gitBlame(p)] : []),
           search({ top: true }),
           // Highest priority: always consume Tab so focus never escapes the editor
           Prec.highest(keymap.of([
@@ -472,8 +526,10 @@
           modified = false
         }
       } else {
+        if (get(formatOnSave)) await lspFormat(view).catch(() => {})
         await WriteFile(path, view.state.doc.toString())
         modified = false
+        refreshBlame(view)
       }
       invalidateSymbols()
     } catch (e: any) {
@@ -491,6 +547,9 @@
 
 <svelte:window onkeydown={(e) => {
   if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); save() }
+  if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'v' && isMarkdown) {
+    e.preventDefault(); togglePreview()
+  }
 }} />
 
 <div class="viewer-wrap">
@@ -503,9 +562,19 @@
     {/if}
     <span class="spacer"></span>
     <span class="hint">⌘S · ⌘F · ⌘H · ⌘Z</span>
+    {#if isMarkdown}
+      <button class="close-btn" onclick={togglePreview} title="Toggle preview (⇧⌘V)">
+        {#if preview}<IconCode size={13} />{:else}<IconEye size={13} />{/if}
+      </button>
+    {/if}
     <button class="close-btn" onclick={() => closeTab(tabId)} title="Close">✕</button>
   </div>
-  <div bind:this={container} class="cm-container"></div>
+  <div bind:this={container} class="cm-container" style:display={preview ? 'none' : ''}></div>
+  {#if preview}
+    <div class="md-preview">
+      <div class="md-body">{@html previewHtml}</div>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -556,6 +625,57 @@
 
   .cm-container { flex: 1; overflow: hidden; min-height: 0; }
   .cm-container :global(.cm-editor) { height: 100%; }
+
+  /* ── markdown preview ── */
+  .md-preview {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    user-select: text;
+  }
+  .md-body {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 24px;
+    color: var(--foreground);
+    font-size: 14px;
+    line-height: 1.65;
+  }
+  .md-body :global(h1), .md-body :global(h2) {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 6px;
+  }
+  .md-body :global(a) { color: var(--accent); }
+  .md-body :global(code) {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 12px;
+  }
+  .md-body :global(pre) {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 14px;
+    overflow-x: auto;
+  }
+  .md-body :global(pre code) { background: none; border: none; padding: 0; }
+  .md-body :global(blockquote) {
+    border-left: 3px solid var(--border);
+    margin-left: 0;
+    padding-left: 14px;
+    color: var(--muted);
+  }
+  .md-body :global(img) { max-width: 100%; }
+  .md-body :global(table) { border-collapse: collapse; }
+  .md-body :global(th), .md-body :global(td) {
+    border: 1px solid var(--border);
+    padding: 5px 10px;
+  }
+  .md-body :global(th) { background: var(--bg-raised); }
+  .md-body :global(hr) { border: none; border-top: 1px solid var(--border); }
 
   /* ── CodeMirror search panel layout & icons ── */
   :global(.cm-search) {

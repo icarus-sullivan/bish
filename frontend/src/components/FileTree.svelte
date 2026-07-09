@@ -187,9 +187,6 @@
 >
   <div class="header">
     <span class="header-label">Files</span>
-    {#if $projectRoot}
-      <span class="project-name" title={$projectRoot}>{$projectRoot.split('/').pop()}</span>
-    {/if}
     <div class="header-actions">
       <button class="hdr-btn" onclick={() => promptNew(resolveDir(), false)} title="New File"><IconFilePlus size={13} /></button>
       <button class="hdr-btn" onclick={() => promptNew(resolveDir(), true)} title="New Folder"><IconFolderPlus size={13} /></button>
@@ -298,16 +295,6 @@
   }
   .panel.focused .header-label { color: var(--accent); }
 
-  .project-name {
-    flex: 1;
-    font-size: 11px;
-    color: var(--foreground);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    margin-left: 6px;
-    font-weight: 500;
-  }
   .header-actions {
     display: flex;
     align-items: center;

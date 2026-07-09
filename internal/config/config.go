@@ -9,16 +9,23 @@ import (
 type Config struct {
 	Theme        string `json:"theme"`
 	Shell        string `json:"shell"`
-	LeftWidthPct int    `json:"left_width_pct"`
-	RightWidthPct int   `json:"right_width_pct"`
+	FormatOnSave bool   `json:"format_on_save"`
+	// nil = persist everything (frontend treats missing as true)
+	Persist *PersistConfig `json:"persist,omitempty"`
+}
+
+// PersistConfig gates which per-project UI state gets saved/restored.
+type PersistConfig struct {
+	PanelWidth   bool `json:"panel_width"`
+	RightSidebar bool `json:"right_sidebar"`
+	RightPanel   bool `json:"right_panel"`
+	Tabs         bool `json:"tabs"`
 }
 
 func defaultConfig() Config {
 	return Config{
-		Theme:         "default",
-		Shell:         "",
-		LeftWidthPct:  20,
-		RightWidthPct: 25,
+		Theme: "default",
+		Shell: "",
 	}
 }
 

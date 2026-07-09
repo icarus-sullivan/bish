@@ -70,6 +70,10 @@ func writeInitFile(path string) {
 	content := `# auto-injected by bish
 precmd() {
   [[ -n "$BISH_CWD_FILE" ]] && printf '%s' "$PWD" > "$BISH_CWD_FILE"
+  printf '\033]0;\007' # clear title -> tab label falls back to default
+}
+preexec() {
+  printf '\033]0;%s\007' "$1" # running command as terminal title (zsh-only)
 }
 w() {
   [[ $# -eq 0 ]] && { echo "usage: w <command> [args...]"; return 1; }

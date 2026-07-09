@@ -3,7 +3,7 @@
            closeTabsToRight, closeTabsToLeft, closeOtherTabs, closeAllTabs,
            reorderTabs, type Tab } from '../lib/stores'
   import { NewTerminal, CloseTerminal } from '../lib/wails'
-  import { IconTerminal2, IconFile, IconListDetails, IconPlus, IconX } from '@tabler/icons-svelte'
+  import { IconTerminal2, IconFile, IconListDetails, IconPlus, IconX, IconSettings } from '@tabler/icons-svelte'
   import ContextMenu from './ContextMenu.svelte'
 
   async function newTerminal() {
@@ -24,6 +24,7 @@
   function tabIcon(tab: Tab) {
     if (tab.type === 'terminal') return IconTerminal2
     if (tab.type === 'logs') return IconListDetails
+    if (tab.type === 'settings') return IconSettings
     return IconFile
   }
 

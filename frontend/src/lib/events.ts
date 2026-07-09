@@ -1,17 +1,22 @@
 import { waitForWails, on, GetProcesses, GetCommands, GetTreeNodes, GetTheme, GetGalleryImages, GetCWD,
-         GetProjectRoot, GetProjectCommands, GetProjectUI, SaveProjectUI, initMediaBase } from './wails'
+         GetProjectRoot, GetProjectCommands, GetProjectUI, SaveProjectUI, GetConfig, initMediaBase } from './wails'
 import {
   processes, commands, treeNodes, cwd,
   galleryMode, galleryImages, theme, projectRoot,
   showPalette, projectCommands, openFileTab,
-  showLeft, showRight, leftWidth, rightWidth, processHeight,
-  tabs, activeTabId, isMediaPath
+  showRight, rightWidth,
+  tabs, activeTabId, isMediaPath, activeRightPanel, persistPrefs, formatOnSave
 } from './stores'
 import { get } from 'svelte/store'
 
 export async function initEvents() {
   await waitForWails()
   await initMediaBase()
+
+  // persistence prefs live in app config; missing = persist everything
+  const cfg: any = await GetConfig().catch(() => null)
+  if (cfg?.persist) persistPrefs.set(cfg.persist)
+  formatOnSave.set(!!cfg?.format_on_save)
 
   // Load initial data
   const [procs, cmds, nodes, t, initialCwd, root, pcmds] = await Promise.all([
@@ -51,7 +56,7 @@ export async function initEvents() {
   on('project:commands', (cmds: any) => projectCommands.set(cmds ?? []))
 
   const uiStores: { subscribe: (fn: (v: any) => void) => unknown }[] =
-    [showLeft, showRight, leftWidth, rightWidth, processHeight, tabs, activeTabId]
+    [showRight, rightWidth, tabs, activeTabId, activeRightPanel]
   uiStores.forEach(s => s.subscribe(scheduleSaveUI))
   on('file:new', () => openFileTab('__new__'))
   on('palette:open', () => showPalette.set(true))
@@ -77,17 +82,18 @@ async function loadProjectUI() {
     tabs.update(ts => ts.filter(t => t.type === 'terminal' || t.type === 'logs'))
     activeTabId.set(get(tabs)[0]?.id ?? '')
     if (!ui) return
-    if (ui.left_width) leftWidth.set(ui.left_width)
-    if (ui.right_width) rightWidth.set(ui.right_width)
-    if (ui.process_height) processHeight.set(ui.process_height)
-    if (ui.show_left != null) showLeft.set(ui.show_left)
-    if (ui.show_right != null) showRight.set(ui.show_right)
-    for (const t of ui.tabs ?? []) {
-      // forceText when a media-extension path was open as a text tab
-      openFileTab(t.path, t.type === 'file' && isMediaPath(t.path))
-    }
-    if (ui.active_tab && get(tabs).some(t => t.id === ui.active_tab)) {
-      activeTabId.set(ui.active_tab)
+    const p = get(persistPrefs)
+    if (p.panel_width && ui.right_width) rightWidth.set(ui.right_width)
+    if (p.right_sidebar && ui.show_right != null) showRight.set(ui.show_right)
+    if (p.right_panel && ui.right_panel) activeRightPanel.set(ui.right_panel)
+    if (p.tabs) {
+      for (const t of ui.tabs ?? []) {
+        // forceText when a media-extension path was open as a text tab
+        openFileTab(t.path, t.type === 'file' && isMediaPath(t.path))
+      }
+      if (ui.active_tab && get(tabs).some(t => t.id === ui.active_tab)) {
+        activeTabId.set(ui.active_tab)
+      }
     }
   } finally {
     applyingUI = false
@@ -102,18 +108,18 @@ function scheduleSaveUI() {
 
 function saveProjectUI() {
   if (!get(projectRoot)) return
-  const openTabs = get(tabs)
-    .filter(t => (t.type === 'file' || t.type === 'media') && t.path && t.path !== '__new__')
-    .map(t => ({ type: t.type, path: t.path! }))
-  SaveProjectUI({
-    left_width: get(leftWidth),
-    right_width: get(rightWidth),
-    process_height: get(processHeight),
-    show_left: get(showLeft),
-    show_right: get(showRight),
-    tabs: openTabs,
-    active_tab: get(activeTabId),
-  } as any).catch(() => {})
+  const p = get(persistPrefs)
+  const ui: any = {}
+  if (p.panel_width) ui.right_width = get(rightWidth)
+  if (p.right_sidebar) ui.show_right = get(showRight)
+  if (p.right_panel) ui.right_panel = get(activeRightPanel)
+  if (p.tabs) {
+    ui.tabs = get(tabs)
+      .filter(t => (t.type === 'file' || t.type === 'media') && t.path && t.path !== '__new__')
+      .map(t => ({ type: t.type, path: t.path! }))
+    ui.active_tab = get(activeTabId)
+  }
+  SaveProjectUI(ui).catch(() => {})
 }
 
 function applyTheme(t: any) {

@@ -126,6 +126,14 @@ export function GetTreeNodes() {
   return window['go']['app']['App']['GetTreeNodes']();
 }
 
+export function GitBlame(arg1) {
+  return window['go']['app']['App']['GitBlame'](arg1);
+}
+
+export function GitStatus() {
+  return window['go']['app']['App']['GitStatus']();
+}
+
 export function IsVideo(arg1) {
   return window['go']['app']['App']['IsVideo'](arg1);
 }

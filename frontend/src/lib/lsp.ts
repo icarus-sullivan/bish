@@ -5,8 +5,9 @@
 import { Compartment, type Extension } from '@codemirror/state'
 import { ViewPlugin, EditorView } from '@codemirror/view'
 import {
-  LSPClient, languageServerSupport, serverDiagnostics, type Transport,
+  LSPClient, LSPPlugin, languageServerSupport, serverDiagnostics, type Transport,
 } from '@codemirror/lsp-client'
+import { getIndentUnit, indentUnit } from '@codemirror/language'
 import { LSPStart, LSPSend, LSPStop, on } from './wails'
 import { openFileTab } from './stores'
 import type { IntelKind } from './codeintel'
@@ -21,6 +22,7 @@ function languageIdFor(path: string): string {
     case 'ts': return 'typescript'
     case 'tsx': return 'typescriptreact'
     case 'jsx': return 'javascriptreact'
+    case 'svelte': return 'svelte'
     default: return 'javascript'
   }
 }
@@ -94,7 +96,7 @@ function dropClient(lang: IntelKind) {
   }
 }
 
-for (const lang of ['go', 'js', 'py'] as IntelKind[]) {
+for (const lang of ['go', 'js', 'py', 'svelte'] as IntelKind[]) {
   on('lsp:down:' + lang, () => dropClient(lang))
 }
 on('project:change', () => {
@@ -138,6 +140,30 @@ function release(lang: IntelKind, entry: Entry) {
       LSPStop(lang).catch(() => {})
     }
   }, IDLE_SHUTDOWN_MS)
+}
+
+// Awaitable document formatting. The lib's formatDocument command applies
+// edits async with no completion signal, which would race format-then-write
+// on save. No LSP attached → resolves immediately (no formatter, no-op).
+export async function lspFormat(view: EditorView): Promise<void> {
+  const plugin = LSPPlugin.get(view)
+  if (!plugin) return
+  plugin.client.sync()
+  const edits: any[] | null = await (plugin.client as any).request('textDocument/formatting', {
+    textDocument: { uri: plugin.uri },
+    options: {
+      tabSize: getIndentUnit(view.state),
+      insertSpaces: view.state.facet(indentUnit).indexOf('\t') < 0,
+    },
+  }).catch(() => null)
+  if (!edits?.length) return
+  view.dispatch({
+    changes: edits.map(e => ({
+      from: plugin.fromPosition(e.range.start),
+      to: plugin.fromPosition(e.range.end),
+      insert: e.newText,
+    })),
+  })
 }
 
 // Returns an extension that starts as `fallback` (v1 autoimport) and swaps

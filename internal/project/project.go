@@ -23,13 +23,11 @@ type SavedTab struct {
 
 // UIState is per-project frontend layout, saved so reopening is painless.
 type UIState struct {
-	LeftWidth     int        `json:"left_width,omitempty"`
-	RightWidth    int        `json:"right_width,omitempty"`
-	ProcessHeight int        `json:"process_height,omitempty"`
-	ShowLeft      *bool      `json:"show_left,omitempty"`
-	ShowRight     *bool      `json:"show_right,omitempty"`
-	Tabs          []SavedTab `json:"tabs,omitempty"`
-	ActiveTab     string     `json:"active_tab,omitempty"`
+	RightWidth int        `json:"right_width,omitempty"`
+	ShowRight  *bool      `json:"show_right,omitempty"`
+	Tabs       []SavedTab `json:"tabs,omitempty"`
+	ActiveTab  string     `json:"active_tab,omitempty"`
+	RightPanel string     `json:"right_panel,omitempty"`
 }
 
 type Config struct {

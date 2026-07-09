@@ -3,13 +3,14 @@ import { LanguageSupport } from '@codemirror/language'
 import { autoImportSource } from './autoimport'
 import { lspOrFallback } from './lsp'
 
-export type IntelKind = 'go' | 'js' | 'py'
+export type IntelKind = 'go' | 'js' | 'py' | 'svelte'
 
 export function intelKindFor(path: string): IntelKind | null {
   const ext = path.split('.').pop()?.toLowerCase() ?? ''
   if (ext === 'go') return 'go'
   if (['js', 'mjs', 'cjs', 'ts', 'tsx', 'jsx'].includes(ext)) return 'js'
   if (ext === 'py') return 'py'
+  if (ext === 'svelte') return 'svelte' // own kind: the js server must not didOpen .svelte
   return null
 }
 

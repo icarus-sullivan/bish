@@ -42,20 +42,36 @@ export const pendingGoto = writable<{ path: string; line: number; col: number } 
 export const pendingFocus = writable<string | null>(null)
 
 // panel visibility
-export const showLeft = writable<boolean>(true)
 export const showRight = writable<boolean>(true)
 
+// active panel in the right sidebar (ids from lib/panels.ts)
+export const activeRightPanel = writable<string>('files')
+
+// which per-project UI state gets saved/restored (config.json `persist`,
+// missing = all true)
+export interface PersistPrefs {
+  panel_width: boolean
+  right_sidebar: boolean
+  right_panel: boolean
+  tabs: boolean
+}
+export const persistPrefs = writable<PersistPrefs>({
+  panel_width: true, right_sidebar: true, right_panel: true, tabs: true,
+})
+
+// format buffer via LSP before writing on ⌘S (config.json format_on_save)
+export const formatOnSave = writable<boolean>(false)
+
 // panel sizes (px)
-export const leftWidth = writable<number>(220)
 export const rightWidth = writable<number>(220)
-export const processHeight = writable<number>(300)
 
 // ─── Tab system ───────────────────────────────────────────────────────────────
 
 export interface Tab {
   id: string
-  type: 'terminal' | 'file' | 'logs' | 'media'
+  type: 'terminal' | 'file' | 'logs' | 'media' | 'settings'
   label: string
+  baseLabel?: string  // terminal tabs: original label, restored when title clears
   path?: string       // file + media tabs
   processId?: string  // logs tabs
 }
@@ -97,6 +113,13 @@ export function openFileTab(path: string, forceText = false) {
   const label = path.split('/').pop() || path
   tabs.update(ts => [...ts, { id, type: 'file', label, path }])
   activeTabId.set(id)
+}
+
+export function openSettingsTab() {
+  const existing = get(tabs).find(t => t.type === 'settings')
+  if (existing) { activeTabId.set(existing.id); return }
+  tabs.update(ts => [...ts, { id: 'settings', type: 'settings', label: 'Settings' }])
+  activeTabId.set('settings')
 }
 
 export function openLogsTab(processId: string, label: string) {
@@ -198,6 +221,16 @@ export function reorderTabs(fromId: string, beforeId: string | null) {
     if (toIdx === -1) return [...rest, tab]
     return [...rest.slice(0, toIdx), tab, ...rest.slice(toIdx)]
   })
+}
+
+// terminal title from OSC escape (xterm onTitleChange) — running command shows
+// as the tab label; empty title (shell back at prompt) restores the original
+export function setTerminalTitle(id: string, title: string) {
+  tabs.update(ts => ts.map(t => {
+    if (t.id !== id || t.type !== 'terminal') return t
+    const base = t.baseLabel ?? t.label
+    return { ...t, baseLabel: base, label: title.trim() || base }
+  }))
 }
 
 export function updateTabPath(tabId: string, newPath: string) {

@@ -102,11 +102,11 @@ function importChange(view: EditorView, sym: SymbolInfo, filePath: string, root:
     return at === -1 ? { from: 0, insert: line + '\n' } : { from: at, insert: '\n' + line }
   }
 
-  // js/ts
+  // js/ts/svelte — svelte imports live indented inside <script>, hence \s*
   const mod = relModule(filePath, sym.file)
-  const nameRe = new RegExp(`^import\\b[^;\\n]*[{,\\s]${sym.name}[,\\s}]`, 'm')
+  const nameRe = new RegExp(`^\\s*import\\b[^;\\n]*[{,\\s]${sym.name}[,\\s}]`, 'm')
   if (nameRe.test(head)) return null
-  const modRe = new RegExp(`^import\\s*\\{([^}]*)\\}\\s*from\\s*['"]${mod.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}['"]`, 'm')
+  const modRe = new RegExp(`^\\s*import\\s*\\{([^}]*)\\}\\s*from\\s*['"]${mod.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}['"]`, 'm')
   const existing = head.match(modRe)
   if (existing && sym.kind !== 'default') {
     // splice into the existing named-import braces
@@ -117,8 +117,15 @@ function importChange(view: EditorView, sym: SymbolInfo, filePath: string, root:
   const line = sym.kind === 'default'
     ? `import ${sym.name} from '${mod}'`
     : `import { ${sym.name} } from '${mod}'`
-  const at = afterLastImport(doc, /^import\s/)
-  return at === -1 ? { from: 0, insert: line + '\n' } : { from: at, insert: '\n' + line }
+  const at = afterLastImport(doc, /^\s*import\s/)
+  if (at !== -1) return { from: at, insert: '\n' + line }
+  if (kind === 'svelte') {
+    // no imports yet: after the <script> open tag, or create the block
+    const script = head.match(/<script[^>]*>/)
+    if (script) return { from: script.index! + script[0].length, insert: '\n  ' + line }
+    return { from: 0, insert: `<script>\n  ${line}\n</script>\n\n` }
+  }
+  return { from: 0, insert: line + '\n' }
 }
 
 export function autoImportSource(filePath: string, root: string, kind: IntelKind) {

@@ -25,9 +25,10 @@ const maxServers = 2
 
 // serverCmds maps lang → candidate commands, first found on PATH wins.
 var serverCmds = map[string][][]string{
-	"go": {{"gopls"}},
-	"js": {{"typescript-language-server", "--stdio"}},
-	"py": {{"pyright-langserver", "--stdio"}, {"pylsp"}},
+	"go":     {{"gopls"}},
+	"js":     {{"typescript-language-server", "--stdio"}},
+	"py":     {{"pyright-langserver", "--stdio"}, {"pylsp"}},
+	"svelte": {{"svelteserver", "--stdio"}},
 }
 
 type server struct {

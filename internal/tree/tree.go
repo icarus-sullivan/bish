@@ -172,35 +172,3 @@ func (t *Tree) Toggle() {
 	t.flatten()
 }
 
-func (t *Tree) MoveUp() {
-	if t.Selected > 0 {
-		t.Selected--
-	}
-}
-
-func (t *Tree) MoveDown() {
-	if t.Selected < len(t.Flat)-1 {
-		t.Selected++
-	}
-}
-
-func (t *Tree) SelectedPath() string {
-	if t.Selected >= len(t.Flat) || len(t.Flat) == 0 {
-		return ""
-	}
-	return t.Flat[t.Selected].Path
-}
-
-func (t *Tree) Prefix(n *Node) string {
-	if n.Depth == 0 {
-		return ""
-	}
-	indent := strings.Repeat("  ", n.Depth-1)
-	if n.IsDir {
-		if n.Expanded {
-			return indent + "▾ "
-		}
-		return indent + "▸ "
-	}
-	return indent + "  "
-}

@@ -1,0 +1,56 @@
+diff --git a/dist/index.cjs b/dist/index.cjs
+index 0bde689810312a618d042d29347d6904d03f4c99..1ca1a4941f6c10cf9ab2a3aa491873fc4c40428c 100644
+--- a/dist/index.cjs
++++ b/dist/index.cjs
+@@ -979,6 +979,23 @@ const serverCompletionSource = context => {
+                     extraEdits.push({ index: i, text, edits });
+                     option.apply = applyEdits(edits, text, null);
+                 }
++                else if (plugin.client.serverCapabilities && plugin.client.serverCapabilities.completionProvider && plugin.client.serverCapabilities.completionProvider.resolveProvider) {
++                    // bish patch: servers like gopls/tsserver defer auto-import
++                    // additionalTextEdits to completionItem/resolve — resolve on
++                    // accept (VSCode semantics), fall back to plain insert on error
++                    option.apply = (view, completion, from, to) => {
++                        plugin.client.request("completionItem/resolve", item).then(resolved => {
++                            let edits = [];
++                            for (let edit of (resolved && resolved.additionalTextEdits) || []) {
++                                let f = fromPositionChecked(view.state.doc, edit.range.start);
++                                let t = fromPositionChecked(view.state.doc, edit.range.end);
++                                if (f != null && t != null)
++                                    edits.push({ from: f, to: t, text: edit.newText });
++                            }
++                            applyEdits(edits, text, null)(view, completion, from, to);
++                        }, () => view.dispatch(autocomplete.insertCompletionText(view.state, text, from, to)));
++                    };
++                }
+                 else if (option.label != text) {
+                     option.apply = text;
+                 }
+diff --git a/dist/index.js b/dist/index.js
+index e53e571e2fdcd1220133c27cf064696213d4d0c5..3e71800999f25378d4aad02370a3518be175d5a3 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -977,6 +977,23 @@ const serverCompletionSource = context => {
+                     extraEdits.push({ index: i, text, edits });
+                     option.apply = applyEdits(edits, text, null);
+                 }
++                else if (plugin.client.serverCapabilities && plugin.client.serverCapabilities.completionProvider && plugin.client.serverCapabilities.completionProvider.resolveProvider) {
++                    // bish patch: servers like gopls/tsserver defer auto-import
++                    // additionalTextEdits to completionItem/resolve — resolve on
++                    // accept (VSCode semantics), fall back to plain insert on error
++                    option.apply = (view, completion, from, to) => {
++                        plugin.client.request("completionItem/resolve", item).then(resolved => {
++                            let edits = [];
++                            for (let edit of (resolved && resolved.additionalTextEdits) || []) {
++                                let f = fromPositionChecked(view.state.doc, edit.range.start);
++                                let t = fromPositionChecked(view.state.doc, edit.range.end);
++                                if (f != null && t != null)
++                                    edits.push({ from: f, to: t, text: edit.newText });
++                            }
++                            applyEdits(edits, text, null)(view, completion, from, to);
++                        }, () => view.dispatch(insertCompletionText(view.state, text, from, to)));
++                    };
++                }
+                 else if (option.label != text) {
+                     option.apply = text;
+                 }

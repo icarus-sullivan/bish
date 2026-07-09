@@ -21,6 +21,7 @@ export {
   LSPStart, LSPSend, LSPStop,
   ReadFileBase64,
   RefreshTree, CollapseAllTree,
+  GitBlame, GitStatus,
 } from '../../wailsjs/go/app/App'
 
 import { GetMediaBase } from '../../wailsjs/go/app/App'
@@ -48,6 +49,9 @@ export interface ProjectCmd { id: string; name?: string; command: string; direct
 export interface RecentEntry { path: string; name: string }
 export interface SearchResultDTO { file: string; line: number; col: number; text: string }
 export interface SymbolInfo { name: string; kind: string; file: string; importPath: string; pkg: string }
+export interface BlameLine { sha: string; author: string; time: number; summary: string }
+export interface GitFileStatus { status: string; path: string }
+export interface GitStatusDTO { branch: string; files: GitFileStatus[] }
 export interface TreeNode {
   name: string; path: string; isDir: boolean; depth: number
   expanded: boolean; selected: boolean

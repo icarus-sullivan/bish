@@ -68,6 +68,10 @@ export function GetTheme():Promise<app.ThemeDTO>;
 
 export function GetTreeNodes():Promise<Array<app.TreeNodeDTO>>;
 
+export function GitBlame(arg1:string):Promise<Array<app.BlameLine>>;
+
+export function GitStatus():Promise<app.GitStatusDTO>;
+
 export function IsVideo(arg1:string):Promise<boolean>;
 
 export function KillProcess(arg1:string):Promise<void>;
