@@ -102,10 +102,16 @@
       }
     }
     function dropGl() {
-      gl?.dispose()
+      if (!gl) return
+      // never let a renderer teardown escape: this runs inside
+      // activeTabId.set(), so an uncaught throw kills every tab switch
+      try { gl.dispose() } catch {}
       gl = undefined
     }
-    loadGl()
+    // hidden terminals (session restore mounts them under display:none) must
+    // not init WebGL on a zero-size canvas — the addon half-activates and
+    // its dispose throws; they get GL on first activation instead
+    if (get(activeTabId) === terminalId) loadGl()
     // reveal one frame later: first visible paint is the final renderer
     requestAnimationFrame(() => { ready = true })
 

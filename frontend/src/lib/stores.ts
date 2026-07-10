@@ -151,6 +151,11 @@ export function addTerminalTab(id: string) {
 }
 
 export function setTabModified(id: string, modified: boolean) {
+  // no-op when unchanged: FileViewer's load() runs inside an $effect and
+  // calls this synchronously — an unconditional store emit re-renders the
+  // tab list, re-triggering the effect → infinite loop (all clicks die)
+  const t = get(tabs).find(t => t.id === id)
+  if (!t || !!t.modified === modified) return
   tabs.update(ts => ts.map(t => t.id === id ? { ...t, modified } : t))
 }
 
