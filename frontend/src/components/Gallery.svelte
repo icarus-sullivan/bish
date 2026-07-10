@@ -1,6 +1,7 @@
 <script lang="ts">
   import { galleryImages, galleryIndex, galleryMode } from '../lib/stores'
-  import { ReadFileBase64, mediaUrl } from '../lib/wails'
+  import { ReadFileBase64, mediaUrl, FSDelete } from '../lib/wails'
+  import { IconTrash } from '@tabler/icons-svelte'
 
   let slideshow: ReturnType<typeof setInterval> | null = null
   let slideshowActive = $state(false)
@@ -15,6 +16,15 @@
     }
     return () => { if (slideshow) clearInterval(slideshow) }
   })
+
+  async function deleteCurrent() {
+    const path = current
+    if (!confirm(`Permanently delete ${filename}? This cannot be undone.`)) return
+    try { await FSDelete(path) } catch { return }
+    galleryImages.update(imgs => imgs.filter(p => p !== path))
+    if ($galleryImages.length === 0) { exit(); return }
+    galleryIndex.update(i => Math.min(i, $galleryImages.length - 1))
+  }
 
   function next() { galleryIndex.update(i => (i + 1) % $galleryImages.length) }
   function prev() { galleryIndex.update(i => (i - 1 + $galleryImages.length) % $galleryImages.length) }
@@ -62,6 +72,7 @@
 {#if $galleryMode && current}
   <div class="gallery">
     <div class="toolbar">
+      <button class="btn" onclick={deleteCurrent} title="Delete (permanent)"><IconTrash size={13} /></button>
       <span class="info">{filename} ({$galleryIndex + 1}/{total})</span>
       <button class="btn" onclick={() => slideshowActive = !slideshowActive}
         class:active={slideshowActive}>⏵</button>
@@ -105,6 +116,9 @@
     border-bottom: 1px solid var(--border);
   }
   .btn, .close-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
     background: none;
     border: none;
     color: var(--muted);

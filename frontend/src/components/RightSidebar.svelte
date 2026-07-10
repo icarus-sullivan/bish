@@ -64,7 +64,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 4px;
+    gap: 10px;
     width: 44px;
     flex-shrink: 0;
     padding: 8px;
