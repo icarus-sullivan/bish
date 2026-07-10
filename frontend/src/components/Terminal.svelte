@@ -86,14 +86,26 @@
     term.open(container)
     fitAddon.fit()
 
-    // GPU renderer (what VSCode uses); no GL / context loss → DOM fallback
-    try {
-      const gl = new WebglAddon()
-      gl.onContextLoss(() => gl.dispose())
-      term.loadAddon(gl)
-    } catch (err) {
-      console.error('webgl addon failed, using DOM renderer', err)
+    // GPU renderer (what VSCode uses); no GL / context loss → DOM fallback.
+    // Loaded only while this tab is active — browsers cap WebGL contexts at
+    // ~8-16, so hidden tabs must not each hold one.
+    let gl: WebglAddon | undefined
+    function loadGl() {
+      if (gl) return
+      try {
+        const addon = new WebglAddon()
+        addon.onContextLoss(() => { addon.dispose(); gl = undefined })
+        term.loadAddon(addon)
+        gl = addon
+      } catch (err) {
+        console.error('webgl addon failed, using DOM renderer', err)
+      }
     }
+    function dropGl() {
+      gl?.dispose()
+      gl = undefined
+    }
+    loadGl()
     // reveal one frame later: first visible paint is the final renderer
     requestAnimationFrame(() => { ready = true })
 
@@ -131,10 +143,14 @@
     })
     resizeObserver.observe(container)
 
-    // Focus when this terminal's tab becomes active
+    // Focus + GPU renderer when this terminal's tab becomes active;
+    // hidden tabs render via the DOM fallback (buffer/scrollback unaffected)
     const unsubActive = activeTabId.subscribe((id) => {
       if (id === terminalId) {
+        loadGl()
         requestAnimationFrame(() => { fitAddon.fit(); term.focus() })
+      } else {
+        dropGl()
       }
     })
 
@@ -164,6 +180,7 @@
       unsubTheme()
       resizeObserver.disconnect()
       OnFileDropOff()
+      dropGl()
       term.dispose()
     }
   }

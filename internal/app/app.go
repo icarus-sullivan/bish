@@ -42,12 +42,7 @@ var videoExts = map[string]bool{
 
 const maxSearchFileSize = 2 * 1024 * 1024 // ponytail: skip huge files in search/replace; raise if it bites
 
-var skipDirs = map[string]bool{
-	".git": true, "node_modules": true, "vendor": true,
-	"dist": true, "__pycache__": true, ".next": true,
-	"target": true, ".cache": true, ".svelte-kit": true,
-	".build": true, "build": false, // "build" kept — user might want it
-}
+var skipDirs = tree.SkipDirs
 
 type App struct {
 	mgr                    *process.Manager
@@ -93,7 +88,7 @@ func New(cfg config.Config, mgr *process.Manager, store *commands.Store,
 		cmdStore:    store,
 		shell:       shell,
 		terminals:   make(map[string]*bishpty.PTY),
-		fileTree:    tree.New(cwd),
+		fileTree:    &tree.Tree{}, // loaded async in Startup — a sync walk of cwd (often $HOME) blocks the window
 		cwd:         cwd,
 		cwdFile:     cwdFile,
 		wFilePath:   wFilePath,
@@ -118,8 +113,11 @@ func (a *App) Startup(ctx context.Context) {
 	}
 	if a.StartupProject != "" {
 		go a.openProjectDir(a.StartupProject) //nolint
-	} else if !a.NoRestore {
-		go a.restoreSession()
+	} else {
+		go a.reloadTree()
+		if !a.NoRestore {
+			go a.restoreSession()
+		}
 	}
 	if a.DockMenuUpdater != nil {
 		a.DockMenuUpdater()

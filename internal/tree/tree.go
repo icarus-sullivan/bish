@@ -22,10 +22,14 @@ type Tree struct {
 	Selected int
 }
 
-func New(root string) *Tree {
-	t := &Tree{}
-	t.Load(root)
-	return t
+// SkipDirs are heavy directories the walker shows but never descends into
+// eagerly; children load only on explicit expand. Shared with search/replace
+// and the fs watcher, which skip them outright.
+var SkipDirs = map[string]bool{
+	".git": true, "node_modules": true, "vendor": true,
+	"dist": true, "__pycache__": true, ".next": true,
+	"target": true, ".cache": true, ".svelte-kit": true,
+	".build": true, "build": false, // "build" kept — user might want it
 }
 
 func (t *Tree) Load(root string) {
@@ -63,7 +67,11 @@ func loadNode(path string, depth, maxDepth int) *Node {
 		if strings.HasPrefix(e.Name(), ".") {
 			continue
 		}
-		child := loadNode(filepath.Join(path, e.Name()), depth+1, maxDepth)
+		md := maxDepth
+		if e.IsDir() && SkipDirs[e.Name()] {
+			md = depth + 1 // show collapsed; children load on expand
+		}
+		child := loadNode(filepath.Join(path, e.Name()), depth+1, md)
 		n.Children = append(n.Children, child)
 	}
 	return n
