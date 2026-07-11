@@ -38,7 +38,10 @@ const blameField = StateField.define<DecorationSet>({
         ])
       }
     }
-    if (tr.docChanged) return Decoration.none
+    // don't clear the widget synchronously in the same transaction as a
+    // keystroke — removing a DOM node right at the cursor mid-edit can
+    // disrupt the webview's caret rendering. the ViewPlugin below already
+    // marks blame stale on docChanged and clears it via a deferred dispatch.
     return deco.map(tr.changes)
   },
   provide: f => EditorView.decorations.from(f),

@@ -4,6 +4,7 @@
   import { SearchInFiles, ReplaceInFiles } from '../lib/wails'
   import { get } from 'svelte/store'
   import type { SearchResultDTO } from '../lib/wails'
+  import { registerKeybind } from '../lib/keybinds'
 
   let query = $state('')
   let replaceText = $state('')
@@ -17,7 +18,10 @@
   let searchError = $state('')
   let inputEl: HTMLInputElement
 
-  onMount(() => { inputEl?.focus() })
+  onMount(() => {
+    inputEl?.focus()
+    return registerKeybind({ combo: 'escape', handler: () => showGlobalSearch.set(false) })
+  })
 
   function searchDir() {
     return get(projectRoot) || get(cwd)
@@ -86,10 +90,6 @@
     showGlobalSearch.set(false)
   }
 
-  function handleKey(e: KeyboardEvent) {
-    if (e.key === 'Escape') showGlobalSearch.set(false)
-  }
-
   function relPath(file: string) {
     const dir = searchDir()
     return dir && file.startsWith(dir + '/') ? file.slice(dir.length + 1) : file
@@ -102,8 +102,6 @@
     }, {})
   )
 </script>
-
-<svelte:window onkeydown={handleKey} />
 
 <div class="overlay" onclick={() => showGlobalSearch.set(false)} role="dialog" aria-modal="true">
   <div class="panel" onclick={(e) => e.stopPropagation()}>

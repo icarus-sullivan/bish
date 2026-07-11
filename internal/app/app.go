@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -41,6 +42,8 @@ var videoExts = map[string]bool{
 }
 
 const maxSearchFileSize = 2 * 1024 * 1024 // ponytail: skip huge files in search/replace; raise if it bites
+
+const maxEditorFileSize = 5 * 1024 * 1024 // CodeMirror chokes on single docs much past this
 
 var skipDirs = tree.SkipDirs
 
@@ -647,11 +650,56 @@ func (a *App) ReadFileBase64(path string) (string, error) {
 }
 
 func (a *App) ReadFile(path string) (string, error) {
+	if fi, err := os.Stat(path); err == nil && fi.Size() > maxEditorFileSize {
+		return "", fmt.Errorf("file too large to open in editor (%.1f MB, limit %d MB)",
+			float64(fi.Size())/(1024*1024), maxEditorFileSize/(1024*1024))
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
 	}
+	// git heuristic: null byte in first 8000 bytes = binary
+	if bytes.IndexByte(data[:min(len(data), 8000)], 0) != -1 {
+		return "", fmt.Errorf("binary file — not displayable as text")
+	}
 	return string(data), nil
+}
+
+const maxChunkSize = 1 << 20
+const maxRawFileSize = 1 << 30 // 1GB — hard ceiling even for the chunked raw view
+
+type FileChunk struct {
+	DataB64 string `json:"dataB64"`
+	Size    int64  `json:"size"`
+}
+
+// ReadFileChunk reads length bytes at offset without loading the whole file —
+// the raw-view fallback for files ReadFile refuses (too large / binary).
+func (a *App) ReadFileChunk(path string, offset, length int64) (FileChunk, error) {
+	if length <= 0 || length > maxChunkSize {
+		length = maxChunkSize
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return FileChunk{}, err
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return FileChunk{}, err
+	}
+	if fi.Size() > maxRawFileSize {
+		return FileChunk{}, fmt.Errorf("file too large to view (%.1f GB, limit 1 GB)", float64(fi.Size())/(1<<30))
+	}
+	if offset < 0 || offset >= fi.Size() {
+		return FileChunk{Size: fi.Size()}, nil
+	}
+	buf := make([]byte, min(length, fi.Size()-offset))
+	n, err := f.ReadAt(buf, offset)
+	if err != nil && err != io.EOF {
+		return FileChunk{}, err
+	}
+	return FileChunk{DataB64: base64.StdEncoding.EncodeToString(buf[:n]), Size: fi.Size()}, nil
 }
 
 func (a *App) WriteFile(path, content string) error {

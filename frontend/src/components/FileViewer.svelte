@@ -18,19 +18,19 @@
   import { yaml } from '@codemirror/lang-yaml'
   import { go } from '@codemirror/lang-go'
   import { shell } from '@codemirror/legacy-modes/mode/shell'
-  import { ReadFile, WriteFile, SaveNewFile, mediaUrl } from '../lib/wails'
-  import { currentThemeName, cwd, projectRoot, updateTabPath, closeTab, setTabModified, pendingGoto, pendingFocus } from '../lib/stores'
+  import { ReadFile, ReadFileChunk, WriteFile, SaveNewFile, mediaUrl } from '../lib/wails'
+  import { currentThemeName, cwd, projectRoot, updateTabPath, setTabModified, pendingGoto, pendingFocus } from '../lib/stores'
   import { codeIntel, intelKindFor } from '../lib/codeintel'
   import { invalidateSymbols } from '../lib/autoimport'
   import { gitBlame, refreshBlame } from '../lib/gitblame'
   import { lspFormat } from '../lib/lsp'
+  import { registerKeybind } from '../lib/keybinds'
   import { formatOnSave } from '../lib/stores'
   import { indentUnit } from '@codemirror/language'
   import { svelte } from '@replit/codemirror-lang-svelte'
   import { get } from 'svelte/store'
   import { marked } from 'marked'
   import DOMPurify from 'dompurify'
-  import { IconEye, IconCode } from '@tabler/icons-svelte'
 
   const UNTITLED = '__new__'
 
@@ -38,12 +38,10 @@
 
   let container: HTMLDivElement
   let view: EditorView | null = null
-  let modified = $state(false)
   let panelObserver: MutationObserver | undefined
 
   // keep the tab store in sync so closeTab can guard against losing edits
   function setModified(m: boolean) {
-    modified = m
     setTabModified(tabId, m)
   }
 
@@ -88,8 +86,65 @@
   }
   let saving = $state(false)
   let saveError = $state('')
+  let loadError = $state('')
 
-  const filename = $derived(path === UNTITLED ? 'Untitled' : (path.split('/').pop() ?? ''))
+  // ─── raw chunked view (files ReadFile refuses: too large / binary) ────────
+  const CHUNK = 64 * 1024
+  let rawMode = $state(false)
+  let rawOffset = $state(0)
+  let rawSize = $state(0)
+  let rawHex = $state(false)      // current chunk contains null bytes → hex dump
+  let rawForceText = $state(false) // user toggle: decode binary chunk as text anyway
+  let rawContent = $state('')
+  let rawLoading = $state(false)
+
+  function hexDump(bytes: Uint8Array, base: number): string {
+    const lines: string[] = []
+    for (let i = 0; i < bytes.length; i += 16) {
+      const row = bytes.subarray(i, i + 16)
+      const hex = Array.from(row, (b) => b.toString(16).padStart(2, '0')).join(' ')
+      const ascii = Array.from(row, (b) => (b >= 32 && b < 127 ? String.fromCharCode(b) : '.')).join('')
+      lines.push((base + i).toString(16).padStart(8, '0') + '  ' + hex.padEnd(47) + '  |' + ascii + '|')
+    }
+    return lines.join('\n')
+  }
+
+  function renderChunk(bytes: Uint8Array, offset: number) {
+    rawHex = bytes.indexOf(0) !== -1 && !rawForceText
+    rawContent = rawHex
+      ? hexDump(bytes, offset)
+      : new TextDecoder('utf-8', { fatal: false }).decode(bytes)
+  }
+
+  let rawBytes: Uint8Array = new Uint8Array(0)
+  async function loadChunk(offset: number): Promise<boolean> {
+    rawLoading = true
+    try {
+      const chunk = await ReadFileChunk(path, offset, CHUNK)
+      rawSize = Number(chunk.size ?? 0)
+      const bin = atob(chunk.dataB64 ?? '')
+      rawBytes = Uint8Array.from(bin, (c) => c.charCodeAt(0))
+      rawOffset = offset
+      renderChunk(rawBytes, offset)
+      return true
+    } catch {
+      return false
+    } finally {
+      rawLoading = false
+    }
+  }
+
+  function toggleRawText() {
+    rawForceText = !rawForceText
+    renderChunk(rawBytes, rawOffset)
+  }
+
+  const fmtBytes = (n: number) =>
+    n >= 1 << 30 ? (n / (1 << 30)).toFixed(1) + ' GB'
+    : n >= 1 << 20 ? (n / (1 << 20)).toFixed(1) + ' MB'
+    : n >= 1024 ? (n / 1024).toFixed(1) + ' KB'
+    : n + ' B'
+
 
   // ─── markdown preview ─────────────────────────────────────────────────────
   const isMarkdown = $derived(['md', 'markdown'].includes(path.split('.').pop()?.toLowerCase() ?? ''))
@@ -431,14 +486,27 @@
     view = null
     setModified(false)
     saveError = ''
+    loadError = ''
+    rawMode = false
+    rawForceText = false
     preview = false
 
     let content = ''
     if (p !== UNTITLED) {
       content = await ReadFile(p).catch((e: any) => {
-        saveError = String(e)
+        loadError = String(e)
         return ''
       })
+    }
+    // never mount an editor for a failed read — saving would clobber the file.
+    // Fall back to the read-only chunked raw view; keep the error if even
+    // chunked reads fail (>1GB, permissions, ...).
+    if (loadError) {
+      if (await loadChunk(0)) {
+        rawMode = true
+        loadError = ''
+      }
+      return
     }
     if (!container) return
 
@@ -461,7 +529,6 @@
             { key: 'Shift-Tab', run: (v) => { indentLess(v); return true } },
           ])),
           keymap.of([
-            { key: 'Mod-s', run: () => { save(); return true } },
             ...defaultKeymap,
             ...historyKeymap,
             ...searchKeymap,
@@ -515,12 +582,20 @@
     }
   })
 
-  // Reload when path or theme changes
-  $effect(() => { load(path, $currentThemeName) })
+  // Reload when path or theme changes. Guard against re-runs where neither
+  // actually changed: any $tabs emit (e.g. setTabModified on every keystroke)
+  // recreates the tab object, which re-fires this effect via the path prop —
+  // without the guard the editor is destroyed/recreated per keystroke.
+  let lastLoaded: { path: string; theme: string } | null = null
+  $effect(() => {
+    if (lastLoaded && lastLoaded.path === path && lastLoaded.theme === $currentThemeName) return
+    lastLoaded = { path, theme: $currentThemeName }
+    load(path, $currentThemeName)
+  })
 
   // ─── save ─────────────────────────────────────────────────────────────────
   async function save() {
-    if (!view || saving) return
+    if (!view || saving || loadError) return
     saving = true
     saveError = ''
     try {
@@ -549,33 +624,54 @@
     panelObserver?.disconnect()
     view?.destroy()
   })
+
+  // plain onMount, not $effect: neither combo depends on a value that needs
+  // re-tracking (isMarkdown is only read when 'when()' is invoked on an
+  // actual keypress, not during registration), so onMount avoids any risk
+  // of this block re-running on unrelated component updates
+  onMount(() => {
+    const offs = [
+      registerKeybind({ combo: 'mod+s', handler: (e) => { e.preventDefault(); save() } }),
+      registerKeybind({
+        combo: 'mod+shift+v',
+        when: () => isMarkdown,
+        handler: (e) => { e.preventDefault(); togglePreview() },
+      }),
+    ]
+    return () => offs.forEach(off => off())
+  })
 </script>
 
-<svelte:window onkeydown={(e) => {
-  if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); save() }
-  if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'v' && isMarkdown) {
-    e.preventDefault(); togglePreview()
-  }
-}} />
-
 <div class="viewer-wrap">
-  <div class="viewer-bar">
-    <span class="filename" class:modified>{filename}{modified ? ' ●' : ''}</span>
-    {#if saving}
-      <span class="status muted">Saving…</span>
-    {:else if saveError}
-      <span class="status err" title={saveError}>Error saving</span>
-    {/if}
-    <span class="spacer"></span>
-    <span class="hint">⌘S · ⌘F · ⌘H · ⌘Z</span>
-    {#if isMarkdown}
-      <button class="close-btn" onclick={togglePreview} title="Toggle preview (⇧⌘V)">
-        {#if preview}<IconCode size={13} />{:else}<IconEye size={13} />{/if}
+  {#if saving || saveError}
+    <div class="status-bar">
+      {#if saving}
+        <span class="status muted">Saving…</span>
+      {:else}
+        <span class="status err" title={saveError}>Error saving: {saveError}</span>
+      {/if}
+    </div>
+  {/if}
+  {#if loadError}
+    <div class="load-error">{loadError}</div>
+  {:else if rawMode}
+    <div class="raw-bar">
+      <span class="raw-info">
+        {fmtBytes(rawOffset)}–{fmtBytes(Math.min(rawOffset + CHUNK, rawSize))} of {fmtBytes(rawSize)} · read-only
+      </span>
+      <span class="spacer"></span>
+      <button class="raw-btn" onclick={toggleRawText} title={rawForceText ? 'Show hex dump' : 'Decode chunk as text'}>
+        {rawForceText ? 'hex' : 'text'}
       </button>
-    {/if}
-    <button class="close-btn" onclick={() => closeTab(tabId)} title="Close">✕</button>
-  </div>
-  <div bind:this={container} class="cm-container" style:display={preview ? 'none' : ''}></div>
+      <button class="raw-btn" disabled={rawLoading || rawOffset === 0}
+        onclick={() => loadChunk(Math.max(0, rawOffset - CHUNK))}>‹ prev</button>
+      <button class="raw-btn" disabled={rawLoading || rawOffset + CHUNK >= rawSize}
+        onclick={() => loadChunk(rawOffset + CHUNK)}>next ›</button>
+    </div>
+    <pre class="raw-view">{rawContent}</pre>
+  {:else}
+    <div bind:this={container} class="cm-container" style:display={preview ? 'none' : ''}></div>
+  {/if}
   {#if preview}
     <div class="md-preview">
       <div class="md-body">{@html previewHtml}</div>
@@ -593,42 +689,64 @@
     background: var(--background);
   }
 
-  .viewer-bar {
+  .status-bar {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 0 12px;
-    height: 30px;
+    padding: 2px 12px;
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
     background: var(--bg-raised);
   }
-
-  .filename {
-    color: var(--foreground);
-    font-family: "SF Mono", Menlo, monospace;
-    font-size: 12px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .filename.modified { color: var(--warning); }
-
   .status { font-size: 11px; }
   .status.muted { color: var(--muted); }
   .status.err   { color: var(--error); cursor: help; }
 
   .spacer { flex: 1; }
-  .hint { font-size: 10px; color: color-mix(in srgb, var(--muted) 60%, transparent); }
 
-  .close-btn {
-    background: none; border: none;
-    color: var(--muted); cursor: pointer;
-    font-size: 14px; line-height: 1;
-    padding: 3px 5px; border-radius: 3px;
+  .raw-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 8px;
+    border-bottom: 1px solid var(--border, rgba(128,128,128,0.2));
   }
-  .close-btn:hover { color: var(--foreground); background: var(--bg-hover); }
-
+  .raw-info { font-size: 11px; color: var(--muted); }
+  .raw-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 3px 4px;
+    border-radius: 3px;
+    font-size: 11px;
+    transition: color 0.1s, background 0.1s;
+  }
+  .raw-btn:hover:not(:disabled) { color: var(--foreground); background: var(--bg-hover); }
+  .raw-btn:disabled { opacity: 0.4; cursor: default; }
+  .raw-view {
+    flex: 1;
+    overflow: auto;
+    margin: 0;
+    padding: 8px 12px;
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--foreground);
+    white-space: pre;
+  }
+  .load-error {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    color: var(--muted);
+    font-size: 12px;
+    text-align: center;
+  }
   .cm-container { flex: 1; overflow: hidden; min-height: 0; }
   .cm-container :global(.cm-editor) { height: 100%; }
 
@@ -770,7 +888,7 @@
     height: 0 !important;
     pointer-events: none !important;
   }
-  /* close button — matches .close-btn in viewer bar */
+  /* close button */
   :global(.cm-search button[name="close"]) {
     border: none !important;
     background: none !important;

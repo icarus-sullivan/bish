@@ -10,7 +10,7 @@ export {
   WritePTY, ResizePTY,
   GetGalleryImages, GetCurrentGalleryPath, IsVideo,
   GetTheme, GetConfig, SaveConfig,
-  ReadFile, WriteFile,
+  ReadFile, ReadFileChunk, WriteFile,
   OpenProject, CloseProject, GetProjectRoot, GetAllFiles, GetCWD,
   NewWindow, SaveNewFile,
   GetProjectCommands, GetRecentProjects, OpenRecentProject, DeleteProjectCommand, RunProjectCommand, AddProjectCommand, RenameProjectCommand,

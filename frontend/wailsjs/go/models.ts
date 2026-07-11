@@ -18,6 +18,20 @@ export namespace app {
 	        this.summary = source["summary"];
 	    }
 	}
+	export class FileChunk {
+	    dataB64: string;
+	    size: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new FileChunk(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.dataB64 = source["dataB64"];
+	        this.size = source["size"];
+	    }
+	}
 	export class GitFileStatus {
 	    status: string;
 	    path: string;

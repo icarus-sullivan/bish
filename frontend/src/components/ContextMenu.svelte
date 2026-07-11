@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
+  import { registerKeybind } from '../lib/keybinds'
+
   interface MenuItem {
     label: string
     action: () => void
@@ -14,12 +17,10 @@
     onClose()
   }
 
-  function handleKey(e: KeyboardEvent) {
-    if (e.key === 'Escape') onClose()
-  }
+  onMount(() => registerKeybind({ combo: 'escape', handler: onClose }))
 </script>
 
-<svelte:window onkeydown={handleKey} onclick={onClose} />
+<svelte:window onclick={onClose} />
 
 <div class="menu" style="left:{x}px; top:{y}px" role="menu">
   {#each items as item, i}

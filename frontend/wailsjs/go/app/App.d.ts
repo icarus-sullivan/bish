@@ -96,6 +96,8 @@ export function ReadFile(arg1:string):Promise<string>;
 
 export function ReadFileBase64(arg1:string):Promise<string>;
 
+export function ReadFileChunk(arg1:string,arg2:number,arg3:number):Promise<app.FileChunk>;
+
 export function RefreshTree():Promise<void>;
 
 export function RenameCommand(arg1:string,arg2:string):Promise<void>;

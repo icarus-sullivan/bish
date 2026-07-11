@@ -3,6 +3,9 @@ import { svelte } from '@sveltejs/vite-plugin-svelte'
 
 export default defineConfig({
   plugins: [svelte()],
+  server: {
+    port: 8150,
+  },
   resolve: {
     conditions: ['browser', 'svelte', 'module', 'import', 'default'],
   },

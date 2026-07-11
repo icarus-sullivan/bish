@@ -2,9 +2,10 @@
   import { onMount } from 'svelte'
   import { focusedPane, galleryMode, cwd, showRight, activeRightPanel,
            rightWidth, currentThemeName,
-           showPalette, showGlobalSearch, tabs, activeTabId, openFileTab, closeTab, reopenMainTab } from './lib/stores'
+           showPalette, showGlobalSearch, tabs, activeTabId, closeTab, reopenMainTab } from './lib/stores'
   import { get } from 'svelte/store'
   import { initEvents } from './lib/events'
+  import { registerKeybind } from './lib/keybinds'
   import Terminal from './components/Terminal.svelte'
   import RightSidebar from './components/RightSidebar.svelte'
   import FileViewer from './components/FileViewer.svelte'
@@ -27,73 +28,69 @@
   type Pane = 'processes' | 'commands' | 'terminal' | 'tree'
   const paneOrder: Pane[] = ['processes', 'commands', 'terminal', 'tree']
 
-  onMount(async () => {
-    await initEvents()
-    try {
-      const cfg: any = await GetConfig()
-      currentThemeName.set(cfg?.theme || 'obsidian')
-    } catch {}
-  })
+  onMount(() => {
+    (async () => {
+      await initEvents()
+      try {
+        const cfg: any = await GetConfig()
+        currentThemeName.set(cfg?.theme || 'obsidian')
+      } catch {}
+    })()
 
-  function handleKey(e: KeyboardEvent) {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'p') {
-      e.preventDefault()
-      showPalette.set(true)
-      return
-    }
-    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'f') {
-      e.preventDefault()
-      showGlobalSearch.update(v => !v)
-      return
-    }
-    if ((e.metaKey || e.ctrlKey) && e.key === 'o') {
-      e.preventDefault()
-      openProject()
-      return
-    }
-    if ((e.metaKey || e.ctrlKey) && e.key === 'n') {
-      e.preventDefault()
-      openFileTab('__new__')
-      return
-    }
-    if ((e.metaKey || e.ctrlKey) && e.key === 't') {
-      e.preventDefault()
-      focusedPane.update(p => paneOrder[(paneOrder.indexOf(p) + 1) % paneOrder.length])
-      // sidebar follows the focused pane (tree lives in the 'files' panel)
-      const pane = get(focusedPane)
-      if (pane !== 'terminal') {
-        activeRightPanel.set(pane === 'tree' ? 'files' : pane)
-        showRight.set(true)
-      }
-      return
-    }
-    // fire when focus is elsewhere OR no terminal tab exists (closing the
-    // terminal tab leaves focusedPane stuck on 'terminal')
-    if (e.key === 'Enter' &&
-        ($focusedPane !== 'terminal' || !$tabs.some(t => t.type === 'terminal'))) {
-      // skip contexts where Enter means something else (editor newline, tree
-      // row open, button activation, form inputs); a focused container like
-      // the FileTree panel (tabindex=-1) still falls through to the terminal
-      const t = e.target as HTMLElement
-      if (['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(t.tagName) || t.isContentEditable ||
-          t.closest?.('.cm-editor, .xterm, [role="treeitem"], [role="button"]')) return
-      e.preventDefault()
-      const termTab = $tabs.find(t => t.type === 'terminal')
-      if (termTab) activeTabId.set(termTab.id)
-      else reopenMainTab()
-      focusedPane.set('terminal')
-    }
-    if (e.key === 'Escape') {
-      // If focus was inside a CM search panel, CM already handled it — don't also close the tab.
-      // e.target retains its ancestor chain even after CM removes the panel from the DOM.
-      if ((e.target as HTMLElement).closest?.('.cm-search')) return
-      // CM consumed it (dismissed autocomplete, cancelled selection) — not a close request
-      if (e.defaultPrevented) return
-      const active = get(activeTabId)
-      const t = $tabs.find(tt => tt.id === active)
-      if (t && t.type !== 'terminal') closeTab(active)
-    }
-  }
+    // Cmd+N/O/P are handled natively (main.go menu accelerators emit
+    // file:new/palette:open/project:change, wired up in initEvents above) —
+    // no JS keydown branch for them, or they'd double-fire.
+    const offs = [
+      registerKeybind({
+        combo: 'mod+shift+f',
+        handler: (e) => { e.preventDefault(); showGlobalSearch.update(v => !v) },
+      }),
+      registerKeybind({
+        combo: 'mod+t',
+        handler: (e) => {
+          e.preventDefault()
+          focusedPane.update(p => paneOrder[(paneOrder.indexOf(p) + 1) % paneOrder.length])
+          // sidebar follows the focused pane (tree lives in the 'files' panel)
+          const pane = get(focusedPane)
+          if (pane !== 'terminal') {
+            activeRightPanel.set(pane === 'tree' ? 'files' : pane)
+            showRight.set(true)
+          }
+        },
+      }),
+      registerKeybind({
+        combo: 'enter',
+        // fire when focus is elsewhere OR no terminal tab exists (closing the
+        // terminal tab leaves focusedPane stuck on 'terminal')
+        when: () => get(focusedPane) !== 'terminal' || !get(tabs).some(t => t.type === 'terminal'),
+        handler: (e) => {
+          // skip contexts where Enter means something else (tree row open,
+          // button activation) beyond the registry's generic editable guard
+          const t = e.target as HTMLElement
+          if (t.tagName === 'BUTTON' || t.closest?.('[role="treeitem"], [role="button"]')) return
+          e.preventDefault()
+          const termTab = get(tabs).find(t => t.type === 'terminal')
+          if (termTab) activeTabId.set(termTab.id)
+          else reopenMainTab()
+          focusedPane.set('terminal')
+        },
+      }),
+      registerKeybind({
+        combo: 'escape',
+        handler: (e) => {
+          // If focus was inside a CM search panel, CM already handled it — don't also close the tab.
+          // e.target retains its ancestor chain even after CM removes the panel from the DOM.
+          if ((e.target as HTMLElement).closest?.('.cm-search')) return
+          // CM consumed it (dismissed autocomplete, cancelled selection) — not a close request
+          if (e.defaultPrevented) return
+          const active = get(activeTabId)
+          const t = get(tabs).find(tt => tt.id === active)
+          if (t && t.type !== 'terminal') closeTab(active)
+        },
+      }),
+    ]
+    return () => offs.forEach(off => off())
+  })
 
   async function openProject() {
     await OpenProject().catch(() => {})
@@ -116,7 +113,6 @@
   }
 </script>
 
-<svelte:document onkeydown={handleKey} />
 
 <div class="root">
 

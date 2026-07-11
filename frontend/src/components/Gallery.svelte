@@ -1,7 +1,9 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import { galleryImages, galleryIndex, galleryMode } from '../lib/stores'
   import { ReadFileBase64, mediaUrl, FSDelete } from '../lib/wails'
   import { IconTrash } from '@tabler/icons-svelte'
+  import { registerKeybind } from '../lib/keybinds'
 
   let slideshow: ReturnType<typeof setInterval> | null = null
   let slideshowActive = $state(false)
@@ -30,13 +32,15 @@
   function prev() { galleryIndex.update(i => (i - 1 + $galleryImages.length) % $galleryImages.length) }
   function exit() { galleryMode.set(false); if (slideshow) clearInterval(slideshow) }
 
-  function handleKey(e: KeyboardEvent) {
-    if (!$galleryMode) return
-    if (e.key === 'ArrowRight') { e.preventDefault(); next() }
-    else if (e.key === 'ArrowLeft') { e.preventDefault(); prev() }
-    else if (e.key === 'Escape') exit()
-    else if (e.key === 's') slideshowActive = !slideshowActive
-  }
+  onMount(() => {
+    const offs = [
+      registerKeybind({ combo: 'arrowright', handler: (e) => { e.preventDefault(); next() } }),
+      registerKeybind({ combo: 'arrowleft', handler: (e) => { e.preventDefault(); prev() } }),
+      registerKeybind({ combo: 'escape', handler: exit }),
+      registerKeybind({ combo: 's', handler: () => { slideshowActive = !slideshowActive } }),
+    ]
+    return () => offs.forEach(off => off())
+  })
 
   function isVideo(path: string) {
     return /\.(mp4|mov|webm|mkv|avi)$/i.test(path)
@@ -66,8 +70,6 @@
   const filename = $derived(current.split('/').pop() ?? '')
   const total = $derived($galleryImages.length)
 </script>
-
-<svelte:window onkeydown={handleKey} />
 
 {#if $galleryMode && current}
   <div class="gallery">
