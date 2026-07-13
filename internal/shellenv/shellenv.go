@@ -6,6 +6,7 @@ package shellenv
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"os/user"
@@ -35,18 +36,25 @@ func DefaultShell() string {
 }
 
 // LoadLoginEnv runs shell as login+interactive, captures its env, and applies
-// it to this process. On error or timeout the current env is kept.
-func LoadLoginEnv(shell string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	// -l loads zprofile/bash_profile, -i loads zshrc/bashrc
-	out, err := exec.CommandContext(ctx, shell, "-l", "-i", "-c", "command env").Output()
-	if err != nil {
-		return
+// it to this process. If the interactive shell fails or times out (slow
+// zshrc, nvm, etc.) it falls back to a plain login shell so .zprofile PATH
+// (brew shellenv etc.) is still recovered. On total failure the current env
+// is kept and an error is returned.
+func LoadLoginEnv(shell string) error {
+	// -l loads zprofile/bash_profile, -i loads zshrc/bashrc.
+	// A timed-out capture silently strands the whole session on launchd's
+	// minimal PATH, so be generous: interactive zsh startup is 1-2s warm.
+	out, ierr := captureEnv(shell, 15*time.Second, "-l", "-i", "-c", "command env -0")
+	if ierr != nil {
+		var lerr error
+		out, lerr = captureEnv(shell, 5*time.Second, "-l", "-c", "command env -0")
+		if lerr != nil {
+			return fmt.Errorf("interactive shell: %w; login shell: %w", ierr, lerr)
+		}
 	}
 
-	for _, line := range strings.Split(string(out), "\n") {
+	// env -0 separates entries with NUL, so multiline values parse intact.
+	for _, line := range strings.Split(string(out), "\x00") {
 		key, val, ok := strings.Cut(line, "=")
 		if !ok || key == "" {
 			continue
@@ -60,4 +68,14 @@ func LoadLoginEnv(shell string) {
 		}
 		os.Setenv(key, val) //nolint
 	}
+	if ierr != nil {
+		return fmt.Errorf("interactive shell failed, used login-only env: %w", ierr)
+	}
+	return nil
+}
+
+func captureEnv(shell string, timeout time.Duration, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return exec.CommandContext(ctx, shell, args...).Output()
 }

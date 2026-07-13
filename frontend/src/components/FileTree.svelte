@@ -222,6 +222,7 @@
         {#if renaming?.path === node.path}
           <input
             class="rename-input"
+            autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false"
             bind:value={renaming.value}
             onblur={commitRename}
             onkeydown={(e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') renaming = null }}
@@ -241,6 +242,7 @@
           <span class="create-icon">{#if creating.isFolder}<IconChevronRight size={14} />{:else}·{/if}</span>
           <input
             class="rename-input"
+            autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false"
             bind:value={creating.value}
             placeholder={creating.isFolder ? 'folder name' : 'file name'}
             onblur={commitCreate}

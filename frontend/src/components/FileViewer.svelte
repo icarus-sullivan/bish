@@ -50,7 +50,7 @@
     if (!panel) return
 
     // disable auto-capitalize/correct on all text inputs
-    panel.querySelectorAll<HTMLInputElement>('input[type=text]').forEach(el => {
+    panel.querySelectorAll<HTMLInputElement>('input.cm-textfield').forEach(el => {
       el.setAttribute('autocapitalize', 'none')
       el.setAttribute('autocorrect', 'off')
       el.setAttribute('autocomplete', 'off')

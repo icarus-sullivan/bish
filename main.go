@@ -126,7 +126,9 @@ func buildMenu(a *app.App) *menu.Menu {
 
 func run(themeName, shellPath, projectPath string, noRestore, childWindow bool) error {
 	// GUI launches get launchd's minimal env; recover PATH etc. from a login shell.
-	shellenv.LoadLoginEnv(shellenv.DefaultShell())
+	if err := shellenv.LoadLoginEnv(shellenv.DefaultShell()); err != nil {
+		fmt.Fprintf(os.Stderr, "shellenv: %v\n", err)
+	}
 
 	if childWindow {
 		hideDockIcon()
