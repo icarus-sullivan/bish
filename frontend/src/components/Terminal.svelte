@@ -7,8 +7,8 @@
   import '@xterm/xterm/css/xterm.css'
   import { focusedPane, theme, activeTabId, setTerminalTitle } from '../lib/stores'
   import { get } from 'svelte/store'
-  import { on, WritePTY, ResizePTY, WritePTYTab, ResizePTYTab } from '../lib/wails'
-  import { OnFileDrop, OnFileDropOff } from '../../wailsjs/runtime/runtime'
+  import { on, WritePTY, ResizePTY, WritePTYTab, ResizePTYTab, StashDropped } from '../lib/wails'
+  import { terminalLinkHandler, fileLinkProvider } from '../lib/termlinks'
 
   let { terminalId = 'main' }: { terminalId?: string } = $props()
 
@@ -74,7 +74,10 @@
       scrollback: 10000,
       padding: 8,
       allowProposedApi: true,
+      linkHandler: terminalLinkHandler,
     } as any)
+    // ⌘/⇧-click file paths and URLs in output
+    term.registerLinkProvider(fileLinkProvider(term))
 
     fitAddon = new FitAddon()
     const unicode11 = new Unicode11Addon()
@@ -168,15 +171,18 @@
       if (term) term.options.theme = themeFor(t) as any
     })
 
-    OnFileDrop((_x: number, _y: number, paths: string[]) => {
-      if (!paths.length) return
-      // only handle if this terminal's tab is active
-      if (get(activeTabId) !== terminalId) return
+    // routed from the global OnFileDrop handler in events.ts; only the
+    // terminal under the cursor receives it
+    const onDrop = async (e: Event) => {
+      const dropped: string[] = (e as CustomEvent).detail.paths
+      // temp files (screenshot previews) get copied somewhere durable before
+      // pasting — the original vanishes when the drag thumbnail dismisses
+      const paths = await StashDropped(dropped).catch(() => dropped)
       const text = paths.map(p => `"${p}"`).join(' ')
-      const isMain = terminalId === 'main'
       if (isMain) { WritePTY(text) } else { WritePTYTab(terminalId, text) }
       term.focus()
-    }, false)
+    }
+    container.addEventListener('bish:filedrop', onDrop)
 
     return () => {
       offData()
@@ -185,7 +191,7 @@
       unsubPane()
       unsubTheme()
       resizeObserver.disconnect()
-      OnFileDropOff()
+      container.removeEventListener('bish:filedrop', onDrop)
       dropGl()
       term.dispose()
     }

@@ -46,6 +46,14 @@ export function FSDeletePaths(arg1) {
   return window['go']['app']['App']['FSDeletePaths'](arg1);
 }
 
+export function FSDuplicate(arg1) {
+  return window['go']['app']['App']['FSDuplicate'](arg1);
+}
+
+export function FSMove(arg1, arg2) {
+  return window['go']['app']['App']['FSMove'](arg1, arg2);
+}
+
 export function FSNewFile(arg1, arg2) {
   return window['go']['app']['App']['FSNewFile'](arg1, arg2);
 }
@@ -240,6 +248,10 @@ export function SearchInFiles(arg1, arg2, arg3, arg4, arg5) {
 
 export function SetQuitRequested() {
   return window['go']['app']['App']['SetQuitRequested']();
+}
+
+export function StashDropped(arg1) {
+  return window['go']['app']['App']['StashDropped'](arg1);
 }
 
 export function ToggleTreeNode(arg1) {

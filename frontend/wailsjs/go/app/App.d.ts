@@ -28,6 +28,10 @@ export function FSDelete(arg1:string):Promise<void>;
 
 export function FSDeletePaths(arg1:Array<string>):Promise<void>;
 
+export function FSDuplicate(arg1:string):Promise<void>;
+
+export function FSMove(arg1:Array<string>,arg2:string):Promise<void>;
+
 export function FSNewFile(arg1:string,arg2:string):Promise<void>;
 
 export function FSNewFolder(arg1:string,arg2:string):Promise<void>;
@@ -125,6 +129,8 @@ export function SaveProjectUI(arg1:project.UIState):Promise<void>;
 export function SearchInFiles(arg1:string,arg2:string,arg3:boolean,arg4:boolean,arg5:boolean):Promise<Array<app.SearchResultDTO>>;
 
 export function SetQuitRequested():Promise<void>;
+
+export function StashDropped(arg1:Array<string>):Promise<Array<string>>;
 
 export function ToggleTreeNode(arg1:string):Promise<void>;
 

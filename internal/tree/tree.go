@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 )
 
 type Node struct {
@@ -21,6 +20,11 @@ type Tree struct {
 	Flat     []*Node // visible nodes in order
 	Selected int
 }
+
+// hiddenNames are the only entries the tree hides outright — dotfiles like
+// .env / .gitignore stay visible; dot-dirs like .svelte-kit show collapsed
+// via SkipDirs
+var hiddenNames = map[string]bool{".git": true, ".DS_Store": true}
 
 // SkipDirs are heavy directories the walker shows but never descends into
 // eagerly; children load only on explicit expand. Shared with search/replace
@@ -64,7 +68,7 @@ func loadNode(path string, depth, maxDepth int) *Node {
 		return entries[i].Name() < entries[j].Name()
 	})
 	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), ".") {
+		if hiddenNames[e.Name()] {
 			continue
 		}
 		md := maxDepth

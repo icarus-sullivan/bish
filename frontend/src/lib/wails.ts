@@ -6,7 +6,7 @@ export {
   GetProcesses, KillProcess, RestartProcess, GetProcessLogs,
   GetCommands, RunCommand, DeleteCommand, RenameCommand, AddCommand,
   GetTreeNodes, ToggleTreeNode, CdToPath,
-  FSNewFile, FSNewFolder, FSRename, FSDelete, FSDeletePaths, FSCopyPath, FSRevealInFinder,
+  FSNewFile, FSNewFolder, FSRename, FSDelete, FSDeletePaths, FSCopyPath, FSRevealInFinder, FSMove, FSDuplicate, StashDropped,
   WritePTY, ResizePTY,
   GetGalleryImages, GetCurrentGalleryPath, IsVideo,
   GetTheme, GetConfig, SaveConfig,

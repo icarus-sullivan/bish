@@ -1,6 +1,6 @@
 import type { CompletionContext, CompletionResult } from '@codemirror/autocomplete'
 import type { EditorView } from '@codemirror/view'
-import { GetProjectSymbols } from './wails'
+import { GetProjectSymbols, ReadFile } from './wails'
 import type { SymbolInfo } from './wails'
 import type { IntelKind } from './codeintel'
 
@@ -40,9 +40,88 @@ function dirname(p: string) {
   return p.substring(0, p.lastIndexOf('/'))
 }
 
-// relative module specifier from the importing file to the target, ext stripped
+// ─── tsconfig path aliases (prefer '$lib/x' / '@/x' over '../../x') ──────────
+
+interface Alias { prefix: string; dir: string } // '$lib/' → '/abs/src/lib/'
+
+const tsconfigCache = new Map<string, Alias[] | null>() // dir → aliases from dir/tsconfig.json
+const aliasesByFileDir = new Map<string, Alias[]>()     // importing-file dir → nearest aliases
+// ponytail: session-lifetime cache — tsconfig edits need a file reopen to show up
+
+function resolvePath(base: string, rel: string): string {
+  if (rel.startsWith('/')) return rel
+  const parts = base.split('/')
+  for (const seg of rel.split('/')) {
+    if (seg === '..') parts.pop()
+    else if (seg !== '.' && seg !== '') parts.push(seg)
+  }
+  return parts.join('/')
+}
+
+function stripJsonc(raw: string): string {
+  return raw
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '')
+    .replace(/,(\s*[}\]])/g, '$1')
+}
+
+// paths from dir/tsconfig.json, following relative `extends` (svelte-kit keeps
+// $lib in the generated .svelte-kit/tsconfig.json the root config extends)
+async function loadTsconfig(dir: string): Promise<Alias[] | null> {
+  const hit = tsconfigCache.get(dir)
+  if (hit !== undefined) return hit
+  let out: Alias[] | null = null
+  let cfgDir = dir
+  let raw = await ReadFile(dir + '/tsconfig.json').catch(() => null)
+  for (let hop = 0; raw != null && hop < 4; hop++) {
+    let cfg: any
+    try { cfg = JSON.parse(stripJsonc(raw)) } catch { break }
+    const paths = cfg?.compilerOptions?.paths
+    if (paths) {
+      const base = cfg.compilerOptions.baseUrl ? resolvePath(cfgDir, cfg.compilerOptions.baseUrl) : cfgDir
+      out = []
+      for (const [alias, targets] of Object.entries(paths as Record<string, string[]>)) {
+        if (!alias.endsWith('/*') || !targets?.[0]?.endsWith('/*')) continue // exact-match aliases skipped
+        out.push({ prefix: alias.slice(0, -1), dir: resolvePath(base, targets[0].slice(0, -2)) + '/' })
+      }
+      break
+    }
+    const ext = cfg?.extends
+    if (typeof ext !== 'string' || !ext.startsWith('.')) break
+    const extPath = resolvePath(cfgDir, ext.endsWith('.json') ? ext : ext + '.json')
+    cfgDir = dirname(extPath)
+    raw = await ReadFile(extPath).catch(() => null)
+  }
+  tsconfigCache.set(dir, out)
+  return out
+}
+
+// nearest tsconfig with paths, walking up from the importing file to root —
+// handles apps nested below the opened project root
+async function ensureAliases(fileDir: string, root: string) {
+  if (aliasesByFileDir.has(fileDir)) return
+  let found: Alias[] = []
+  for (let dir = fileDir; dir; dir = dirname(dir)) {
+    const a = await loadTsconfig(dir)
+    if (a?.length) { found = a; break }
+    if (dir === root) break
+  }
+  aliasesByFileDir.set(fileDir, found)
+}
+
+function aliasModule(fromFile: string, toFile: string): string | null {
+  let best: Alias | null = null
+  for (const a of aliasesByFileDir.get(dirname(fromFile)) ?? [])
+    if (toFile.startsWith(a.dir) && (!best || a.dir.length > best.dir.length)) best = a
+  return best && best.prefix + toFile.slice(best.dir.length)
+}
+
+// module specifier from the importing file to the target, ext stripped —
+// tsconfig path alias when one covers the target, else relative
 // ponytail: NodeNext ".js" specifiers not handled — add a toggle if it bites
 function relModule(fromFile: string, toFile: string): string {
+  const alias = aliasModule(fromFile, toFile)
+  if (alias) return alias.replace(/\.(tsx?|jsx?|mjs|cjs)$/, '')
   const from = dirname(fromFile).split('/')
   const to = toFile.split('/')
   let i = 0
@@ -135,6 +214,7 @@ export function autoImportSource(filePath: string, root: string, kind: IntelKind
     const word = ctx.matchBefore(kind === 'go' ? /[\w.]+/ : /[\w$]+/)
     if (!word || (word.text.length < 2 && !ctx.explicit)) return null
     if (kind !== 'go' && ctx.state.sliceDoc(word.from - 1, word.from) === '.') return null
+    if (kind === 'js' || kind === 'svelte') await ensureAliases(dirname(filePath), root)
     const syms = await getSymbols(root)
     if (!syms.length) return null
     return {

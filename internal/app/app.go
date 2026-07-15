@@ -110,6 +110,7 @@ func (a *App) Startup(ctx context.Context) {
 	go a.pollWLoop()
 	go a.pollGalleryLoop()
 	go a.refreshLoop()
+	go pruneDrops()
 	a.startWatcher()
 	if a.QuitInterceptInstaller != nil {
 		a.QuitInterceptInstaller()
@@ -598,6 +599,117 @@ func (a *App) FSRename(oldPath, newPath string) error {
 	}
 	a.reloadTree()
 	return nil
+}
+
+func dropsDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".config", "bish", "drops"), nil
+}
+
+// StashDropped copies drag-and-dropped temp files into ~/.config/bish/drops
+// and returns the stable paths. macOS screenshot previews live under
+// /var/folders and vanish when the thumbnail dismisses — a pasted path must
+// outlive that. Non-temp paths pass through untouched.
+func (a *App) StashDropped(paths []string) []string {
+	tmp := strings.TrimSuffix(os.TempDir(), "/")
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		isTemp := strings.HasPrefix(p, "/var/folders/") || strings.HasPrefix(p, "/private/var/folders/") ||
+			strings.HasPrefix(p, "/tmp/") || strings.HasPrefix(p, tmp+"/")
+		if !isTemp {
+			out = append(out, p)
+			continue
+		}
+		dir, err := dropsDir()
+		if err != nil || os.MkdirAll(dir, 0o755) != nil {
+			out = append(out, p)
+			continue
+		}
+		ext := filepath.Ext(p)
+		base := strings.TrimSuffix(filepath.Base(p), ext)
+		dst := filepath.Join(dir, base+ext)
+		for i := 2; ; i++ {
+			if _, err := os.Stat(dst); os.IsNotExist(err) {
+				break
+			}
+			dst = filepath.Join(dir, fmt.Sprintf("%s-%d%s", base, i, ext))
+		}
+		if exec.Command("cp", "-a", p, dst).Run() != nil {
+			out = append(out, p)
+			continue
+		}
+		out = append(out, dst)
+	}
+	return out
+}
+
+// stashed drops are transient by nature; keep a week
+func pruneDrops() {
+	dir, err := dropsDir()
+	if err != nil {
+		return
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().AddDate(0, 0, -7)
+	for _, e := range entries {
+		if info, err := e.Info(); err == nil && info.ModTime().Before(cutoff) {
+			os.RemoveAll(filepath.Join(dir, e.Name()))
+		}
+	}
+}
+
+// FSDuplicate copies path beside itself as name_copy.ext (then _copy2, …)
+func (a *App) FSDuplicate(path string) error {
+	ext := filepath.Ext(path)
+	base := strings.TrimSuffix(path, ext)
+	dst := base + "_copy" + ext
+	for i := 2; ; i++ {
+		if _, err := os.Stat(dst); os.IsNotExist(err) {
+			break
+		}
+		dst = fmt.Sprintf("%s_copy%d%s", base, i, ext)
+	}
+	if err := exec.Command("cp", "-a", path, dst).Run(); err != nil {
+		return err
+	}
+	a.reloadTree()
+	return nil
+}
+
+// FSMove moves paths into destDir (Finder / screenshot-preview drops on the
+// file tree). Rename first; cross-volume falls back to cp -a + delete.
+func (a *App) FSMove(paths []string, destDir string) error {
+	var firstErr error
+	for _, p := range paths {
+		dst := filepath.Join(destDir, filepath.Base(p))
+		// same spot, or a dir dropped into itself/its own subtree
+		if dst == p || strings.HasPrefix(destDir+"/", p+"/") {
+			continue
+		}
+		if _, err := os.Stat(dst); err == nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("%s already exists in %s", filepath.Base(p), destDir)
+			}
+			continue
+		}
+		err := os.Rename(p, dst)
+		if err != nil {
+			if err = exec.Command("cp", "-a", p, dst).Run(); err == nil {
+				err = os.RemoveAll(p)
+			}
+		}
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	a.reloadTree()
+	return firstErr
 }
 
 func (a *App) FSDelete(path string) error {

@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { treeNodes, focusedPane, openFileTab, projectRoot, isMediaPath, pendingGoto } from '../lib/stores'
+  import { treeNodes, focusedPane, openFileTab, projectRoot, cwd, isMediaPath, pendingGoto } from '../lib/stores'
   import ContextMenu from './ContextMenu.svelte'
-  import { ToggleTreeNode, CdToPath, FSNewFile, FSNewFolder, FSRename, FSDelete, FSDeletePaths, FSCopyPath, FSRevealInFinder, CloseProject, RefreshTree, CollapseAllTree } from '../lib/wails'
+  import { ToggleTreeNode, CdToPath, FSNewFile, FSNewFolder, FSRename, FSDelete, FSDeletePaths, FSCopyPath, FSRevealInFinder, FSMove, FSDuplicate, CloseProject, RefreshTree, CollapseAllTree } from '../lib/wails'
   import type { TreeNode } from '../lib/wails'
   import { IconFilePlus, IconFolderPlus, IconRefresh, IconLibraryMinus, IconChevronRight, IconChevronDown } from '@tabler/icons-svelte'
   import { get } from 'svelte/store'
@@ -94,6 +94,24 @@
     return get(projectRoot) || ''
   }
 
+  // native file drops (Finder relocation, screenshot previews) routed here by
+  // the global OnFileDrop handler in events.ts — move into the folder under
+  // the cursor: folder row → itself, file row → its parent, empty area → root
+  function treeDrop(e: Event) {
+    const { paths } = (e as CustomEvent).detail as { paths: string[] }
+    const row = (e.target as HTMLElement).closest<HTMLElement>('.row[data-path]')
+    let dir = get(projectRoot) || get(cwd)
+    if (row) {
+      const p = row.dataset.path!
+      dir = row.dataset.dir ? p : p.substring(0, p.lastIndexOf('/'))
+    }
+    if (dir) FSMove(paths, dir).catch(err => console.error('drop move failed:', err))
+  }
+  function dropTarget(el: HTMLElement) {
+    el.addEventListener('bish:filedrop', treeDrop)
+    return { destroy: () => el.removeEventListener('bish:filedrop', treeDrop) }
+  }
+
   function showMenu(e: MouseEvent, node: TreeNode) {
     e.preventDefault()
     e.stopPropagation()
@@ -114,6 +132,7 @@
         { label: 'Open in Terminal', action: () => CdToPath(node.path) },
         { label: 'Copy Path',      action: async () => { const p = await FSCopyPath(node.path); navigator.clipboard.writeText(p) } },
         { label: 'Rename',         action: () => startRename(node.path, node.name) },
+        { label: 'Duplicate',      action: () => FSDuplicate(node.path) },
         { label: 'Delete',         action: () => FSDelete(node.path), danger: true },
       ]
     }
@@ -123,6 +142,7 @@
       { label: 'Reveal in Finder', action: () => FSRevealInFinder(node.path) },
       { label: 'Copy Path',       action: async () => { const p = await FSCopyPath(node.path); navigator.clipboard.writeText(p) } },
       { label: 'Rename',          action: () => startRename(node.path, node.name) },
+      { label: 'Duplicate',       action: () => FSDuplicate(node.path) },
       { label: 'Delete',          action: () => FSDelete(node.path), danger: true },
     ]
   }
@@ -157,7 +177,7 @@
     }
   }
 
-  function autoFocus(el: HTMLInputElement) { el.focus() }
+  function autoFocus(el: HTMLInputElement) { el.focus(); el.select() }
 
   function indent(depth: number) { return `${depth * 14}px` }
 
@@ -178,6 +198,7 @@
 </script>
 
 <div
+  use:dropTarget
   class="panel"
   class:focused={$focusedPane === 'tree'}
   onclick={() => focusedPane.set('tree')}
@@ -210,6 +231,7 @@
         class:selected={node.selected}
         class:multi={multiSel.includes(node.path)}
         data-path={node.path}
+        data-dir={node.isDir ? '1' : undefined}
         style="padding-left: calc(8px + {indent(node.depth)})"
         onclick={(e) => handleClick(e, node)}
         oncontextmenu={(e) => showMenu(e, node)}
@@ -226,6 +248,7 @@
             bind:value={renaming.value}
             onblur={commitRename}
             onkeydown={(e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') renaming = null }}
+            use:autoFocus
           />
         {:else if node.isDir}
           <span class="dir-arrow">

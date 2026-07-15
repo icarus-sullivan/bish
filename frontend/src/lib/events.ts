@@ -8,6 +8,7 @@ import {
   tabs, activeTabId, isMediaPath, activeRightPanel, persistPrefs, formatOnSave
 } from './stores'
 import { get } from 'svelte/store'
+import { OnFileDrop } from '../../wailsjs/runtime/runtime'
 
 export async function initEvents() {
   await waitForWails()
@@ -41,6 +42,15 @@ export async function initEvents() {
     projectCommands.set((pcmds as any) ?? [])
     await loadProjectUI()
   }
+
+  // Single native file-drop router: OnFileDropOff() is global (one component's
+  // cleanup would deregister everyone), so register once and hand the drop to
+  // whatever sits under the cursor via a bubbling DOM event
+  OnFileDrop((x: number, y: number, paths: string[]) => {
+    if (!paths.length) return
+    const el = document.elementFromPoint(x, y) ?? document.body
+    el.dispatchEvent(new CustomEvent('bish:filedrop', { detail: { paths }, bubbles: true }))
+  }, false)
 
   // Wire backend → store events
   on('processes:update', (procs) => processes.set(procs))
