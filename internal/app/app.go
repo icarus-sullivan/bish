@@ -637,13 +637,35 @@ func (a *App) StashDropped(paths []string) []string {
 			}
 			dst = filepath.Join(dir, fmt.Sprintf("%s-%d%s", base, i, ext))
 		}
-		if exec.Command("cp", "-a", p, dst).Run() != nil {
+		// in-process copy, not exec("cp"): fork/exec costs ~10-30ms during
+		// which macOS unlinks the screenshot promise temp. os.Open grabs the
+		// FD immediately and the inode survives an unlink mid-read.
+		if err := copyFile(p, dst); err != nil {
 			out = append(out, p)
 			continue
 		}
 		out = append(out, dst)
 	}
 	return out
+}
+
+// copyFile opens src first (FD survives an unlink-during-read) then writes dst.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		os.Remove(dst)
+		return err
+	}
+	return out.Close()
 }
 
 // stashed drops are transient by nature; keep a week
