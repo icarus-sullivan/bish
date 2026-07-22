@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { treeNodes, focusedPane, openFileTab, projectRoot, cwd, isMediaPath, pendingGoto } from '../lib/stores'
+  import { treeNodes, focusedPane, openFileTab, projectRoot, cwd, isMediaPath, pendingGoto, showGlobalSearch, searchScopeDir } from '../lib/stores'
   import ContextMenu from './ContextMenu.svelte'
   import { ToggleTreeNode, CdToPath, FSNewFile, FSNewFolder, FSRename, FSDelete, FSDeletePaths, FSCopyPath, FSRevealInFinder, FSMove, FSDuplicate, CloseProject, RefreshTree, CollapseAllTree } from '../lib/wails'
   import type { TreeNode } from '../lib/wails'
@@ -129,7 +129,9 @@
       return [
         { label: 'New File',       action: () => promptNew(node.path, false) },
         { label: 'New Folder',     action: () => promptNew(node.path, true) },
+        { label: 'Find in Folder', action: () => { searchScopeDir.set(node.path); showGlobalSearch.set(true) } },
         { label: 'Open in Terminal', action: () => CdToPath(node.path) },
+        { label: 'Reveal in Finder', action: () => FSRevealInFinder(node.path) },
         { label: 'Copy Path',      action: async () => { const p = await FSCopyPath(node.path); navigator.clipboard.writeText(p) } },
         { label: 'Rename',         action: () => startRename(node.path, node.name) },
         { label: 'Duplicate',      action: () => FSDuplicate(node.path) },

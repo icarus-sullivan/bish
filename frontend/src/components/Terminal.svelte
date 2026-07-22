@@ -5,10 +5,11 @@
   import { WebglAddon } from '@xterm/addon-webgl'
   import { SearchAddon } from '@xterm/addon-search'
   import '@xterm/xterm/css/xterm.css'
-  import { focusedPane, theme, activeTabId, setTerminalTitle } from '../lib/stores'
+  import { focusedPane, theme, activeTabId, setTerminalTitle, terminalFontSize } from '../lib/stores'
   import { get } from 'svelte/store'
   import { on, WritePTY, ResizePTY, WritePTYTab, ResizePTYTab, StashDropped } from '../lib/wails'
   import { terminalLinkHandler, fileLinkProvider } from '../lib/termlinks'
+  import { featureOn } from '../lib/features'
 
   let { terminalId = 'main' }: { terminalId?: string } = $props()
 
@@ -66,7 +67,7 @@
   function setupTerminal(): () => void {
     term = new Terminal({
       fontFamily: '"SF Mono", Menlo, Monaco, "Courier New", monospace',
-      fontSize: 13,
+      fontSize: get(terminalFontSize),
       lineHeight: 1.4,
       theme: themeFor(null),
       cursorBlink: true,
@@ -94,7 +95,7 @@
     // ~8-16, so hidden tabs must not each hold one.
     let gl: WebglAddon | undefined
     function loadGl() {
-      if (gl) return
+      if (gl || !featureOn('terminalWebgl')) return
       try {
         const addon = new WebglAddon()
         addon.onContextLoss(() => { addon.dispose(); gl = undefined })
@@ -128,11 +129,24 @@
         requestAnimationFrame(() => findInput?.focus())
         return false
       }
+      // clear + font zoom (only fire on the focused terminal)
+      if ((e.metaKey || e.ctrlKey) && e.type === 'keydown') {
+        if (e.key === 'k') { term.clear(); return false }
+        if (e.key === '=' || e.key === '+') { terminalFontSize.update(n => Math.min(28, n + 1)); return false }
+        if (e.key === '-') { terminalFontSize.update(n => Math.max(8, n - 1)); return false }
+        if (e.key === '0') { terminalFontSize.set(13); return false }
+      }
       return true
     })
 
     const isMain = terminalId === 'main'
     term.onData((data) => isMain ? WritePTY(data) : WritePTYTab(terminalId, data))
+    // copy-on-select (opt-in): mirror the selection to the clipboard
+    term.onSelectionChange(() => {
+      if (!featureOn('copyOnSelect')) return
+      const sel = term.getSelection()
+      if (sel) navigator.clipboard?.writeText(sel).catch(() => {})
+    })
     // OSC 0/2 title escapes (set by preexec in the bish shell init, or by
     // programs like claude/vim themselves) → tab label
     term.onTitleChange((t) => setTerminalTitle(terminalId, t))
@@ -170,6 +184,14 @@
     const unsubTheme = theme.subscribe((t) => {
       if (term) term.options.theme = themeFor(t) as any
     })
+    // font zoom (⌘+/-/0) — shared across terminals; refit on change
+    let firstFont = true
+    const unsubFont = terminalFontSize.subscribe((sz) => {
+      if (firstFont) { firstFont = false; return } // initial value already applied at construction
+      if (!term) return
+      term.options.fontSize = sz
+      requestAnimationFrame(() => { try { fitAddon.fit() } catch {} })
+    })
 
     // routed from the global OnFileDrop handler in events.ts; only the
     // terminal under the cursor receives it
@@ -190,6 +212,7 @@
       unsubActive()
       unsubPane()
       unsubTheme()
+      unsubFont()
       resizeObserver.disconnect()
       container.removeEventListener('bish:filedrop', onDrop)
       dropGl()
@@ -204,27 +227,10 @@
   function initTerm(el: HTMLDivElement) {
     container = el
     let cleanup: (() => void) | undefined
-    // let waiter: ResizeObserver | undefined
-    // if (el.offsetWidth > 0 && el.offsetHeight > 0) {
-    //   cleanup = setupTerminal()
-    // } else {
-    //   waiter = new ResizeObserver(() => {
-    //     if (el.offsetWidth === 0 || el.offsetHeight === 0) return
-    //     waiter!.disconnect()
-    //     waiter = undefined
-    //     cleanup = setupTerminal()
-    //   })
-    //   waiter.observe(el)
-    // }
-    // return {
-    //   destroy() {
-    //     waiter?.disconnect()
-    //     cleanup?.()
-    //   },
-    // }
+    // two rAFs: wait for the element to have final layout before booting xterm
+    // (metrics-derived open/fit/webgl-atlas then see real dimensions)
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        console.log('loading terminal')
         cleanup = setupTerminal()
       })
     })

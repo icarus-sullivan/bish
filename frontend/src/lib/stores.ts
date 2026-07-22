@@ -30,9 +30,11 @@ export const projectCommands = writable<ProjectCmd[]>([])
 
 // command palette visibility
 export const showPalette = writable<boolean>(false)
+export const showActionPalette = writable<boolean>(false)
 
-// global file search
+// global file search; searchScopeDir null = whole project, else scoped to that dir
 export const showGlobalSearch = writable<boolean>(false)
+export const searchScopeDir = writable<string | null>(null)
 
 // jump target consumed by FileViewer after opening a file (line 1-based, col 0-based)
 export const pendingGoto = writable<{ path: string; line: number; col: number } | null>(null)
@@ -40,6 +42,13 @@ export const pendingGoto = writable<{ path: string; line: number; col: number } 
 // focus request consumed by FileViewer — set on every openFileTab so the
 // editor grabs focus even when its tab was already active (no remount)
 export const pendingFocus = writable<string | null>(null)
+
+// always-current selection in the active editor (not consume-once like
+// pendingGoto — readers just check "what's selected right now")
+export interface EditorSelection {
+  path: string; from: number; to: number; text: string; line: number; col: number
+}
+export const activeSelection = writable<EditorSelection | null>(null)
 
 // panel visibility
 export const showRight = writable<boolean>(true)
@@ -69,7 +78,7 @@ export const rightWidth = writable<number>(220)
 
 export interface Tab {
   id: string
-  type: 'terminal' | 'file' | 'logs' | 'media' | 'settings'
+  type: 'terminal' | 'file' | 'logs' | 'media' | 'settings' | 'diff'
   label: string
   baseLabel?: string  // terminal tabs: original label, restored when title clears
   path?: string       // file + media tabs
@@ -116,6 +125,15 @@ export function openFileTab(path: string, forceText = false) {
   activeTabId.set(id)
 }
 
+export function openDiffTab(path: string) {
+  const id = 'diff:' + path
+  const existing = get(tabs).find(t => t.id === id)
+  if (existing) { activeTabId.set(id); return }
+  const label = (path.split('/').pop() || path) + ' (diff)'
+  tabs.update(ts => [...ts, { id, type: 'diff', label, path }])
+  activeTabId.set(id)
+}
+
 export function openSettingsTab() {
   const existing = get(tabs).find(t => t.type === 'settings')
   if (existing) { activeTabId.set(existing.id); return }
@@ -148,6 +166,24 @@ export function addTerminalTab(id: string) {
   const label = count === 1 ? 'Terminal' : `Terminal ${count}`
   tabs.update(ts => [...ts, { id, type: 'terminal', label }])
   activeTabId.set(id)
+}
+
+// terminal font size, persisted client-side (no Go round-trip). ⌘+ / ⌘- / ⌘0.
+const savedFont = Number(localStorage.getItem('bish.termFontSize')) || 13
+export const terminalFontSize = writable<number>(savedFont)
+terminalFontSize.subscribe(v => localStorage.setItem('bish.termFontSize', String(v)))
+
+export function cycleTab(dir: 1 | -1) {
+  const ts = get(tabs)
+  if (ts.length < 2) return
+  const i = ts.findIndex(t => t.id === get(activeTabId))
+  activeTabId.set(ts[(i + dir + ts.length) % ts.length].id)
+}
+
+export function setTabLabel(id: string, label: string) {
+  const l = label.trim()
+  if (!l) return
+  tabs.update(ts => ts.map(t => t.id === id ? { ...t, label: l, baseLabel: l } : t))
 }
 
 export function setTabModified(id: string, modified: boolean) {

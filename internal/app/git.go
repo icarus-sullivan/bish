@@ -1,6 +1,8 @@
 package app
 
 import (
+	"errors"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -53,6 +55,90 @@ func (a *App) GitBlame(path string) []BlameLine {
 	return lines
 }
 
+// DiffLine marks one changed line on the new (working-tree) side.
+// Type: "added" | "modified" | "deleted" (deleted anchors at the line the
+// removed block sat above).
+type DiffLine struct {
+	Line int    `json:"line"`
+	Type string `json:"type"`
+}
+
+// GitDiff returns per-line change markers for path vs. the index/HEAD, or nil
+// on any error (untracked, not a repo, git missing).
+func (a *App) GitDiff(path string) []DiffLine {
+	out, err := exec.Command("git", "-C", filepath.Dir(path), "diff", "--no-color", "-U0", "--", path).Output()
+	if err != nil {
+		return nil
+	}
+	return parseUnifiedDiff(string(out))
+}
+
+// parseUnifiedDiff turns `git diff -U0` output into per-line change markers.
+func parseUnifiedDiff(out string) []DiffLine {
+	var res []DiffLine
+	for _, l := range strings.Split(out, "\n") {
+		if !strings.HasPrefix(l, "@@") {
+			continue
+		}
+		// @@ -oldStart,oldCount +newStart,newCount @@
+		plus := strings.IndexByte(l, '+')
+		if plus < 0 {
+			continue
+		}
+		seg := l[plus+1:]
+		if sp := strings.IndexByte(seg, ' '); sp >= 0 {
+			seg = seg[:sp]
+		}
+		newStart, newCount := parseDiffRange(seg)
+
+		oldCount := 1
+		if minus := strings.IndexByte(l, '-'); minus >= 0 && minus < plus {
+			_, oldCount = parseDiffRange(strings.TrimSpace(l[minus+1 : plus]))
+		}
+
+		switch {
+		case oldCount == 0 && newCount > 0:
+			for i := 0; i < newCount; i++ {
+				res = append(res, DiffLine{Line: newStart + i, Type: "added"})
+			}
+		case newCount == 0 && oldCount > 0:
+			res = append(res, DiffLine{Line: newStart, Type: "deleted"})
+		default:
+			for i := 0; i < newCount; i++ {
+				res = append(res, DiffLine{Line: newStart + i, Type: "modified"})
+			}
+		}
+	}
+	return res
+}
+
+// GitDiffText returns the unified `git diff` for path (working tree vs index/
+// HEAD). Untracked files diff against empty so new files show as all-added.
+// Returns "" when there's nothing to show.
+func (a *App) GitDiffText(path string) string {
+	dir := filepath.Dir(path)
+	out, _ := exec.Command("git", "-C", dir, "diff", "--no-color", "--", path).Output()
+	if len(out) == 0 {
+		// untracked / new file: diff against /dev/null (exits non-zero when
+		// differing, but stdout is still captured by Output()).
+		b, _ := exec.Command("git", "-C", dir, "diff", "--no-color", "--no-index", "--", os.DevNull, path).Output()
+		out = b
+	}
+	return string(out)
+}
+
+// parseDiffRange parses "start,count" or "start" (count defaults to 1).
+func parseDiffRange(s string) (start, count int) {
+	count = 1
+	if c := strings.IndexByte(s, ','); c >= 0 {
+		start, _ = strconv.Atoi(s[:c])
+		count, _ = strconv.Atoi(s[c+1:])
+	} else {
+		start, _ = strconv.Atoi(s)
+	}
+	return
+}
+
 func isHex40(s string) bool {
 	for i := 0; i < 40; i++ {
 		c := s[i]
@@ -98,7 +184,82 @@ func (a *App) GitStatus() *GitStatusDTO {
 		if i := strings.Index(p, " -> "); i >= 0 {
 			p = p[i+4:]
 		}
-		st.Files = append(st.Files, GitFileStatus{Status: strings.TrimSpace(l[:2]), Path: filepath.Join(dir, p)})
+		// keep the raw 2-char XY code (index, worktree) so the UI can split
+		// staged vs unstaged; e.g. "M " staged, " M" unstaged, "MM" both.
+		st.Files = append(st.Files, GitFileStatus{Status: l[:2], Path: filepath.Join(dir, p)})
 	}
 	return st
+}
+
+func (a *App) gitDir() string {
+	if a.projectRoot != "" {
+		return a.projectRoot
+	}
+	return a.GetCWD()
+}
+
+// GitStage stages path (git add).
+func (a *App) GitStage(path string) error {
+	return exec.Command("git", "-C", filepath.Dir(path), "add", "--", path).Run()
+}
+
+// GitUnstage unstages path (git reset HEAD).
+func (a *App) GitUnstage(path string) error {
+	return exec.Command("git", "-C", filepath.Dir(path), "reset", "-q", "HEAD", "--", path).Run()
+}
+
+// GitCommit commits the staged changes; returns git's stderr on failure
+// (nothing staged, empty message, hooks, etc.).
+func (a *App) GitCommit(message string) error {
+	dir := a.gitDir()
+	if dir == "" {
+		return errors.New("no project")
+	}
+	out, err := exec.Command("git", "-C", dir, "commit", "-m", message).CombinedOutput()
+	if err != nil {
+		return errors.New(strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// GitBranches lists local branch names, current branch first.
+func (a *App) GitBranches() []string {
+	dir := a.gitDir()
+	if dir == "" {
+		return nil
+	}
+	out, err := exec.Command("git", "-C", dir, "branch", "--format=%(HEAD)%(refname:short)").Output()
+	if err != nil {
+		return nil
+	}
+	var cur string
+	var rest []string
+	for _, l := range strings.Split(string(out), "\n") {
+		if l == "" {
+			continue
+		}
+		if strings.HasPrefix(l, "*") {
+			cur = l[1:]
+		} else {
+			rest = append(rest, l)
+		}
+	}
+	if cur != "" {
+		return append([]string{cur}, rest...)
+	}
+	return rest
+}
+
+// GitCheckout switches branches; returns git's stderr on failure (dirty tree,
+// unknown branch, etc.).
+func (a *App) GitCheckout(branch string) error {
+	dir := a.gitDir()
+	if dir == "" {
+		return errors.New("no project")
+	}
+	out, err := exec.Command("git", "-C", dir, "checkout", branch).CombinedOutput()
+	if err != nil {
+		return errors.New(strings.TrimSpace(string(out)))
+	}
+	return nil
 }

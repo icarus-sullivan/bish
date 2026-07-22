@@ -12,6 +12,8 @@ type Config struct {
 	FormatOnSave bool   `json:"format_on_save"`
 	// nil = persist everything (frontend treats missing as true)
 	Persist *PersistConfig `json:"persist,omitempty"`
+	// per-feature toggles; missing key = frontend registry default (features.ts)
+	Features map[string]bool `json:"features,omitempty"`
 }
 
 // PersistConfig gates which per-project UI state gets saved/restored.

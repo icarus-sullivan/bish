@@ -26,14 +26,20 @@
     autoScroll = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 40
   }
 
-  // refresh whenever process list updates (every 2s)
+  // refresh whenever process list updates (catches status changes fast)
   $effect(() => {
     void $processes
     refresh()
   })
 
+  // ALSO poll independently — refreshLoop's processes:update only fires when
+  // CPU%/mem/status actually changed (app.go), which log content isn't part
+  // of, so a quiet-CPU process (e.g. rsync between chunks) could sit on
+  // stale output otherwise. This is what makes the view genuinely live.
   onMount(() => {
     refresh()
+    const t = setInterval(refresh, 1000)
+    return () => clearInterval(t)
   })
 
   function statusColor(status: string) {

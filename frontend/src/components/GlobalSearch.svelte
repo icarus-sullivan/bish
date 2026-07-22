@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { showGlobalSearch, openFileTab, cwd, projectRoot, pendingGoto } from '../lib/stores'
+  import { showGlobalSearch, searchScopeDir, openFileTab, cwd, projectRoot, pendingGoto } from '../lib/stores'
   import { SearchInFiles, ReplaceInFiles } from '../lib/wails'
   import { get } from 'svelte/store'
   import type { SearchResultDTO } from '../lib/wails'
@@ -24,7 +24,7 @@
   })
 
   function searchDir() {
-    return get(projectRoot) || get(cwd)
+    return get(searchScopeDir) || get(projectRoot) || get(cwd)
   }
 
   // takeLatest: ignore results from stale requests
@@ -108,6 +108,9 @@
 
     <div class="header">
       <span class="title">Search in Files</span>
+      {#if $searchScopeDir}
+        <span class="scope" title={$searchScopeDir}>{$searchScopeDir.split('/').pop()}/</span>
+      {/if}
       <button class="close-btn" onclick={() => showGlobalSearch.set(false)}>✕</button>
     </div>
 
@@ -223,8 +226,19 @@
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
   }
-  .title { font-size: 12px; font-weight: 600; color: var(--muted); flex: 1; }
+  .title { font-size: 12px; font-weight: 600; color: var(--muted); }
+  .scope {
+    flex: 1;
+    margin-left: 8px;
+    font-size: 11px;
+    color: var(--accent);
+    font-family: "SF Mono", Menlo, monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .close-btn {
+    margin-left: auto;
     background: none; border: none; color: var(--muted);
     cursor: pointer; font-size: 13px; padding: 2px 5px; border-radius: 3px;
   }

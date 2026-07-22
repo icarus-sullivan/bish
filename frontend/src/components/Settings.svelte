@@ -2,9 +2,28 @@
   import { onMount } from 'svelte'
   import { GetConfig, SaveConfig } from '../lib/wails'
   import { currentThemeName, persistPrefs, formatOnSave } from '../lib/stores'
+  import { features, FEATURES } from '../lib/features'
+  import { customKeybinds, applyCustomKeybinds } from '../lib/keymap'
+  import { listCommands } from '../lib/commands'
   import { themes } from '../lib/themes'
   import { get } from 'svelte/store'
   import { IconChevronDown } from '@tabler/icons-svelte'
+
+  const editorFeatures = FEATURES.filter(f => f.section === 'editor')
+  const terminalFeatures = FEATURES.filter(f => f.section === 'terminal')
+  const commandList = listCommands()
+
+  function onKeybind(id: string, e: Event) {
+    const combo = (e.target as HTMLInputElement).value
+    customKeybinds.update(m => ({ ...m, [id]: combo }))
+    applyCustomKeybinds()
+  }
+
+  function onFeature(id: string, e: Event) {
+    const checked = (e.target as HTMLInputElement).checked
+    features.update(f => ({ ...f, [id]: checked }))
+    saveCfg({ features: get(features) })
+  }
 
   let cfg: any = $state(null)
 
@@ -70,6 +89,44 @@
         <input type="checkbox" checked={$formatOnSave}
                onchange={(e) => { formatOnSave.set((e.target as HTMLInputElement).checked); saveCfg({ format_on_save: (e.target as HTMLInputElement).checked }) }} />
       </div>
+      {#each editorFeatures as f}
+        <div class="row">
+          <div class="labels">
+            <span class="label">{f.label}</span>
+            <span class="hint">{f.hint}</span>
+          </div>
+          <input type="checkbox" checked={$features[f.id]} onchange={(e) => onFeature(f.id, e)} />
+        </div>
+      {/each}
+    </section>
+
+    <section>
+      <h2>Terminal</h2>
+      {#each terminalFeatures as f}
+        <div class="row">
+          <div class="labels">
+            <span class="label">{f.label}</span>
+            <span class="hint">{f.hint}</span>
+          </div>
+          <input type="checkbox" checked={$features[f.id]} onchange={(e) => onFeature(f.id, e)} />
+        </div>
+      {/each}
+    </section>
+
+    <section>
+      <h2>Keyboard</h2>
+      <p class="section-hint">Assign a combo to any command, e.g. <code>mod+shift+k</code> (mod = ⌘/Ctrl). Blank = unbound.</p>
+      {#each commandList as c}
+        <div class="row">
+          <div class="labels">
+            <span class="label">{c.title}</span>
+            <span class="hint">{c.id}</span>
+          </div>
+          <input class="kb-input" placeholder="unbound" value={$customKeybinds[c.id] ?? ''}
+                 autocapitalize="none" autocorrect="off" spellcheck="false"
+                 onchange={(e) => onKeybind(c.id, e)} />
+        </div>
+      {/each}
     </section>
 
     <section>
@@ -160,6 +217,26 @@
     right: 9px;
     color: var(--muted);
     pointer-events: none;
+  }
+
+  .kb-input {
+    width: 140px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--foreground);
+    font-size: 12px;
+    font-family: "SF Mono", Menlo, monospace;
+    padding: 5px 8px;
+    outline: none;
+  }
+  .kb-input:focus { border-color: var(--accent); }
+  code {
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 11px;
+    background: var(--bg-raised);
+    padding: 1px 4px;
+    border-radius: 3px;
   }
 
   input[type='checkbox'] {

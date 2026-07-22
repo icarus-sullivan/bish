@@ -2,24 +2,30 @@
   import { onMount } from 'svelte'
   import { focusedPane, galleryMode, cwd, showRight, activeRightPanel,
            rightWidth, currentThemeName,
-           showPalette, showGlobalSearch, tabs, activeTabId, closeTab, reopenMainTab } from './lib/stores'
+           showPalette, showActionPalette, showGlobalSearch, searchScopeDir, tabs, activeTabId, closeTab, reopenMainTab,
+           addTerminalTab, cycleTab } from './lib/stores'
   import { get } from 'svelte/store'
   import { initEvents } from './lib/events'
   import { registerKeybind } from './lib/keybinds'
+  import { featureOn } from './lib/features'
+  import { registerBuiltinCommands } from './lib/builtinCommands'
+  import { applyCustomKeybinds } from './lib/keymap'
   import Terminal from './components/Terminal.svelte'
   import RightSidebar from './components/RightSidebar.svelte'
   import FileViewer from './components/FileViewer.svelte'
   import MediaViewer from './components/MediaViewer.svelte'
   import Gallery from './components/Gallery.svelte'
   import TabBar from './components/TabBar.svelte'
-  import { GetConfig } from './lib/wails'
+  import { GetConfig, NewTerminal, CloseTerminal } from './lib/wails'
   import {
     IconLayoutSidebarRight, IconLayoutSidebarRightFilled,
   } from '@tabler/icons-svelte'
   import CommandPalette from './components/CommandPalette.svelte'
+  import ActionPalette from './components/ActionPalette.svelte'
   import GlobalSearch from './components/GlobalSearch.svelte'
   import ProcessLogs from './components/ProcessLogs.svelte'
   import Settings from './components/Settings.svelte'
+  import DiffViewer from './components/DiffViewer.svelte'
   import { OpenProject } from './lib/wails'
   import { projectRoot } from './lib/stores'
   import lightModeIcon from './assets/light_mode.svg'
@@ -37,13 +43,47 @@
       } catch {}
     })()
 
+    registerBuiltinCommands()
+    applyCustomKeybinds()
+
     // Cmd+N/O/P are handled natively (main.go menu accelerators emit
     // file:new/palette:open/project:change, wired up in initEvents above) —
     // no JS keydown branch for them, or they'd double-fire.
     const offs = [
       registerKeybind({
         combo: 'mod+shift+f',
-        handler: (e) => { e.preventDefault(); showGlobalSearch.update(v => !v) },
+        handler: (e) => { e.preventDefault(); searchScopeDir.set(null); showGlobalSearch.update(v => !v) },
+      }),
+      registerKeybind({
+        combo: 'mod+shift+p',
+        handler: (e) => { if (!featureOn('commandPalette')) return; e.preventDefault(); showActionPalette.update(v => !v) },
+      }),
+      registerKeybind({
+        combo: 'mod+shift+t',
+        when: () => featureOn('keyboardShortcuts'),
+        handler: async (e) => { e.preventDefault(); try { addTerminalTab(await NewTerminal()) } catch {} },
+      }),
+      registerKeybind({
+        combo: 'mod+w',
+        when: () => featureOn('keyboardShortcuts'),
+        handler: (e) => {
+          e.preventDefault()
+          const id = get(activeTabId)
+          const t = get(tabs).find(t => t.id === id)
+          if (!t) return
+          if (t.type === 'terminal' && id !== 'main') CloseTerminal(id)
+          closeTab(id)
+        },
+      }),
+      registerKeybind({
+        combo: 'mod+shift+]',
+        when: () => featureOn('keyboardShortcuts'),
+        handler: (e) => { e.preventDefault(); cycleTab(1) },
+      }),
+      registerKeybind({
+        combo: 'mod+shift+[',
+        when: () => featureOn('keyboardShortcuts'),
+        handler: (e) => { e.preventDefault(); cycleTab(-1) },
       }),
       registerKeybind({
         combo: 'mod+t',
@@ -159,7 +199,7 @@
                   <span>Go to File</span>
                   <span class="keys"><kbd>⌘</kbd><kbd>P</kbd></span>
                 </button>
-                <button class="welcome-row" onclick={() => showGlobalSearch.set(true)}>
+                <button class="welcome-row" onclick={() => { searchScopeDir.set(null); showGlobalSearch.set(true) }}>
                   <span>Search in Files</span>
                   <span class="keys"><kbd>⇧</kbd><kbd>⌘</kbd><kbd>F</kbd></span>
                 </button>
@@ -185,6 +225,8 @@
                   <ProcessLogs id={tab.processId ?? ''} tabId={tab.id} />
                 {:else if tab.type === 'settings'}
                   <Settings />
+                {:else if tab.type === 'diff'}
+                  <DiffViewer path={tab.path ?? ''} />
                 {/if}
               </div>
             {/if}
@@ -206,6 +248,10 @@
 
   {#if $showPalette}
     <CommandPalette onClose={() => showPalette.set(false)} />
+  {/if}
+
+  {#if $showActionPalette}
+    <ActionPalette onClose={() => showActionPalette.set(false)} />
   {/if}
 
   {#if $showGlobalSearch}

@@ -10,6 +10,34 @@ export function AddProjectCommand(arg1, arg2, arg3) {
   return window['go']['app']['App']['AddProjectCommand'](arg1, arg2, arg3);
 }
 
+export function AssistantApprovePlan(arg1) {
+  return window['go']['app']['App']['AssistantApprovePlan'](arg1);
+}
+
+export function AssistantInterrupt(arg1) {
+  return window['go']['app']['App']['AssistantInterrupt'](arg1);
+}
+
+export function AssistantPickFiles() {
+  return window['go']['app']['App']['AssistantPickFiles']();
+}
+
+export function AssistantSend(arg1, arg2) {
+  return window['go']['app']['App']['AssistantSend'](arg1, arg2);
+}
+
+export function AssistantStart(arg1, arg2) {
+  return window['go']['app']['App']['AssistantStart'](arg1, arg2);
+}
+
+export function AssistantStop(arg1) {
+  return window['go']['app']['App']['AssistantStop'](arg1);
+}
+
+export function AssistantSwitchMode(arg1, arg2) {
+  return window['go']['app']['App']['AssistantSwitchMode'](arg1, arg2);
+}
+
 export function CdToPath(arg1) {
   return window['go']['app']['App']['CdToPath'](arg1);
 }
@@ -68,6 +96,10 @@ export function FSRename(arg1, arg2) {
 
 export function FSRevealInFinder(arg1) {
   return window['go']['app']['App']['FSRevealInFinder'](arg1);
+}
+
+export function FileOutline(arg1) {
+  return window['go']['app']['App']['FileOutline'](arg1);
 }
 
 export function GetAllFiles(arg1) {
@@ -138,8 +170,36 @@ export function GitBlame(arg1) {
   return window['go']['app']['App']['GitBlame'](arg1);
 }
 
+export function GitBranches() {
+  return window['go']['app']['App']['GitBranches']();
+}
+
+export function GitCheckout(arg1) {
+  return window['go']['app']['App']['GitCheckout'](arg1);
+}
+
+export function GitCommit(arg1) {
+  return window['go']['app']['App']['GitCommit'](arg1);
+}
+
+export function GitDiff(arg1) {
+  return window['go']['app']['App']['GitDiff'](arg1);
+}
+
+export function GitDiffText(arg1) {
+  return window['go']['app']['App']['GitDiffText'](arg1);
+}
+
+export function GitStage(arg1) {
+  return window['go']['app']['App']['GitStage'](arg1);
+}
+
 export function GitStatus() {
   return window['go']['app']['App']['GitStatus']();
+}
+
+export function GitUnstage(arg1) {
+  return window['go']['app']['App']['GitUnstage'](arg1);
 }
 
 export function IsVideo(arg1) {
@@ -252,6 +312,10 @@ export function SetQuitRequested() {
 
 export function StashDropped(arg1) {
   return window['go']['app']['App']['StashDropped'](arg1);
+}
+
+export function StopProcess(arg1) {
+  return window['go']['app']['App']['StopProcess'](arg1);
 }
 
 export function ToggleTreeNode(arg1) {

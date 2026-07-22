@@ -1,7 +1,8 @@
 <script lang="ts">
   import { processes, focusedPane, selectedProcess, openLogsTab } from '../lib/stores'
   import ContextMenu from './ContextMenu.svelte'
-  import { KillProcess, RestartProcess } from '../lib/wails'
+  import { KillProcess, RestartProcess, StopProcess } from '../lib/wails'
+  import { IconPlayerPlayFilled, IconPlayerStopFilled, IconTrash } from '@tabler/icons-svelte'
 
   let menu: { x: number; y: number; id: string } | null = $state(null)
 
@@ -25,8 +26,22 @@
     return [
       { label: 'View Logs', action: () => viewLogs(id) },
       { label: 'Restart', action: () => RestartProcess(id) },
+      { label: 'Stop', action: () => StopProcess(id) },
       { label: 'Kill Process', action: () => KillProcess(id), danger: true },
     ]
+  }
+
+  function play(e: MouseEvent, id: string) {
+    e.stopPropagation()
+    RestartProcess(id)
+  }
+  function stop(e: MouseEvent, id: string) {
+    e.stopPropagation()
+    StopProcess(id)
+  }
+  function trash(e: MouseEvent, id: string) {
+    e.stopPropagation()
+    KillProcess(id)
   }
 
   function cpuColor(pct: number) {
@@ -57,6 +72,8 @@
           tabindex="0"
           onkeydown={(e) => e.key === 'Enter' && select(p.id)}
         >
+          <button class="row-btn" onclick={(e) => play(e, p.id)} title="Start / restart"><IconPlayerPlayFilled size={12} /></button>
+          <button class="row-btn" disabled={p.status !== 'running'} onclick={(e) => stop(e, p.id)} title="Stop"><IconPlayerStopFilled size={12} /></button>
           <!-- status ring — pulsing when running -->
           <span class="status-dot" class:running={p.status === 'running'}
                                    class:crashed={p.status === 'crashed'}
@@ -70,6 +87,7 @@
               <span class="badge cpu" style="color:{cpuColor(p.cpu_pct)}">{p.cpu_pct.toFixed(1)}%</span>
             {/if}
           </span>
+          <button class="row-btn" onclick={(e) => trash(e, p.id)} title="Kill and remove"><IconTrash size={12} /></button>
         </div>
       {/each}
     {/if}
@@ -141,11 +159,22 @@
   .status-dot {
     width: 7px;
     height: 7px;
+    margin-left: 4px;
     border-radius: 50%;
     flex-shrink: 0;
     background: var(--muted);
     position: relative;
   }
+  .row-btn {
+    display: flex; align-items: center; justify-content: center;
+    background: none; border: none; color: var(--muted); cursor: pointer;
+    padding: 3px 4px; border-radius: 3px; flex-shrink: 0;
+    transition: color 0.1s, background 0.1s;
+  }
+  .row-btn:hover { color: var(--foreground); background: var(--bg-hover); }
+  .row-btn:disabled { opacity: 0.3; cursor: default; }
+  .row-btn:disabled:hover { color: var(--muted); background: none; }
+
   .status-dot.running  { background: var(--success); }
   .status-dot.crashed  { background: var(--error); }
   .status-dot.stopped  { background: var(--muted); }

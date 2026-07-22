@@ -3,7 +3,7 @@ export { EventsOn as on, EventsOff as off } from '../../wailsjs/runtime/runtime'
 
 // Re-export all bound methods so components can import by name
 export {
-  GetProcesses, KillProcess, RestartProcess, GetProcessLogs,
+  GetProcesses, KillProcess, RestartProcess, StopProcess, GetProcessLogs,
   GetCommands, RunCommand, DeleteCommand, RenameCommand, AddCommand,
   GetTreeNodes, ToggleTreeNode, CdToPath,
   FSNewFile, FSNewFolder, FSRename, FSDelete, FSDeletePaths, FSCopyPath, FSRevealInFinder, FSMove, FSDuplicate, StashDropped,
@@ -19,9 +19,12 @@ export {
   SearchInFiles, ReplaceInFiles,
   GetProjectSymbols,
   LSPStart, LSPSend, LSPStop,
+  AssistantStart, AssistantSend, AssistantApprovePlan, AssistantStop, AssistantInterrupt, AssistantSwitchMode, AssistantPickFiles,
   ReadFileBase64,
   RefreshTree, CollapseAllTree,
-  GitBlame, GitStatus,
+  GitBlame, GitStatus, GitDiff, GitDiffText,
+  GitStage, GitUnstage, GitCommit, GitBranches, GitCheckout,
+  FileOutline,
 } from '../../wailsjs/go/app/App'
 
 import { GetMediaBase } from '../../wailsjs/go/app/App'
@@ -51,6 +54,8 @@ export interface SearchResultDTO { file: string; line: number; col: number; text
 export interface SymbolInfo { name: string; kind: string; file: string; importPath: string; pkg: string }
 export interface BlameLine { sha: string; author: string; time: number; summary: string }
 export interface GitFileStatus { status: string; path: string }
+export interface DiffLine { line: number; type: 'added' | 'modified' | 'deleted' }
+export interface OutlineSym { name: string; kind: string; line: number; depth: number }
 export interface GitStatusDTO { branch: string; files: GitFileStatus[] }
 export interface TreeNode {
   name: string; path: string; isDir: boolean; depth: number

@@ -8,6 +8,7 @@ import {
   tabs, activeTabId, isMediaPath, activeRightPanel, persistPrefs, formatOnSave
 } from './stores'
 import { get } from 'svelte/store'
+import { loadFeatures } from './features'
 import { OnFileDrop } from '../../wailsjs/runtime/runtime'
 
 export async function initEvents() {
@@ -18,6 +19,7 @@ export async function initEvents() {
   const cfg: any = await GetConfig().catch(() => null)
   if (cfg?.persist) persistPrefs.set(cfg.persist)
   formatOnSave.set(!!cfg?.format_on_save)
+  loadFeatures(cfg?.features)
 
   // Load initial data
   const [procs, cmds, nodes, t, initialCwd, root, pcmds] = await Promise.all([

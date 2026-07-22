@@ -25,7 +25,6 @@ func New(shell, cwdFile, wFilePath, galleryFilePath string) (*PTY, error) {
 
 	pid := os.Getpid()
 	initFile := fmt.Sprintf("/tmp/bish_init_%d.sh", pid)
-	writeInitFile(initFile)
 
 	env := append(os.Environ(),
 		"TERM=xterm-256color",
@@ -39,19 +38,28 @@ func New(shell, cwdFile, wFilePath, galleryFilePath string) (*PTY, error) {
 		os.Remove(initFile)
 	}
 
-	// For zsh, inject via ZDOTDIR so it loads silently before the prompt.
 	base := filepath.Base(shell)
-	if strings.Contains(base, "zsh") {
+	var cmd *exec.Cmd
+	switch {
+	case strings.Contains(base, "zsh"):
+		// inject via ZDOTDIR so it loads silently before the prompt
+		writeInitFile(initFile)
 		zdotdir, cl := setupZshZDOTDIR(pid, initFile)
 		if zdotdir != "" {
 			env = append(env, "ZDOTDIR="+zdotdir)
 			prev := cleanup
 			cleanup = func() { prev(); cl() }
 		}
+		cmd = exec.Command(shell, "-l") // login shell, like Terminal.app/iTerm
+	case strings.Contains(base, "bash"):
+		// bash has no ZDOTDIR; use --rcfile. Login env is preloaded at app
+		// startup (shellenv.LoadLoginEnv), so an interactive (non-login) shell
+		// still has the user's PATH etc.
+		writeBashInit(initFile)
+		cmd = exec.Command(shell, "--rcfile", initFile, "-i")
+	default:
+		cmd = exec.Command(shell, "-l")
 	}
-
-	// Login shell, same as Terminal.app/iTerm — loads zprofile/bash_profile.
-	cmd := exec.Command(shell, "-l")
 	cmd.Env = env
 
 	f, err := pty.Start(cmd)
@@ -75,6 +83,41 @@ precmd() {
 preexec() {
   printf '\033]0;%s\007' "$1" # running command as terminal title (zsh-only)
 }
+w() {
+  [[ $# -eq 0 ]] && { echo "usage: w <command> [args...]"; return 1; }
+  [[ -z "$BISH_W_FILE" ]] && { echo "w: not inside a bish session"; return 1; }
+  printf '%s\t%s\n' "$PWD" "$*" >> "$BISH_W_FILE"
+  echo "[bish] launched: $*"
+}
+gallery() {
+  local target="${1:-.}"
+  [[ -z "$BISH_GALLERY_FILE" ]] && { echo "gallery: not in bish"; return 1; }
+  if [[ "$target" != /* ]]; then target="$PWD/$target"; fi
+  printf '%s\n' "$target" > "$BISH_GALLERY_FILE"
+  echo "[bish] opening gallery: $target"
+}
+`
+	os.WriteFile(path, []byte(content), 0o644) //nolint
+}
+
+// writeBashInit writes the bish shell integration for bash: cwd tracking via
+// PROMPT_COMMAND and running-command title via a DEBUG trap (bash's preexec
+// analogue), plus the w/gallery helpers. Sources the user's ~/.bashrc first and
+// preserves any existing PROMPT_COMMAND.
+func writeBashInit(path string) {
+	content := `# auto-injected by bish (bash)
+[[ -f ~/.bashrc ]] && source ~/.bashrc
+__bish_precmd() {
+  [[ -n "$BISH_CWD_FILE" ]] && printf '%s' "$PWD" > "$BISH_CWD_FILE"
+  printf '\033]0;\007' # clear title -> tab label falls back to default
+}
+__bish_preexec() {
+  [[ -n "$COMP_LINE" ]] && return               # skip completion
+  case "$BASH_COMMAND" in __bish_precmd) return;; esac
+  printf '\033]0;%s\007' "$BASH_COMMAND"         # running command as title
+}
+PROMPT_COMMAND="__bish_precmd${PROMPT_COMMAND:+; $PROMPT_COMMAND}"
+trap '__bish_preexec' DEBUG
 w() {
   [[ $# -eq 0 ]] && { echo "usage: w <command> [args...]"; return 1; }
   [[ -z "$BISH_W_FILE" ]] && { echo "w: not inside a bish session"; return 1; }

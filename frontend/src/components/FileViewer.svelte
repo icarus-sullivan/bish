@@ -3,7 +3,7 @@
   import { EditorView, keymap } from '@codemirror/view'
   import { EditorState } from '@codemirror/state'
   import { defaultKeymap, historyKeymap, indentMore, indentLess } from '@codemirror/commands'
-  import { search, searchKeymap } from '@codemirror/search'
+  import { search, searchKeymap, getSearchQuery } from '@codemirror/search'
   import { completionKeymap, acceptCompletion } from '@codemirror/autocomplete'
   import { syntaxHighlighting, HighlightStyle, StreamLanguage } from '@codemirror/language'
   import { Prec } from '@codemirror/state'
@@ -19,13 +19,16 @@
   import { go } from '@codemirror/lang-go'
   import { shell } from '@codemirror/legacy-modes/mode/shell'
   import { ReadFile, ReadFileChunk, WriteFile, SaveNewFile, mediaUrl } from '../lib/wails'
-  import { currentThemeName, cwd, projectRoot, updateTabPath, setTabModified, pendingGoto, pendingFocus } from '../lib/stores'
+  import { currentThemeName, cwd, projectRoot, updateTabPath, setTabModified, pendingGoto, pendingFocus, activeSelection } from '../lib/stores'
   import { codeIntel, intelKindFor } from '../lib/codeintel'
+  import { snippets } from '../lib/snippets'
   import { invalidateSymbols } from '../lib/autoimport'
   import { gitBlame, refreshBlame } from '../lib/gitblame'
+  import { gitGutter, refreshDiff } from '../lib/gitgutter'
   import { lspFormat } from '../lib/lsp'
   import { registerKeybind } from '../lib/keybinds'
   import { formatOnSave } from '../lib/stores'
+  import { featureOn } from '../lib/features'
   import { indentUnit } from '@codemirror/language'
   import { svelte } from '@replit/codemirror-lang-svelte'
   import { get } from 'svelte/store'
@@ -45,43 +48,91 @@
     setTabModified(tabId, m)
   }
 
+  // Both functions below mutate the search panel's DOM, which panelObserver
+  // watches (childList+subtree) to know when the panel appears. Without this
+  // guard, refreshMatchCount's own write (the count span's textContent)
+  // triggers the observer -> patchSearchPanel -> refreshMatchCount -> another
+  // write -> observer again, forever — froze the whole webview (all clicks
+  // stop working) the instant a search query went non-empty.
+  let panelPatching = false
+
   function patchSearchPanel(root: HTMLElement) {
     const panel = root.querySelector<HTMLElement>('.cm-search')
     if (!panel) return
+    panelPatching = true
+    try {
+      // disable auto-capitalize/correct on all text inputs
+      panel.querySelectorAll<HTMLInputElement>('input.cm-textfield').forEach(el => {
+        el.setAttribute('autocapitalize', 'none')
+        el.setAttribute('autocorrect', 'off')
+        el.setAttribute('autocomplete', 'off')
+        el.setAttribute('spellcheck', 'false')
+      })
 
-    // disable auto-capitalize/correct on all text inputs
-    panel.querySelectorAll<HTMLInputElement>('input.cm-textfield').forEach(el => {
-      el.setAttribute('autocapitalize', 'none')
-      el.setAttribute('autocorrect', 'off')
-      el.setAttribute('autocomplete', 'off')
-      el.setAttribute('spellcheck', 'false')
-    })
+      // replace button text with arrows + add tooltips
+      const nextBtn = panel.querySelector<HTMLButtonElement>('button[name="next"]')
+      const prevBtn = panel.querySelector<HTMLButtonElement>('button[name="prev"]')
+      const selBtn  = panel.querySelector<HTMLButtonElement>('button[name="select"]')
+      if (nextBtn && nextBtn.textContent !== '↓') { nextBtn.textContent = '↓'; nextBtn.title = 'Next match' }
+      if (prevBtn && prevBtn.textContent !== '↑') { prevBtn.textContent = '↑'; prevBtn.title = 'Previous match' }
+      if (selBtn)  selBtn.title = 'Select all matches'
 
-    // replace button text with arrows + add tooltips
-    const nextBtn = panel.querySelector<HTMLButtonElement>('button[name="next"]')
-    const prevBtn = panel.querySelector<HTMLButtonElement>('button[name="prev"]')
-    const selBtn  = panel.querySelector<HTMLButtonElement>('button[name="select"]')
-    if (nextBtn && nextBtn.textContent !== '↓') { nextBtn.textContent = '↓'; nextBtn.title = 'Next match' }
-    if (prevBtn && prevBtn.textContent !== '↑') { prevBtn.textContent = '↑'; prevBtn.title = 'Previous match' }
-    if (selBtn)  selBtn.title = 'Select all matches'
+      // add tooltips to toggle labels
+      panel.querySelectorAll<HTMLElement>('label').forEach(label => {
+        const cb = label.querySelector<HTMLInputElement>('input[type=checkbox]')
+        if (!cb) return
+        if (cb.name === 'case') label.title = 'Match case'
+        if (cb.name === 're')   label.title = 'Use regex'
+        if (cb.name === 'word') label.title = 'Match whole word'
+      })
 
-    // add tooltips to toggle labels
-    panel.querySelectorAll<HTMLElement>('label').forEach(label => {
-      const cb = label.querySelector<HTMLInputElement>('input[type=checkbox]')
-      if (!cb) return
-      if (cb.name === 'case') label.title = 'Match case'
-      if (cb.name === 're')   label.title = 'Use regex'
-      if (cb.name === 'word') label.title = 'Match whole word'
-    })
-
-    // row break before replace input (only once)
-    if (!panel.querySelector('.cm-row-break')) {
-      const replaceField = panel.querySelector<HTMLElement>('input[name="replace"]')
-      if (replaceField) {
-        const spacer = document.createElement('div')
-        spacer.className = 'cm-row-break'
-        panel.insertBefore(spacer, replaceField)
+      // row break before replace input (only once)
+      if (!panel.querySelector('.cm-row-break')) {
+        const replaceField = panel.querySelector<HTMLElement>('input[name="replace"]')
+        if (replaceField) {
+          const spacer = document.createElement('div')
+          spacer.className = 'cm-row-break'
+          panel.insertBefore(spacer, replaceField)
+        }
       }
+
+      refreshMatchCount()
+    } finally {
+      panelPatching = false
+    }
+  }
+
+  // VSCode-style "3 / 17" match counter next to the nav arrows.
+  // ponytail: iterates every match on each update; only runs while the search
+  // panel is open, and CM only mounts for normal-size files, so it's bounded.
+  function refreshMatchCount() {
+    if (!featureOn('matchCount') || !view || !container) return
+    const panel = container.querySelector<HTMLElement>('.cm-search')
+    if (!panel) return
+    panelPatching = true
+    try {
+      let el = panel.querySelector<HTMLElement>('.cm-match-count')
+      const q = getSearchQuery(view.state)
+      if (!q.search) { if (el) el.textContent = ''; return }
+      if (!el) {
+        el = document.createElement('span')
+        el.className = 'cm-match-count'
+        const nextBtn = panel.querySelector<HTMLElement>('button[name="next"]')
+        panel.insertBefore(el, nextBtn?.nextSibling ?? null)
+      }
+      const { from: selFrom, to: selTo } = view.state.selection.main
+      let total = 0, current = 0
+      try {
+        const cursor = q.getCursor(view.state)
+        for (let r = cursor.next(); !r.done; r = cursor.next()) {
+          total++
+          if (r.value.from === selFrom && r.value.to === selTo) current = total
+          if (total >= 10000) break
+        }
+      } catch { el.textContent = ''; return }
+      el.textContent = total === 0 ? 'No results' : current ? `${current} / ${total}` : `${total}`
+    } finally {
+      panelPatching = false
     }
   }
   let saving = $state(false)
@@ -520,8 +571,10 @@
           highlightFor(themeName),
           indentUnit.of(detectIndent(content)),
           lang,
-          ...codeIntel(p, get(projectRoot) || get(cwd), lang, intelKindFor(p)),
-          ...(p !== UNTITLED ? [gitBlame(p)] : []),
+          ...(featureOn('lsp') ? codeIntel(p, get(projectRoot) || get(cwd), lang, intelKindFor(p)) : []),
+          ...(featureOn('snippets') ? snippets(lang, intelKindFor(p)) : []),
+          ...(featureOn('gitBlame') && p !== UNTITLED ? [gitBlame(p)] : []),
+          ...(featureOn('gitGutter') && p !== UNTITLED ? [gitGutter(p)] : []),
           search({ top: true }),
           // Highest priority: always consume Tab so focus never escapes the editor
           Prec.highest(keymap.of([
@@ -536,6 +589,16 @@
           ]),
           EditorView.updateListener.of((upd) => {
             if (upd.docChanged) setModified(true)
+            if (upd.docChanged || upd.selectionSet || upd.transactions.some(tr => tr.effects.length))
+              refreshMatchCount()
+            if (upd.selectionSet || upd.docChanged) {
+              const { from, to, head } = upd.state.selection.main
+              const ln = upd.state.doc.lineAt(head)
+              activeSelection.set({
+                path: p, from, to, text: upd.state.doc.sliceString(from, to),
+                line: ln.number, col: head - ln.from,
+              })
+            }
           }),
         ],
       }),
@@ -543,7 +606,7 @@
     })
 
     panelObserver?.disconnect()
-    panelObserver = new MutationObserver(() => patchSearchPanel(container))
+    panelObserver = new MutationObserver(() => { if (!panelPatching) patchSearchPanel(container) })
     panelObserver.observe(container, { childList: true, subtree: true })
 
     applyGoto()
@@ -611,6 +674,7 @@
         await WriteFile(path, view.state.doc.toString())
         setModified(false)
         refreshBlame(view)
+        refreshDiff(view)
       }
       invalidateSymbols()
     } catch (e: any) {
@@ -821,7 +885,8 @@
   :global(.cm-search label)              { order: 2; }
   :global(.cm-search button[name="prev"]) { order: 3; }
   :global(.cm-search button[name="next"]) { order: 4; }
-  :global(.cm-search button[name="select"]) { order: 5; }
+  :global(.cm-match-count) { order: 5; }
+  :global(.cm-search button[name="select"]) { order: 6; }
   /* row 2 */
   :global(.cm-textfield[name="replace"])      { order: 11; }
   :global(.cm-search button[name="replace"])  { order: 12; }
@@ -880,6 +945,16 @@
   :global(.cm-search button[name="prev"]:hover) {
     color: var(--foreground) !important;
     background: var(--bg-hover) !important;
+  }
+  :global(.cm-match-count) {
+    display: flex;
+    align-items: center;
+    min-width: 46px;
+    padding: 0 6px;
+    font-size: 11px;
+    color: var(--muted);
+    font-family: "SF Mono", Menlo, monospace;
+    white-space: nowrap;
   }
   :global(.cm-search input[type=checkbox]) {
     position: absolute !important;

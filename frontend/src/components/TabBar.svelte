@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { tabs, activeTabId, closeTab, addTerminalTab,
+  import { tabs, activeTabId, closeTab, addTerminalTab, setTabLabel,
            closeTabsToRight, closeTabsToLeft, closeOtherTabs, closeAllTabs,
            reorderTabs, type Tab } from '../lib/stores'
   import { NewTerminal, CloseTerminal } from '../lib/wails'
-  import { IconTerminal2, IconFile, IconListDetails, IconPlus, IconX, IconSettings } from '@tabler/icons-svelte'
+  import { IconTerminal2, IconFile, IconListDetails, IconPlus, IconX, IconSettings, IconFileDiff } from '@tabler/icons-svelte'
   import ContextMenu from './ContextMenu.svelte'
 
   async function newTerminal() {
@@ -11,6 +11,15 @@
       const id = await NewTerminal()
       addTerminalTab(id)
     } catch {}
+  }
+
+  // double-click a tab label to rename
+  let editingId = $state<string | null>(null)
+  let editValue = $state('')
+  function startRename(tab: Tab) { editingId = tab.id; editValue = tab.label }
+  function commitRename() {
+    if (editingId) setTabLabel(editingId, editValue)
+    editingId = null
   }
 
   function handleClose(e: MouseEvent, tab: Tab) {
@@ -25,6 +34,7 @@
     if (tab.type === 'terminal') return IconTerminal2
     if (tab.type === 'logs') return IconListDetails
     if (tab.type === 'settings') return IconSettings
+    if (tab.type === 'diff') return IconFileDiff
     return IconFile
   }
 
@@ -133,7 +143,22 @@
       oncontextmenu={(e) => showTabMenu(e, tab)}
     >
       <svelte:component this={tabIcon(tab)} size={11} />
-      <span class="tab-label">{tab.label}</span>
+      {#if editingId === tab.id}
+        <!-- svelte-ignore a11y_autofocus -->
+        <input
+          class="tab-rename"
+          bind:value={editValue}
+          autofocus
+          onclick={(e) => e.stopPropagation()}
+          onblur={commitRename}
+          onkeydown={(e) => {
+            if (e.key === 'Enter') { e.preventDefault(); commitRename() }
+            else if (e.key === 'Escape') { e.preventDefault(); editingId = null }
+          }}
+        />
+      {:else}
+        <span class="tab-label" ondblclick={(e) => { e.stopPropagation(); startRename(tab) }} role="presentation">{tab.label}</span>
+      {/if}
       {#if tab.type !== 'terminal' || $tabs.filter(t => t.type === 'terminal').length > 1}
         <button class="tab-close" onclick={(e) => handleClose(e, tab)} title="Close">
           <IconX size={10} />
@@ -203,6 +228,17 @@
     max-width: 120px;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .tab-rename {
+    max-width: 120px;
+    background: var(--background);
+    border: 1px solid var(--accent);
+    border-radius: 3px;
+    color: var(--foreground);
+    font-size: inherit;
+    font-family: inherit;
+    padding: 0 3px;
+    outline: none;
   }
 
   .tab-close {

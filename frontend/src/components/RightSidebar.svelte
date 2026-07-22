@@ -2,7 +2,14 @@
   import { panels } from '../lib/panels'
   import { activeRightPanel, focusedPane, openSettingsTab } from '../lib/stores'
   import type { Pane } from '../lib/stores'
+  import { featureOn, features } from '../lib/features'
   import { IconSettings } from '@tabler/icons-svelte'
+
+  // re-evaluate gating when toggles change ($features touched for reactivity)
+  const visible = $derived.by(() => {
+    void $features
+    return panels.filter(p => !p.feature || featureOn(p.feature))
+  })
 
   // keep the statusbar focus chip in sync (git has no pane — leave it alone)
   const paneFor: Record<string, Pane> = { files: 'tree', processes: 'processes', commands: 'commands' }
@@ -17,14 +24,14 @@
   <div class="panels">
     <!-- keep every panel mounted (display:none) so FileTree scroll/selection
          survives tab switches — same trick App.svelte uses for terminals -->
-    {#each panels as p (p.id)}
+    {#each visible as p (p.id)}
       <div class="panel-host" style="display:{$activeRightPanel === p.id ? 'flex' : 'none'}">
         <p.component />
       </div>
     {/each}
   </div>
   <div class="strip">
-    {#each panels as p (p.id)}
+    {#each visible as p (p.id)}
       <button
         class="hdr-btn"
         class:active={$activeRightPanel === p.id}

@@ -136,9 +136,28 @@ function pyModule(root: string, file: string): string {
   return rel.replace(/\.__init__$/, '')
 }
 
+// Module specifier for a Python import: a relative import (leading dot) when the
+// target is a sibling or lives under the importing file's package, else the
+// absolute dotted path from the project root. Sibling `from .mod import X` is
+// both idiomatic and required when the project root isn't on sys.path (e.g.
+// ComfyUI custom_nodes).
+function pyImportModule(root: string, fromFile: string, toFile: string): string {
+  const fromDir = dirname(fromFile)
+  const toDir = dirname(toFile)
+  if (toDir === fromDir) {
+    const name = toFile.slice(toDir.length + 1).replace(/\.py$/, '')
+    return '.' + name
+  }
+  if (toDir.startsWith(fromDir + '/')) {
+    const rel = toFile.slice(fromDir.length + 1).replace(/\.py$/, '').replace(/\//g, '.')
+    return '.' + rel
+  }
+  return pyModule(root, toFile) // cross-package: absolute from root
+}
+
 function detailFor(sym: SymbolInfo, filePath: string, root: string, kind: IntelKind): string {
   if (kind === 'go') return sym.pkg
-  if (kind === 'py') return pyModule(root, sym.file)
+  if (kind === 'py') return pyImportModule(root, filePath, sym.file)
   return relModule(filePath, sym.file)
 }
 
@@ -173,7 +192,7 @@ function importChange(view: EditorView, sym: SymbolInfo, filePath: string, root:
   }
 
   if (kind === 'py') {
-    const mod = pyModule(root, sym.file)
+    const mod = pyImportModule(root, filePath, sym.file)
     const nameRe = new RegExp(`^(from|import)\\b.*\\b${sym.name}\\b`, 'm')
     if (nameRe.test(head)) return null
     const line = `from ${mod} import ${sym.name}`

@@ -20,6 +20,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
+	"github.com/csullivan/bish/internal/assistant"
 	"github.com/csullivan/bish/internal/commands"
 	"github.com/csullivan/bish/internal/config"
 	"github.com/csullivan/bish/internal/lsp"
@@ -68,6 +69,7 @@ type App struct {
 	projectCfg             *project.Config
 	projectMu              sync.Mutex
 	lsp                    *lsp.Manager
+	assistant              *assistant.Manager
 	cfg                    config.Config
 	ctx                    context.Context
 	DockMenuUpdater        func()
@@ -103,6 +105,9 @@ func New(cfg config.Config, mgr *process.Manager, store *commands.Store,
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
 	a.lsp = lsp.NewManager(func(event string, data ...interface{}) {
+		runtime.EventsEmit(a.ctx, event, data...)
+	})
+	a.assistant = assistant.NewManager(func(event string, data ...interface{}) {
 		runtime.EventsEmit(a.ctx, event, data...)
 	})
 	go a.readPTYLoopFor("main", a.shell)
@@ -151,6 +156,7 @@ func (a *App) Shutdown(ctx context.Context) {
 		}
 	}
 	a.lsp.StopAll()
+	a.assistant.StopAll()
 	a.mgr.KillAll()
 	a.shell.Close()
 	a.terminalsMu.Lock()
@@ -426,7 +432,24 @@ func (a *App) KillProcess(id string) error {
 }
 
 func (a *App) RestartProcess(id string) error {
-	return a.mgr.Restart(id)
+	if err := a.mgr.Restart(id); err != nil {
+		return err
+	}
+	runtime.EventsEmit(a.ctx, "processes:update", a.mgr.List())
+	a.mgr.SaveToDisk() //nolint
+	return nil
+}
+
+// StopProcess kills the process but leaves its row in place, so Play
+// (RestartProcess) can bring it back later — distinct from KillProcess,
+// which removes the row entirely.
+func (a *App) StopProcess(id string) error {
+	if err := a.mgr.Stop(id); err != nil {
+		return err
+	}
+	runtime.EventsEmit(a.ctx, "processes:update", a.mgr.List())
+	a.mgr.SaveToDisk() //nolint
+	return nil
 }
 
 func (a *App) GetProcessLogs(id string) []string {
@@ -856,6 +879,50 @@ func (a *App) LSPSend(lang, msg string) error {
 
 func (a *App) LSPStop(lang string) {
 	a.lsp.Stop(lang)
+}
+
+// -- Assistant methods --
+
+// AssistantPickFiles opens a native multi-file picker for attaching context
+// to the Assistant panel (the "+" button next to the composer).
+func (a *App) AssistantPickFiles() ([]string, error) {
+	return runtime.OpenMultipleFilesDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Attach Files",
+	})
+}
+
+// AssistantStart lazily spawns `claude` in headless plan-mode (or whatever
+// permissionMode the panel asked for) rooted at root, and returns a session
+// handle the frontend keeps using for the rest of the conversation.
+func (a *App) AssistantStart(root, permissionMode string) (string, error) {
+	return a.assistant.Start(root, permissionMode)
+}
+
+// AssistantSend writes one user turn to the session's stdin.
+func (a *App) AssistantSend(sessionID, text string) error {
+	return a.assistant.Send(sessionID, text)
+}
+
+// AssistantApprovePlan swaps the session's plan-mode process for a
+// --resume'd acceptEdits process told to proceed with the approved plan.
+func (a *App) AssistantApprovePlan(sessionID string) error {
+	return a.assistant.ApprovePlan(sessionID)
+}
+
+func (a *App) AssistantStop(sessionID string) {
+	a.assistant.Stop(sessionID)
+}
+
+// AssistantInterrupt stops the in-flight turn but keeps the conversation
+// alive (resumes in place) so the user can send a follow-up immediately.
+func (a *App) AssistantInterrupt(sessionID string) error {
+	return a.assistant.Interrupt(sessionID)
+}
+
+// AssistantSwitchMode changes the live session's permission mode — permission
+// mode is fixed at process spawn, so this kills and --resume's the process.
+func (a *App) AssistantSwitchMode(sessionID, mode string) error {
+	return a.assistant.SwitchMode(sessionID, mode)
 }
 
 func (a *App) WritePTY(data string) error {

@@ -18,6 +18,20 @@ export namespace app {
 	        this.summary = source["summary"];
 	    }
 	}
+	export class DiffLine {
+	    line: number;
+	    type: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DiffLine(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.line = source["line"];
+	        this.type = source["type"];
+	    }
+	}
 	export class FileChunk {
 	    dataB64: string;
 	    size: number;
@@ -77,6 +91,24 @@ export namespace app {
 		    }
 		    return a;
 		}
+	}
+	export class OutlineSym {
+	    name: string;
+	    kind: string;
+	    line: number;
+	    depth: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new OutlineSym(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.kind = source["kind"];
+	        this.line = source["line"];
+	        this.depth = source["depth"];
+	    }
 	}
 	export class SearchResultDTO {
 	    file: string;
@@ -217,6 +249,7 @@ export namespace config {
 	    shell: string;
 	    format_on_save: boolean;
 	    persist?: PersistConfig;
+	    features?: Record<string, boolean>;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -228,6 +261,7 @@ export namespace config {
 	        this.shell = source["shell"];
 	        this.format_on_save = source["format_on_save"];
 	        this.persist = this.convertValues(source["persist"], PersistConfig);
+	        this.features = source["features"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

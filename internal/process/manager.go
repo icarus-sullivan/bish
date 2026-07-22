@@ -36,8 +36,9 @@ type Process struct {
 	Status    Status    `json:"status"`
 	ExitCode  int       `json:"exit_code"`
 
-	cmd    *exec.Cmd
-	Log    *logs.LogBuffer `json:"-"`
+	cmd      *exec.Cmd
+	Log      *logs.LogBuffer `json:"-"`
+	stopping bool            // set by Stop() right before killing, so the exit-watch goroutine reports "stopped" not "crashed"
 }
 
 func (p *Process) Uptime() string {
@@ -79,14 +80,29 @@ func (m *Manager) Add(cmdStr, cwd, name string) (*Process, error) {
 		}
 	}
 
+	p := &Process{ID: id, Name: name, Log: logs.NewBuffer()}
+	if err := m.spawnLocked(p, cmdStr, cwd); err != nil {
+		return nil, err
+	}
+	m.Processes = append(m.Processes, p)
+	return p, nil
+}
+
+// spawnLocked starts cmdStr in cwd and wires it into p (stdout/stderr piped
+// into p.Log, an exit-watch goroutine to update p.Status/ExitCode). Caller
+// must hold m.mu. p need not be in m.Processes yet (Add appends it right
+// after; Restart swaps it into an existing slot right after) — by the time
+// any goroutine started here can acquire m.mu, that placement has already
+// happened, so the exit-watch goroutine's m.find(id) == p check below is
+// race-free.
+func (m *Manager) spawnLocked(p *Process, cmdStr, cwd string) error {
 	// -l so .zprofile (brew shellenv etc.) applies to background commands.
 	cmd := exec.Command(shellenv.DefaultShell(), "-l", "-c", cmdStr)
 	cmd.Dir = cwd
 
-	lb := logs.NewBuffer()
 	pr, pw, err := os.Pipe()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	cmd.Stdout = pw
 	cmd.Stderr = pw
@@ -94,22 +110,19 @@ func (m *Manager) Add(cmdStr, cwd, name string) (*Process, error) {
 	if err := cmd.Start(); err != nil {
 		pr.Close()
 		pw.Close()
-		return nil, err
+		return err
 	}
 	pw.Close()
 
-	p := &Process{
-		ID:        id,
-		PID:       cmd.Process.Pid,
-		Name:      name,
-		Cmd:       cmdStr,
-		CWD:       cwd,
-		StartTime: time.Now(),
-		Status:    StatusRunning,
-		cmd:       cmd,
-		Log:       lb,
-	}
-	m.Processes = append(m.Processes, p)
+	p.cmd = cmd
+	p.PID = cmd.Process.Pid
+	p.Cmd = cmdStr
+	p.CWD = cwd
+	p.StartTime = time.Now()
+	p.Status = StatusRunning
+	p.ExitCode = 0
+	lb := p.Log
+	id := p.ID
 
 	go func() {
 		buf := make([]byte, 4096)
@@ -134,11 +147,21 @@ func (m *Manager) Add(cmdStr, cwd, name string) (*Process, error) {
 	}()
 
 	go func() {
-		err := cmd.Wait()
+		waitErr := cmd.Wait()
 		m.mu.Lock()
 		defer m.mu.Unlock()
+		// a later Restart already replaced this process's slot with a new
+		// *Process (possibly reusing this same id) — this run's exit status
+		// is stale, not the current one's, so don't report it.
+		if m.find(id) != p {
+			return
+		}
+		if p.stopping {
+			p.Status = StatusStopped
+			return
+		}
 		p.Status = StatusStopped
-		if err != nil {
+		if waitErr != nil {
 			p.Status = StatusCrashed
 			if cmd.ProcessState != nil {
 				p.ExitCode = cmd.ProcessState.ExitCode()
@@ -146,20 +169,23 @@ func (m *Manager) Add(cmdStr, cwd, name string) (*Process, error) {
 		}
 	}()
 
-	return p, nil
+	return nil
 }
 
-func (m *Manager) Kill(id string) error {
+// Stop kills the process but leaves its row in place (Status becomes
+// "stopped", not removed) so it can be restarted later via Restart.
+func (m *Manager) Stop(id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	p := m.find(id)
 	if p == nil {
 		return fmt.Errorf("process %s not found", id)
 	}
-	if p.cmd != nil && p.cmd.Process != nil {
-		return p.cmd.Process.Kill()
+	if p.cmd == nil || p.cmd.Process == nil {
+		return nil
 	}
-	return nil
+	p.stopping = true
+	return p.cmd.Process.Kill()
 }
 
 func (m *Manager) Remove(id string) {
@@ -176,29 +202,35 @@ func (m *Manager) Remove(id string) {
 	}
 }
 
+// Restart (re)spawns id in place: same id and same slice slot (no
+// reordering, and the frontend's log tab — keyed by id — stays the same
+// tab), but a fresh log buffer, so the reused tab shows only the new run's
+// output instead of appending onto the previous one. A new *Process is used
+// rather than mutating the old one in place so spawnLocked's stale-exit-watch
+// guard (pointer identity via m.find(id) == p) works unchanged.
 func (m *Manager) Restart(id string) error {
 	m.mu.Lock()
-	p := m.find(id)
-	if p == nil {
-		m.mu.Unlock()
-		return fmt.Errorf("process %s not found", id)
-	}
-	cmdStr := p.Cmd
-	cwd := p.CWD
-	name := p.Name
-	if p.cmd != nil && p.cmd.Process != nil {
-		p.cmd.Process.Kill() //nolint
-	}
-	// remove old
+	defer m.mu.Unlock()
+	idx := -1
+	var old *Process
 	for i, pp := range m.Processes {
 		if pp.ID == id {
-			m.Processes = append(m.Processes[:i], m.Processes[i+1:]...)
+			idx, old = i, pp
 			break
 		}
 	}
-	m.mu.Unlock()
-	_, err := m.Add(cmdStr, cwd, name)
-	return err
+	if old == nil {
+		return fmt.Errorf("process %s not found", id)
+	}
+	if old.cmd != nil && old.cmd.Process != nil {
+		old.cmd.Process.Kill() //nolint
+	}
+	np := &Process{ID: old.ID, Name: old.Name, Log: logs.NewBuffer()}
+	if err := m.spawnLocked(np, old.Cmd, old.CWD); err != nil {
+		return err
+	}
+	m.Processes[idx] = np
+	return nil
 }
 
 func (m *Manager) Refresh() {
