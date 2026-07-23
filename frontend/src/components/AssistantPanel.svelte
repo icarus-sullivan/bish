@@ -234,6 +234,22 @@
     el.addEventListener('bish:filedrop', onDrop)
     return () => el.removeEventListener('bish:filedrop', onDrop)
   })
+
+  // autoscroll to new content, but don't yank the view if the user has
+  // scrolled up to read scrollback
+  let messagesEl: HTMLDivElement
+  let stickToBottom = true
+
+  function onMessagesScroll() {
+    const el = messagesEl
+    stickToBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40
+  }
+
+  $effect(() => {
+    messages.length
+    busy
+    if (stickToBottom && messagesEl) messagesEl.scrollTop = messagesEl.scrollHeight
+  })
 </script>
 
 <div class="panel" bind:this={container}>
@@ -248,7 +264,7 @@
     </div>
   </div>
 
-  <div class="messages">
+  <div class="messages" bind:this={messagesEl} onscroll={onMessagesScroll}>
     {#if messages.length === 0}
       <div class="empty">Ask a question, or select code in the editor first for context.</div>
     {/if}
