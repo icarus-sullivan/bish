@@ -1,11 +1,11 @@
 import { waitForWails, on, GetProcesses, GetCommands, GetTreeNodes, GetTheme, GetGalleryImages, GetCWD,
-         GetProjectRoot, GetProjectCommands, GetProjectUI, SaveProjectUI, GetConfig, initMediaBase } from './wails'
+         GetProjectRoot, GetProjectCommands, GetProjectUI, SaveProjectUI, GetConfig, GitStatus, initMediaBase } from './wails'
 import {
   processes, commands, treeNodes, cwd,
   galleryMode, galleryImages, theme, projectRoot,
   showPalette, projectCommands, openFileTab,
   showRight, rightWidth,
-  tabs, activeTabId, isMediaPath, activeRightPanel, persistPrefs, formatOnSave
+  tabs, activeTabId, isMediaPath, activeRightPanel, persistPrefs, formatOnSave, gitBranch
 } from './stores'
 import { get } from 'svelte/store'
 import { loadFeatures } from './features'
@@ -54,16 +54,19 @@ export async function initEvents() {
     el.dispatchEvent(new CustomEvent('bish:filedrop', { detail: { paths }, bubbles: true }))
   }, false)
 
+  refreshGitBranch()
+
   // Wire backend → store events
   on('processes:update', (procs) => processes.set(procs))
   on('commands:update', (cmds) => commands.set(cmds))
-  on('tree:update', (nodes) => treeNodes.set(nodes))
-  on('cwd:change', (newCwd) => cwd.set(newCwd))
+  on('tree:update', (nodes) => { treeNodes.set(nodes); refreshGitBranch() })
+  on('cwd:change', (newCwd) => { cwd.set(newCwd); refreshGitBranch() })
   on('theme:update', (t) => { theme.set(t); applyTheme(t) })
   on('project:change', (root: string) => {
     const prev = get(projectRoot)
     projectRoot.set(root)
     if (root && root !== prev) loadProjectUI()
+    refreshGitBranch()
   })
   on('project:commands', (cmds: any) => projectCommands.set(cmds ?? []))
 
@@ -79,6 +82,10 @@ export async function initEvents() {
       galleryMode.set(true)
     }
   })
+}
+
+function refreshGitBranch() {
+  GitStatus().then((s: any) => gitBranch.set(s?.branch || null)).catch(() => gitBranch.set(null))
 }
 
 // ─── per-project UI state (panel sizes/visibility, open tabs) ────────────────

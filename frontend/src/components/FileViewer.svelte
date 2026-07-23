@@ -562,6 +562,15 @@
     if (!container) return
 
     const lang = langFor(p)
+    const indent = detectIndent(content)
+    const reportSelection = (state: EditorState) => {
+      const { from, to, head } = state.selection.main
+      const ln = state.doc.lineAt(head)
+      activeSelection.set({
+        path: p, from, to, text: state.doc.sliceString(from, to),
+        line: ln.number, col: head - ln.from, lines: state.doc.lines, indent,
+      })
+    }
     view = new EditorView({
       state: EditorState.create({
         doc: content,
@@ -569,7 +578,7 @@
           basicSetup,
           bishTheme(isDark()),
           highlightFor(themeName),
-          indentUnit.of(detectIndent(content)),
+          indentUnit.of(indent),
           lang,
           ...(featureOn('lsp') ? codeIntel(p, get(projectRoot) || get(cwd), lang, intelKindFor(p)) : []),
           ...(featureOn('snippets') ? snippets(lang, intelKindFor(p)) : []),
@@ -591,19 +600,13 @@
             if (upd.docChanged) setModified(true)
             if (upd.docChanged || upd.selectionSet || upd.transactions.some(tr => tr.effects.length))
               refreshMatchCount()
-            if (upd.selectionSet || upd.docChanged) {
-              const { from, to, head } = upd.state.selection.main
-              const ln = upd.state.doc.lineAt(head)
-              activeSelection.set({
-                path: p, from, to, text: upd.state.doc.sliceString(from, to),
-                line: ln.number, col: head - ln.from,
-              })
-            }
+            if (upd.selectionSet || upd.docChanged) reportSelection(upd.state)
           }),
         ],
       }),
       parent: container,
     })
+    reportSelection(view.state)
 
     panelObserver?.disconnect()
     panelObserver = new MutationObserver(() => { if (!panelPatching) patchSearchPanel(container) })

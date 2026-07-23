@@ -3,7 +3,7 @@
   import { focusedPane, galleryMode, cwd, showRight, activeRightPanel,
            rightWidth, currentThemeName,
            showPalette, showActionPalette, showGlobalSearch, searchScopeDir, tabs, activeTabId, closeTab, reopenMainTab,
-           addTerminalTab, cycleTab } from './lib/stores'
+           addTerminalTab, cycleTab, gitBranch, activeSelection } from './lib/stores'
   import { get } from 'svelte/store'
   import { initEvents } from './lib/events'
   import { registerKeybind } from './lib/keybinds'
@@ -18,7 +18,7 @@
   import TabBar from './components/TabBar.svelte'
   import { GetConfig, NewTerminal, CloseTerminal } from './lib/wails'
   import {
-    IconLayoutSidebarRight, IconLayoutSidebarRightFilled,
+    IconLayoutSidebarRight, IconLayoutSidebarRightFilled, IconGitBranch,
   } from '@tabler/icons-svelte'
   import CommandPalette from './components/CommandPalette.svelte'
   import ActionPalette from './components/ActionPalette.svelte'
@@ -33,6 +33,23 @@
 
   type Pane = 'processes' | 'commands' | 'terminal' | 'tree'
   const paneOrder: Pane[] = ['processes', 'commands', 'terminal', 'tree']
+
+  // ─── status bar: VSCode-style file info ────────────────────────────────────
+  const LANG_LABELS: Record<string, string> = {
+    js: 'JavaScript', mjs: 'JavaScript', cjs: 'JavaScript',
+    ts: 'TypeScript', tsx: 'TypeScript React', jsx: 'JavaScript React',
+    py: 'Python', css: 'CSS', svelte: 'Svelte', html: 'HTML', vue: 'Vue',
+    json: 'JSON', md: 'Markdown', markdown: 'Markdown', yaml: 'YAML', yml: 'YAML',
+    go: 'Go', sh: 'Shell Script', bash: 'Shell Script', zsh: 'Shell Script', fish: 'Shell Script',
+  }
+  function langLabel(p: string): string {
+    const ext = p.split('.').pop()?.toLowerCase() ?? ''
+    return LANG_LABELS[ext] ?? (ext ? ext.toUpperCase() : 'Plain Text')
+  }
+  function indentLabel(indent: string): string {
+    return indent === '\t' ? 'Tab Size: 4' : `Spaces: ${indent.length}`
+  }
+  const activeTab = $derived($tabs.find(t => t.id === $activeTabId))
 
   onMount(() => {
     (async () => {
@@ -142,7 +159,9 @@
     const startRight = $rightWidth
 
     function onMove(ev: MouseEvent) {
-      rightWidth.set(Math.max(160, Math.min(500, startRight - (ev.clientX - startX))))
+      // 220 is the narrowest a Processes row (play/stop/dot/port badge/trash,
+      // name already collapsed to 0) still lays out without clipping
+      rightWidth.set(Math.max(220, Math.min(500, startRight - (ev.clientX - startX))))
     }
     function onUp() {
       window.removeEventListener('mousemove', onMove)
@@ -260,11 +279,17 @@
 
   <!-- ─── status bar ─── -->
   <div class="statusbar">
+    {#if $gitBranch}
+      <span class="branch"><IconGitBranch size={12} />{$gitBranch}</span>
+    {/if}
     <span class="cwd-text">{$cwd || '~'}</span>
     <span class="fill"></span>
-    <span class="pane-chip" class:terminal={$focusedPane === 'terminal'}
-                            class:tree={$focusedPane === 'tree'}>{$focusedPane}</span>
-    <span class="hints">⌘T · Ctrl+B · Esc</span>
+    {#if activeTab?.type === 'file' && $activeSelection && $activeSelection.path === activeTab.path}
+      <span class="stat">Ln {$activeSelection.line}, Col {$activeSelection.col + 1}</span>
+      <span class="stat">{indentLabel($activeSelection.indent)}</span>
+      <span class="stat">UTF-8</span>
+      <span class="stat">{langLabel(activeTab.path ?? '')}</span>
+    {/if}
   </div>
 
 </div>
@@ -470,19 +495,17 @@
     max-width: 40%;
   }
   .fill { flex: 1; }
-  .pane-chip {
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+  .branch {
+    display: flex;
+    align-items: center;
+    gap: 4px;
     color: var(--muted);
-    padding: 1px 7px;
-    border-radius: 3px;
-    background: var(--bg-hover);
+    font-size: 11px;
+    flex-shrink: 0;
   }
-  .pane-chip.terminal { color: var(--accent); background: var(--bg-selected); }
-  .hints {
-    color: color-mix(in srgb, var(--muted) 60%, transparent);
-    font-size: 10px;
+  .stat {
+    color: var(--muted);
+    font-size: 11px;
+    white-space: nowrap;
   }
 </style>

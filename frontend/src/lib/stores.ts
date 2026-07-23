@@ -47,8 +47,12 @@ export const pendingFocus = writable<string | null>(null)
 // pendingGoto — readers just check "what's selected right now")
 export interface EditorSelection {
   path: string; from: number; to: number; text: string; line: number; col: number
+  lines: number; indent: string
 }
 export const activeSelection = writable<EditorSelection | null>(null)
+
+// current git branch (null when not a repo), refreshed on tree/project changes
+export const gitBranch = writable<string | null>(null)
 
 // panel visibility
 export const showRight = writable<boolean>(true)

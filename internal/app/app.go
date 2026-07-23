@@ -363,7 +363,7 @@ func (a *App) pollWLoop() {
 				copy(cmds, a.cmdStore.Commands)
 				a.cmdMu.Unlock()
 				runtime.EventsEmit(a.ctx, "commands:update", cmds)
-				runtime.EventsEmit(a.ctx, "processes:update", a.mgr.List())
+				runtime.EventsEmit(a.ctx, "processes:update", a.visibleProcesses())
 				a.projectMu.Lock()
 				if a.projectCfg != nil {
 					runtime.EventsEmit(a.ctx, "project:commands", a.projectCfg.Cmds)
@@ -409,10 +409,10 @@ func (a *App) refreshLoop() {
 		case <-time.After(2 * time.Second):
 			a.mgr.Refresh()
 			// emit only on change — idle app does zero store writes/re-renders
-			cur, err := json.Marshal(a.mgr.List())
+			cur, err := json.Marshal(a.visibleProcesses())
 			if err != nil || !bytes.Equal(cur, last) {
 				last = cur
-				runtime.EventsEmit(a.ctx, "processes:update", a.mgr.List())
+				runtime.EventsEmit(a.ctx, "processes:update", a.visibleProcesses())
 			}
 		}
 	}
@@ -421,12 +421,34 @@ func (a *App) refreshLoop() {
 // -- Process methods --
 
 func (a *App) GetProcesses() []*process.Process {
-	return a.mgr.List()
+	return a.visibleProcesses()
+}
+
+// visibleProcesses scopes the process list to the open project's directory
+// tree (root cause of processes leaking between projects: Manager itself is
+// global-in-memory and processes.json is one shared file, so every reader
+// must filter here) — same "prefix of project root, else global" rule
+// already used for saved commands at line ~349.
+func (a *App) visibleProcesses() []*process.Process {
+	a.projectMu.Lock()
+	root := a.projectRoot
+	a.projectMu.Unlock()
+	all := a.mgr.List()
+	if root == "" {
+		return all
+	}
+	out := make([]*process.Process, 0, len(all))
+	for _, p := range all {
+		if strings.HasPrefix(p.CWD+"/", root+"/") {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func (a *App) KillProcess(id string) error {
 	a.mgr.Remove(id)
-	runtime.EventsEmit(a.ctx, "processes:update", a.mgr.List())
+	runtime.EventsEmit(a.ctx, "processes:update", a.visibleProcesses())
 	a.mgr.SaveToDisk() //nolint
 	return nil
 }
@@ -435,7 +457,7 @@ func (a *App) RestartProcess(id string) error {
 	if err := a.mgr.Restart(id); err != nil {
 		return err
 	}
-	runtime.EventsEmit(a.ctx, "processes:update", a.mgr.List())
+	runtime.EventsEmit(a.ctx, "processes:update", a.visibleProcesses())
 	a.mgr.SaveToDisk() //nolint
 	return nil
 }
@@ -447,7 +469,7 @@ func (a *App) StopProcess(id string) error {
 	if err := a.mgr.Stop(id); err != nil {
 		return err
 	}
-	runtime.EventsEmit(a.ctx, "processes:update", a.mgr.List())
+	runtime.EventsEmit(a.ctx, "processes:update", a.visibleProcesses())
 	a.mgr.SaveToDisk() //nolint
 	return nil
 }

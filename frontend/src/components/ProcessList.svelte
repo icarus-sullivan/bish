@@ -78,10 +78,10 @@
           <span class="status-dot" class:running={p.status === 'running'}
                                    class:crashed={p.status === 'crashed'}
                                    class:stopped={p.status === 'stopped'}></span>
-          <span class="proc-name">{p.name}</span>
+          <span class="proc-name" title={p.name || p.cmd}>{p.name}</span>
           <span class="meta">
             {#if p.ports?.length}
-              <span class="badge port">:{p.ports[0]}</span>
+              <span class="badge port" title={p.name || p.cmd}>:{p.ports[0]}</span>
             {/if}
             {#if p.status === 'running' && p.cpu_pct > 0}
               <span class="badge cpu" style="color:{cpuColor(p.cpu_pct)}">{p.cpu_pct.toFixed(1)}%</span>
