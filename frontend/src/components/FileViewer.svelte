@@ -113,7 +113,17 @@
     try {
       let el = panel.querySelector<HTMLElement>('.cm-match-count')
       const q = getSearchQuery(view.state)
-      if (!q.search) { if (el) el.textContent = ''; return }
+      // setTextContent avoids writing when unchanged: textContent always
+      // replaces the text node (a childList mutation) even for an equal
+      // value, which re-triggers panelObserver -> patchSearchPanel ->
+      // refreshMatchCount forever (froze all clicks the instant a search
+      // query went non-empty — panelPatching can't guard this because the
+      // MutationObserver callback fires as a microtask, after the flag has
+      // already been reset).
+      const setTextContent = (node: HTMLElement, text: string) => {
+        if (node.textContent !== text) node.textContent = text
+      }
+      if (!q.search) { if (el) setTextContent(el, ''); return }
       if (!el) {
         el = document.createElement('span')
         el.className = 'cm-match-count'
@@ -129,8 +139,8 @@
           if (r.value.from === selFrom && r.value.to === selTo) current = total
           if (total >= 10000) break
         }
-      } catch { el.textContent = ''; return }
-      el.textContent = total === 0 ? 'No results' : current ? `${current} / ${total}` : `${total}`
+      } catch { setTextContent(el, ''); return }
+      setTextContent(el, total === 0 ? 'No results' : current ? `${current} / ${total}` : `${total}`)
     } finally {
       panelPatching = false
     }
