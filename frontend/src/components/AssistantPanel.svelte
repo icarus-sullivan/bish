@@ -12,6 +12,9 @@
   import {
     projectRoot, cwd, tabs, activeTabId, activeSelection, pendingGoto, openFileTab,
   } from '../lib/stores'
+  import { BrowserOpenURL } from '../../wailsjs/runtime/runtime'
+  import { fuzzyMatch } from '../lib/fuzzy'
+  import { SLASH_COMMANDS } from '../lib/slashCommands'
 
   const PERMISSION_MODES = ['plan', 'acceptEdits', 'auto', 'bypassPermissions', 'manual', 'dontAsk']
   const MODE_LABELS: Record<string, string> = {
@@ -26,6 +29,7 @@
 
   interface ChatMsg {
     id: string
+    turnId: number
     role: 'user' | 'assistant' | 'tool' | 'plan' | 'status' | 'error'
     text?: string
     html?: string
@@ -35,6 +39,7 @@
   }
 
   let messages = $state<ChatMsg[]>([])
+  let turn = $state(0)
   let input = $state('')
   let attachedFiles = $state<string[]>([])
   let includeContext = $state(true)
@@ -63,9 +68,9 @@
     planPending = false
     try {
       await AssistantSwitchMode(sessionId, next)
-      messages.push({ id: nextId(), role: 'status', text: `Switched to "${MODE_LABELS[next]}".` })
+      messages.push({ id: nextId(), turnId: turn, role: 'status', text: `Switched to "${MODE_LABELS[next]}".` })
     } catch (e) {
-      messages.push({ id: nextId(), role: 'error', text: `${e}` })
+      messages.push({ id: nextId(), turnId: turn, role: 'error', text: `${e}` })
     }
   }
 
@@ -87,7 +92,7 @@
       offMsg?.(); offExit?.()
       offMsg = offExit = null
       messages.push({
-        id: nextId(), role: 'error',
+        id: nextId(), turnId: turn, role: 'error',
         text: stderr || 'Assistant process exited unexpectedly.',
       })
     })
@@ -116,7 +121,9 @@
     const text = input.trim()
     if (!text || busy) return
     const ctx = buildContext()
-    messages.push({ id: nextId(), role: 'user', text })
+    turn += 1
+    slashDismissed = false
+    messages.push({ id: nextId(), turnId: turn, role: 'user', text })
     input = ''
     attachedFiles = []
     busy = true
@@ -124,7 +131,7 @@
       const id = await ensureSession()
       await AssistantSend(id, ctx + text)
     } catch (e) {
-      messages.push({ id: nextId(), role: 'error', text: `${e}` })
+      messages.push({ id: nextId(), turnId: turn, role: 'error', text: `${e}` })
       busy = false
     }
   }
@@ -135,19 +142,19 @@
     if (msg.type === 'assistant') {
       for (const block of msg.message?.content ?? []) {
         if (block.type === 'text' && block.text) {
-          messages.push({ id: nextId(), role: 'assistant', html: await renderMd(block.text) })
+          messages.push({ id: nextId(), turnId: turn, role: 'assistant', html: await renderMd(block.text) })
         } else if (block.type === 'tool_use' && block.name === 'ExitPlanMode') {
-          messages.push({ id: nextId(), role: 'plan', html: await renderMd(block.input?.plan ?? '') })
+          messages.push({ id: nextId(), turnId: turn, role: 'plan', html: await renderMd(block.input?.plan ?? '') })
           planPending = true
           busy = false
         } else if (block.type === 'tool_use') {
           const path = block.input?.file_path ?? block.input?.path ?? ''
-          messages.push({ id: nextId(), role: 'tool', toolName: block.name, toolPath: path })
+          messages.push({ id: nextId(), turnId: turn, role: 'tool', toolName: block.name, toolPath: path })
         }
       }
     } else if (msg.type === 'result') {
       busy = false
-      if (msg.is_error) messages.push({ id: nextId(), role: 'error', text: msg.result ?? 'The assistant hit an error.' })
+      if (msg.is_error) messages.push({ id: nextId(), turnId: turn, role: 'error', text: msg.result ?? 'The assistant hit an error.' })
     }
   }
 
@@ -156,11 +163,11 @@
     planPending = false
     m.planDone = 'approved'
     busy = true
-    messages.push({ id: nextId(), role: 'status', text: 'Executing approved plan…' })
+    messages.push({ id: nextId(), turnId: turn, role: 'status', text: 'Executing approved plan…' })
     try {
       await AssistantApprovePlan(sessionId)
     } catch (e) {
-      messages.push({ id: nextId(), role: 'error', text: `${e}` })
+      messages.push({ id: nextId(), turnId: turn, role: 'error', text: `${e}` })
       busy = false
     }
   }
@@ -177,9 +184,9 @@
     busy = false
     try {
       await AssistantInterrupt(sessionId)
-      messages.push({ id: nextId(), role: 'status', text: 'Stopped.' })
+      messages.push({ id: nextId(), turnId: turn, role: 'status', text: 'Stopped.' })
     } catch (e) {
-      messages.push({ id: nextId(), role: 'error', text: `${e}` })
+      messages.push({ id: nextId(), turnId: turn, role: 'error', text: `${e}` })
     }
   }
 
@@ -216,14 +223,69 @@
   }
 
   function insertSlash() {
-    if (!input.startsWith('/')) input = '/' + input
+    if (!input.startsWith('/')) { input = '/' + input; slashDismissed = false }
     textareaEl?.focus()
   }
 
+  // slash-command menu — open while `input` looks like an in-progress command
+  // (starts with '/', no whitespace yet); Escape dismisses until input is cleared
+  let slashDismissed = $state(false)
+  let slashIdx = $state(0)
+  const slashOpen = $derived(!slashDismissed && input.startsWith('/') && !/\s/.test(input))
+  const slashResults = $derived.by(() => {
+    if (!slashOpen) return []
+    const q = input.slice(1)
+    if (!q) return SLASH_COMMANDS
+    return SLASH_COMMANDS
+      .map(c => ({ c, m: fuzzyMatch(q, c.name.slice(1)) }))
+      .filter(r => r.m)
+      .sort((a, b) => b.m!.score - a.m!.score)
+      .map(r => r.c)
+  })
+  $effect(() => { slashResults; slashIdx = 0 })
+
+  function applySlash(cmd: { name: string }) {
+    input = cmd.name + ' '
+    slashDismissed = true
+    textareaEl?.focus()
+  }
+
+  function onComposerInput() {
+    if (!input) slashDismissed = false
+  }
+
   function onKeydown(e: KeyboardEvent) {
+    if (slashOpen && slashResults.length) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); slashIdx = Math.min(slashIdx + 1, slashResults.length - 1); return }
+      if (e.key === 'ArrowUp') { e.preventDefault(); slashIdx = Math.max(slashIdx - 1, 0); return }
+      if (e.key === 'Escape') { e.preventDefault(); slashDismissed = true; return }
+      if ((e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey) { e.preventDefault(); applySlash(slashResults[slashIdx]); return }
+    }
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); return }
     if (e.key === 'Tab' && e.shiftKey) { e.preventDefault(); cycleMode() }
   }
+
+  function onMessagesClick(e: MouseEvent) {
+    const a = (e.target as HTMLElement).closest('a')
+    if (!a) return
+    const href = a.getAttribute('href')
+    if (href && /^https?:\/\//i.test(href)) { e.preventDefault(); BrowserOpenURL(href) }
+  }
+
+  // group consecutive non-user messages from the same turn so the template
+  // can thread them with a connecting line — user bubbles always stand alone
+  const groups = $derived.by(() => {
+    const out: { turnId: number; msgs: ChatMsg[] }[] = []
+    for (const m of messages) {
+      const last = out[out.length - 1]
+      if (m.role !== 'user' && last && last.turnId === m.turnId && last.msgs[0].role !== 'user') {
+        last.msgs.push(m)
+      } else {
+        out.push({ turnId: m.turnId, msgs: [m] })
+      }
+    }
+    return out
+  })
 
   let textareaEl: HTMLTextAreaElement
 
@@ -264,37 +326,51 @@
     </div>
   </div>
 
-  <div class="messages" bind:this={messagesEl} onscroll={onMessagesScroll}>
+  {#snippet msgItem(m: ChatMsg)}
+    {#if m.role === 'user'}
+      <div class="bubble user">{m.text}</div>
+    {:else if m.role === 'assistant'}
+      <div class="bubble assistant">{@html m.html}</div>
+    {:else if m.role === 'tool'}
+      <button class="tool-pill" disabled={!m.toolPath} onclick={() => jumpTo(m.toolPath!)}>
+        <span class="tool-name">{m.toolName}</span>
+        {#if m.toolPath}<span class="tool-path">{m.toolPath}</span>{/if}
+      </button>
+    {:else if m.role === 'plan'}
+      <div class="plan-card">
+        <div class="plan-label">Plan</div>
+        <div class="plan-body">{@html m.html}</div>
+        {#if !m.planDone}
+          <div class="plan-actions">
+            <button class="approve" onclick={() => approvePlan(m)}><IconCheck size={13} /> Approve</button>
+            <button class="reject" onclick={() => rejectPlan(m)}><IconX size={13} /> Reject</button>
+          </div>
+        {:else}
+          <div class="plan-status">{m.planDone === 'approved' ? 'Approved' : 'Rejected — keep refining below'}</div>
+        {/if}
+      </div>
+    {:else if m.role === 'status'}
+      <div class="status">{m.text}</div>
+    {:else if m.role === 'error'}
+      <div class="error">{m.text}</div>
+    {/if}
+  {/snippet}
+
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="messages" bind:this={messagesEl} onscroll={onMessagesScroll} onclick={onMessagesClick}>
     {#if messages.length === 0}
       <div class="empty">Ask a question, or select code in the editor first for context.</div>
     {/if}
-    {#each messages as m (m.id)}
-      {#if m.role === 'user'}
-        <div class="bubble user">{m.text}</div>
-      {:else if m.role === 'assistant'}
-        <div class="bubble assistant">{@html m.html}</div>
-      {:else if m.role === 'tool'}
-        <button class="tool-pill" disabled={!m.toolPath} onclick={() => jumpTo(m.toolPath!)}>
-          <span class="tool-name">{m.toolName}</span>
-          {#if m.toolPath}<span class="tool-path">{m.toolPath}</span>{/if}
-        </button>
-      {:else if m.role === 'plan'}
-        <div class="plan-card">
-          <div class="plan-label">Plan</div>
-          <div class="plan-body">{@html m.html}</div>
-          {#if !m.planDone}
-            <div class="plan-actions">
-              <button class="approve" onclick={() => approvePlan(m)}><IconCheck size={13} /> Approve</button>
-              <button class="reject" onclick={() => rejectPlan(m)}><IconX size={13} /> Reject</button>
-            </div>
-          {:else}
-            <div class="plan-status">{m.planDone === 'approved' ? 'Approved' : 'Rejected — keep refining below'}</div>
-          {/if}
+    {#each groups as g (g.msgs[0].id)}
+      {#if g.msgs.length > 1}
+        <div class="turn-group">
+          {#each g.msgs as m (m.id)}
+            <div class="turn-item"><span class="turn-dot"></span>{@render msgItem(m)}</div>
+          {/each}
         </div>
-      {:else if m.role === 'status'}
-        <div class="status">{m.text}</div>
-      {:else if m.role === 'error'}
-        <div class="error">{m.text}</div>
+      {:else}
+        {@render msgItem(g.msgs[0])}
       {/if}
     {/each}
     {#if busy}
@@ -303,6 +379,29 @@
   </div>
 
   <div class="composer">
+    {#if slashOpen}
+      <div class="slash-menu">
+        {#if slashResults.length > 0}
+          {#each slashResults as c, i (c.name)}
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <div
+              class="slash-row"
+              class:active={i === slashIdx}
+              onclick={() => applySlash(c)}
+              onmouseenter={() => slashIdx = i}
+              role="option"
+              aria-selected={i === slashIdx}
+              tabindex="-1"
+            >
+              <span class="slash-name">{c.name}</span>
+              <span class="slash-desc">{c.description}</span>
+            </div>
+          {/each}
+        {:else}
+          <div class="slash-empty">No matching commands</div>
+        {/if}
+      </div>
+    {/if}
     {#if attachedFiles.length || includeContext}
       <div class="chips">
         {#if includeContext}
@@ -323,6 +422,7 @@
       bind:value={input}
       bind:this={textareaEl}
       onkeydown={onKeydown}
+      oninput={onComposerInput}
       rows={2}
     ></textarea>
     <div class="composer-actions">
@@ -363,7 +463,17 @@
   }
   .hdr-btn:hover { color: var(--foreground); background: var(--bg-hover); }
 
-  .messages { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+  .messages { flex: 1; overflow-y: auto; padding: 8px 12px; display: flex; flex-direction: column; gap: 8px; }
+
+  .turn-group { position: relative; display: flex; flex-direction: column; gap: 8px; padding-left: 14px; }
+  .turn-group::before {
+    content: ''; position: absolute; left: 4px; top: 6px; bottom: 6px; width: 1px; background: var(--border);
+  }
+  .turn-item { position: relative; }
+  .turn-dot {
+    position: absolute; left: -10px; top: 7px; width: 5px; height: 5px;
+    border-radius: 50%; background: var(--muted);
+  }
   .empty { color: var(--muted); font-size: 12px; padding: 8px; }
 
   .bubble { font-size: 12px; line-height: 1.5; border-radius: 6px; padding: 6px 9px; max-width: 100%; }
@@ -424,7 +534,24 @@
     border: 1px solid var(--error); border-radius: 4px; padding: 6px 8px;
   }
 
-  .composer { border-top: 1px solid var(--border); padding: 6px 8px; flex-shrink: 0; }
+  .composer { position: relative; border-top: 1px solid var(--border); padding: 6px 12px; flex-shrink: 0; }
+
+  .slash-menu {
+    position: absolute; left: 12px; right: 12px; bottom: 100%; margin-bottom: 4px;
+    max-height: 220px; overflow-y: auto; background: var(--bg-raised);
+    border: 1px solid var(--border-focused); border-radius: 6px;
+    box-shadow: 0 8px 24px color-mix(in srgb, #000 40%, transparent);
+    padding: 4px;
+  }
+  .slash-row {
+    display: flex; align-items: baseline; gap: 8px; padding: 5px 8px;
+    border-radius: 4px; cursor: pointer; font-size: 12px;
+  }
+  .slash-row.active { background: var(--bg-selected); }
+  .slash-row:hover { background: var(--bg-hover); }
+  .slash-name { font-family: "SF Mono", Menlo, monospace; color: var(--foreground); flex-shrink: 0; }
+  .slash-desc { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .slash-empty { padding: 8px; font-size: 11px; color: var(--muted); text-align: center; }
   .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
   .chip {
     display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--muted);
