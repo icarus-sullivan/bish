@@ -158,6 +158,10 @@ export function GetRecentProjects() {
   return window['go']['app']['App']['GetRecentProjects']();
 }
 
+export function GetStartupFile() {
+  return window['go']['app']['App']['GetStartupFile']();
+}
+
 export function GetTheme() {
   return window['go']['app']['App']['GetTheme']();
 }

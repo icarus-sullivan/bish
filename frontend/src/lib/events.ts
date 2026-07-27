@@ -1,5 +1,5 @@
 import { waitForWails, on, GetProcesses, GetCommands, GetTreeNodes, GetTheme, GetGalleryImages, GetCWD,
-         GetProjectRoot, GetProjectCommands, GetProjectUI, SaveProjectUI, GetConfig, GitStatus, initMediaBase } from './wails'
+         GetProjectRoot, GetProjectCommands, GetProjectUI, SaveProjectUI, GetConfig, GitStatus, GetStartupFile, initMediaBase } from './wails'
 import {
   processes, commands, treeNodes, cwd,
   galleryMode, galleryImages, theme, projectRoot,
@@ -22,7 +22,7 @@ export async function initEvents() {
   loadFeatures(cfg?.features)
 
   // Load initial data
-  const [procs, cmds, nodes, t, initialCwd, root, pcmds] = await Promise.all([
+  const [procs, cmds, nodes, t, initialCwd, root, pcmds, startupFile] = await Promise.all([
     GetProcesses().catch(() => []),
     GetCommands().catch(() => []),
     GetTreeNodes().catch(() => []),
@@ -32,6 +32,7 @@ export async function initEvents() {
     // --project) before our event listeners exist, so the events alone can be missed
     GetProjectRoot().catch(() => ''),
     GetProjectCommands().catch(() => []),
+    GetStartupFile().catch(() => ''),
   ])
 
   if (procs) processes.set(procs as any)
@@ -44,6 +45,7 @@ export async function initEvents() {
     projectCommands.set((pcmds as any) ?? [])
     await loadProjectUI()
   }
+  if (startupFile) openFileTab(startupFile as string)
 
   // Single native file-drop router: OnFileDropOff() is global (one component's
   // cleanup would deregister everyone), so register once and hand the drop to

@@ -75,6 +75,7 @@ type App struct {
 	DockMenuUpdater        func()
 	QuitInterceptInstaller func()
 	StartupProject         string
+	StartupFile            string
 	MediaBase              string
 	NoRestore              bool
 	quitRequested          atomic.Bool
@@ -124,7 +125,9 @@ func (a *App) Startup(ctx context.Context) {
 		go a.openProjectDir(a.StartupProject) //nolint
 	} else {
 		go a.reloadTree()
-		if !a.NoRestore {
+		// skip session restore when a bare file was passed on the command line —
+		// restoring a prior project would clear the tab we're about to open for it
+		if !a.NoRestore && a.StartupFile == "" {
 			go a.restoreSession()
 		}
 	}
@@ -1098,6 +1101,12 @@ func (a *App) GetCWD() string {
 
 func (a *App) TriggerNewFile() {
 	runtime.EventsEmit(a.ctx, "file:new")
+}
+
+// GetStartupFile returns the file passed on the command line (`bish <file>`),
+// if any. Read once by the frontend at startup, same as GetProjectRoot.
+func (a *App) GetStartupFile() string {
+	return a.StartupFile
 }
 
 func (a *App) TriggerPalette() {

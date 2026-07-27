@@ -84,6 +84,8 @@ export function GetProjectUI():Promise<project.UIState>;
 
 export function GetRecentProjects():Promise<Array<project.RecentEntry>>;
 
+export function GetStartupFile():Promise<string>;
+
 export function GetTheme():Promise<app.ThemeDTO>;
 
 export function GetTreeNodes():Promise<Array<app.TreeNodeDTO>>;

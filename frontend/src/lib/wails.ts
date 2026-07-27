@@ -11,7 +11,7 @@ export {
   GetGalleryImages, GetCurrentGalleryPath, IsVideo,
   GetTheme, GetConfig, SaveConfig,
   ReadFile, ReadFileChunk, WriteFile,
-  OpenProject, CloseProject, GetProjectRoot, GetAllFiles, GetCWD,
+  OpenProject, CloseProject, GetProjectRoot, GetAllFiles, GetCWD, GetStartupFile,
   NewWindow, SaveNewFile,
   GetProjectCommands, GetRecentProjects, OpenRecentProject, DeleteProjectCommand, RunProjectCommand, AddProjectCommand, RenameProjectCommand,
   GetProjectUI, SaveProjectUI,

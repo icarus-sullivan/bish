@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 	"github.com/wailsapp/wails/v2"
@@ -32,13 +33,30 @@ func main() {
 	var childWindow bool
 
 	root := &cobra.Command{
-		Use:   "bish",
+		Use:   "bish [path]",
 		Short: "Interactive shell dashboard",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if install {
 				return runInstall()
 			}
-			return run(themeName, shellPath, projectPath, noRestore, childWindow)
+			openFilePath := ""
+			if len(args) == 1 {
+				abs, err := filepath.Abs(args[0])
+				if err != nil {
+					return fmt.Errorf("resolving %q: %w", args[0], err)
+				}
+				info, err := os.Stat(abs)
+				if err != nil {
+					return fmt.Errorf("%s: %w", args[0], err)
+				}
+				if info.IsDir() {
+					projectPath = abs
+				} else {
+					openFilePath = abs
+				}
+			}
+			return run(themeName, shellPath, projectPath, openFilePath, noRestore, childWindow)
 		},
 	}
 
@@ -124,7 +142,7 @@ func buildMenu(a *app.App) *menu.Menu {
 	return appMenu
 }
 
-func run(themeName, shellPath, projectPath string, noRestore, childWindow bool) error {
+func run(themeName, shellPath, projectPath, openFilePath string, noRestore, childWindow bool) error {
 	// GUI launches get launchd's minimal env; recover PATH etc. from a login shell.
 	if err := shellenv.LoadLoginEnv(shellenv.DefaultShell()); err != nil {
 		fmt.Fprintf(os.Stderr, "shellenv: %v\n", err)
@@ -133,6 +151,8 @@ func run(themeName, shellPath, projectPath string, noRestore, childWindow bool) 
 	if childWindow {
 		hideDockIcon()
 	}
+
+	go installCLICommand()
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -174,6 +194,7 @@ func run(themeName, shellPath, projectPath string, noRestore, childWindow bool) 
 
 	a := app.New(cfg, mgr, store, shell, cwd, cwdFile, wFilePath, galleryFile)
 	a.StartupProject = projectPath
+	a.StartupFile = openFilePath
 	a.MediaBase = startMediaServer()
 	a.NoRestore = noRestore
 	globalApp = a
