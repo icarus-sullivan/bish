@@ -22,6 +22,15 @@ import (
 	"github.com/csullivan/bish/internal/shellenv"
 )
 
+// Set via -ldflags -X from release.config.yaml (see Makefile). Defaults cover
+// plain `go build`/`go run` outside the Makefile.
+var (
+	version        = "dev"
+	appName        = "bish"
+	cliName        = "bosh"
+	cliDescription = "Launch the bish IDE"
+)
+
 var globalApp *app.App
 
 func main() {
@@ -33,9 +42,10 @@ func main() {
 	var childWindow bool
 
 	root := &cobra.Command{
-		Use:   "bish [path]",
-		Short: "Interactive shell dashboard",
-		Args:  cobra.MaximumNArgs(1),
+		Use:     cliName + " [path]",
+		Short:   cliDescription,
+		Version: version,
+		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if install {
 				return runInstall()
@@ -206,7 +216,7 @@ func run(themeName, shellPath, projectPath, openFilePath string, noRestore, chil
 
 	return wails.Run(&options.App{
 		Menu:   buildMenu(a),
-		Title:  "bish",
+		Title:  appName,
 		Width:  1400,
 		Height: 900,
 		AssetServer: &assetserver.Options{

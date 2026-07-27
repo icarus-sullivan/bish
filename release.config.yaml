@@ -1,0 +1,7 @@
+version: 0.1.0
+app:
+  name: bish
+  description: Interactive shell IDE
+cli:
+  name: bosh
+  description: Launch the bish IDE

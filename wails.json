@@ -9,8 +9,9 @@
   "info": {
     "companyName": "csullivan",
     "productName": "bish",
-    "productVersion": "1.0.0",
-    "copyright": "Copyright 2026"
+    "productVersion": "0.1.0",
+    "copyright": "Copyright 2026",
+    "comments": "Interactive shell IDE"
   },
   "author": {
     "name": "csullivan"
