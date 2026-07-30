@@ -201,6 +201,31 @@ export namespace app {
 
 }
 
+export namespace assistant {
+	
+	export class ModelInfo {
+	    Name: string;
+	    Size: number;
+	    Family: string;
+	    ParamSize: string;
+	    Quant: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ModelInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Name = source["Name"];
+	        this.Size = source["Size"];
+	        this.Family = source["Family"];
+	        this.ParamSize = source["ParamSize"];
+	        this.Quant = source["Quant"];
+	    }
+	}
+
+}
+
 export namespace commands {
 	
 	export class SavedCommand {
@@ -226,6 +251,22 @@ export namespace commands {
 
 export namespace config {
 	
+	export class AssistantConfig {
+	    provider: string;
+	    ollama_url: string;
+	    ollama_model: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AssistantConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.provider = source["provider"];
+	        this.ollama_url = source["ollama_url"];
+	        this.ollama_model = source["ollama_model"];
+	    }
+	}
 	export class PersistConfig {
 	    panel_width: boolean;
 	    right_sidebar: boolean;
@@ -250,6 +291,7 @@ export namespace config {
 	    format_on_save: boolean;
 	    persist?: PersistConfig;
 	    features?: Record<string, boolean>;
+	    assistant?: AssistantConfig;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -262,6 +304,7 @@ export namespace config {
 	        this.format_on_save = source["format_on_save"];
 	        this.persist = this.convertValues(source["persist"], PersistConfig);
 	        this.features = source["features"];
+	        this.assistant = this.convertValues(source["assistant"], AssistantConfig);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

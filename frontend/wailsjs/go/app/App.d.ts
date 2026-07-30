@@ -5,6 +5,7 @@ import {commands} from '../models';
 import {config} from '../models';
 import {process} from '../models';
 import {project} from '../models';
+import {assistant} from '../models';
 
 export function AddCommand(arg1:string,arg2:string,arg3:string):Promise<void>;
 
@@ -121,6 +122,8 @@ export function LSPStop(arg1:string):Promise<void>;
 export function NewTerminal():Promise<string>;
 
 export function NewWindow():Promise<void>;
+
+export function OllamaListModels(arg1:string):Promise<Array<assistant.ModelInfo>>;
 
 export function OpenProject():Promise<string>;
 

@@ -20,6 +20,7 @@ export {
   GetProjectSymbols,
   LSPStart, LSPSend, LSPStop,
   AssistantStart, AssistantSend, AssistantApprovePlan, AssistantStop, AssistantInterrupt, AssistantSwitchMode, AssistantPickFiles,
+  OllamaListModels,
   ReadFileBase64,
   RefreshTree, CollapseAllTree,
   GitBlame, GitStatus, GitDiff, GitDiffText,

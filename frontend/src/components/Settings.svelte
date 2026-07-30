@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { GetConfig, SaveConfig } from '../lib/wails'
+  import { GetConfig, SaveConfig, OllamaListModels } from '../lib/wails'
   import { currentThemeName, persistPrefs, formatOnSave } from '../lib/stores'
   import { features, FEATURES } from '../lib/features'
   import { customKeybinds, applyCustomKeybinds } from '../lib/keymap'
@@ -26,10 +26,30 @@
   }
 
   let cfg: any = $state(null)
+  let ollamaModels = $state<{ Name: string; Size: number; Family: string; ParamSize: string; Quant: string }[]>([])
+  let ollamaModelsError = $state('')
 
   onMount(async () => {
     cfg = await GetConfig().catch(() => null)
+    if (cfg?.assistant?.provider === 'ollama') loadOllamaModels()
   })
+
+  async function loadOllamaModels() {
+    const url = cfg?.assistant?.ollama_url
+    if (!url) { ollamaModels = []; ollamaModelsError = ''; return }
+    try {
+      ollamaModels = await OllamaListModels(url)
+      ollamaModelsError = ''
+    } catch (e) {
+      ollamaModels = []
+      ollamaModelsError = `${e}`
+    }
+  }
+
+  function formatModelSize(bytes: number): string {
+    const gb = bytes / 1024 ** 3
+    return gb >= 1 ? `${gb.toFixed(1)} GB` : `${(bytes / 1024 ** 2).toFixed(0)} MB`
+  }
 
   async function saveCfg(patch: Record<string, any>) {
     if (!cfg) return
@@ -41,6 +61,18 @@
     const name = (e.target as HTMLSelectElement).value
     currentThemeName.set(name)
     saveCfg({ theme: name })
+  }
+
+  function onProvider(e: Event) {
+    const provider = (e.target as HTMLSelectElement).value
+    saveCfg({ assistant: { ...(cfg.assistant ?? {}), provider } })
+    if (provider === 'ollama') loadOllamaModels()
+  }
+
+  function onOllamaField(key: 'ollama_url' | 'ollama_model', e: Event) {
+    const value = (e.target as HTMLInputElement | HTMLSelectElement).value
+    saveCfg({ assistant: { ...(cfg.assistant ?? {}), [key]: value } })
+    if (key === 'ollama_url') loadOllamaModels()
   }
 
   function onPersist(key: keyof import('../lib/stores').PersistPrefs, e: Event) {
@@ -98,6 +130,66 @@
           <input type="checkbox" checked={$features[f.id]} onchange={(e) => onFeature(f.id, e)} />
         </div>
       {/each}
+    </section>
+
+    <section>
+      <h2>Assistant</h2>
+      <div class="row">
+        <div class="labels">
+          <span class="label">Provider</span>
+          <span class="hint">Backend the AI Assistant panel talks to</span>
+        </div>
+        <span class="select-wrap">
+          <select value={cfg?.assistant?.provider ?? 'claude'} onchange={onProvider}>
+            <option value="claude">Claude CLI</option>
+            <option value="ollama">Ollama (local model)</option>
+          </select>
+          <IconChevronDown size={13} class="select-chevron" />
+        </span>
+      </div>
+      {#if (cfg?.assistant?.provider ?? 'claude') === 'ollama'}
+        <div class="row">
+          <div class="labels">
+            <span class="label">Ollama base URL</span>
+            <span class="hint">e.g. http://192.168.1.20:11434</span>
+          </div>
+          <input class="kb-input wide-input" placeholder="http://localhost:11434"
+                 value={cfg?.assistant?.ollama_url ?? ''}
+                 onchange={(e) => onOllamaField('ollama_url', e)} />
+        </div>
+        <div class="row">
+          <div class="labels">
+            <span class="label">Ollama model</span>
+            <span class="hint">
+              {#if ollamaModelsError}Couldn't reach Ollama at that URL
+              {:else}Must support tool calling{/if}
+            </span>
+          </div>
+          <span class="select-wrap wide">
+            <select value={cfg?.assistant?.ollama_model ?? ''} onchange={(e) => onOllamaField('ollama_model', e)}>
+              <option value="" disabled>{ollamaModels.length ? 'Select a model…' : 'No models found'}</option>
+              {#if cfg?.assistant?.ollama_model && !ollamaModels.some(m => m.Name === cfg.assistant.ollama_model)}
+                <option value={cfg.assistant.ollama_model}>{cfg.assistant.ollama_model}</option>
+              {/if}
+              {#each ollamaModels as m}
+                <option value={m.Name}>{m.Name}</option>
+              {/each}
+            </select>
+            <IconChevronDown size={13} class="select-chevron" />
+          </span>
+        </div>
+        {#if cfg?.assistant?.ollama_model}
+          {@const selected = ollamaModels.find(m => m.Name === cfg.assistant.ollama_model)}
+          {#if selected}
+            <div class="badge-row">
+              {#if selected.ParamSize}<span class="badge">{selected.ParamSize}</span>{/if}
+              {#if selected.Quant}<span class="badge">{selected.Quant}</span>{/if}
+              {#if selected.Family}<span class="badge">{selected.Family}</span>{/if}
+              {#if selected.Size}<span class="badge">{formatModelSize(selected.Size)}</span>{/if}
+            </div>
+          {/if}
+        {/if}
+      {/if}
     </section>
 
     <section>
@@ -218,6 +310,7 @@
     color: var(--muted);
     pointer-events: none;
   }
+  .select-wrap.wide select { min-width: 220px; }
 
   .kb-input {
     width: 140px;
@@ -231,6 +324,27 @@
     outline: none;
   }
   .kb-input:focus { border-color: var(--accent); }
+  .kb-input.wide-input { width: 240px; }
+
+  .badge-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+    padding: 10px 0;
+  }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1px 7px;
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--muted);
+    background: transparent;
+    white-space: nowrap;
+  }
   code {
     font-family: "SF Mono", Menlo, monospace;
     font-size: 11px;

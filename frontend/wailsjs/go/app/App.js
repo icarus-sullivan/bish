@@ -234,6 +234,10 @@ export function NewWindow() {
   return window['go']['app']['App']['NewWindow']();
 }
 
+export function OllamaListModels(arg1) {
+  return window['go']['app']['App']['OllamaListModels'](arg1);
+}
+
 export function OpenProject() {
   return window['go']['app']['App']['OpenProject']();
 }

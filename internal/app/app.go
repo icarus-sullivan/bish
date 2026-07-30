@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -27,6 +26,7 @@ import (
 	"github.com/csullivan/bish/internal/process"
 	"github.com/csullivan/bish/internal/project"
 	bishpty "github.com/csullivan/bish/internal/pty"
+	"github.com/csullivan/bish/internal/search"
 	"github.com/csullivan/bish/internal/theme"
 	"github.com/csullivan/bish/internal/tree"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -41,8 +41,6 @@ var mediaExts = map[string]bool{
 var videoExts = map[string]bool{
 	".mp4": true, ".mov": true, ".webm": true, ".mkv": true, ".avi": true,
 }
-
-const maxSearchFileSize = 2 * 1024 * 1024 // ponytail: skip huge files in search/replace; raise if it bites
 
 const maxEditorFileSize = 5 * 1024 * 1024 // CodeMirror chokes on single docs much past this
 
@@ -110,7 +108,7 @@ func (a *App) Startup(ctx context.Context) {
 	})
 	a.assistant = assistant.NewManager(func(event string, data ...interface{}) {
 		runtime.EventsEmit(a.ctx, event, data...)
-	})
+	}, a.cfg.Assistant)
 	go a.readPTYLoopFor("main", a.shell)
 	go a.pollCWDLoop()
 	go a.pollWLoop()
@@ -950,6 +948,12 @@ func (a *App) AssistantSwitchMode(sessionID, mode string) error {
 	return a.assistant.SwitchMode(sessionID, mode)
 }
 
+// OllamaListModels queries an Ollama server's /api/tags so Settings can
+// offer a model picker instead of a freeform text field.
+func (a *App) OllamaListModels(baseURL string) ([]assistant.ModelInfo, error) {
+	return assistant.ListModels(baseURL)
+}
+
 func (a *App) WritePTY(data string) error {
 	_, err := a.shell.Write([]byte(data))
 	return err
@@ -1018,6 +1022,7 @@ func (a *App) SaveConfig(cfg config.Config) error {
 	a.cfg = cfg
 	th := a.GetTheme()
 	runtime.EventsEmit(a.ctx, "theme:update", th)
+	a.assistant.SetConfig(cfg.Assistant)
 	return config.Save(cfg)
 }
 
@@ -1323,211 +1328,22 @@ func (a *App) GetProjectRoot() string {
 	return a.projectRoot
 }
 
-func buildMatcher(query string, caseSensitive, wholeWord, useRegex bool) (*regexp.Regexp, string, error) {
-	if useRegex || wholeWord {
-		pattern := query
-		if !useRegex {
-			pattern = regexp.QuoteMeta(query)
-		}
-		if wholeWord {
-			pattern = `\b` + pattern + `\b`
-		}
-		if !caseSensitive {
-			pattern = "(?i)" + pattern
-		}
-		re, err := regexp.Compile(pattern)
-		return re, "", err
-	}
-	plain := query
-	if !caseSensitive {
-		plain = strings.ToLower(query)
-	}
-	return nil, plain, nil
-}
-
 func (a *App) SearchInFiles(dir, query string, caseSensitive, wholeWord, useRegex bool) []SearchResultDTO {
-	if query == "" {
+	results := search.Search(dir, query, caseSensitive, wholeWord, useRegex)
+	if results == nil {
 		return nil
 	}
-	re, plain, err := buildMatcher(query, caseSensitive, wholeWord, useRegex)
-	if err != nil {
-		return nil
+	dtos := make([]SearchResultDTO, len(results))
+	for i, r := range results {
+		dtos[i] = SearchResultDTO{File: r.File, Line: r.Line, Col: r.Col, Text: r.Text}
 	}
-	var results []SearchResultDTO
-	var walk func(d string, depth int)
-	walk = func(d string, depth int) {
-		if depth > 10 || len(results) >= 500 {
-			return
-		}
-		entries, err := os.ReadDir(d)
-		if err != nil {
-			return
-		}
-		for _, e := range entries {
-			name := e.Name()
-			if strings.HasPrefix(name, ".") {
-				continue
-			}
-			fullPath := filepath.Join(d, name)
-			if e.IsDir() {
-				if skipDirs[name] {
-					continue
-				}
-				walk(fullPath, depth+1)
-			} else {
-				if info, err := e.Info(); err != nil || info.Size() > maxSearchFileSize {
-					continue
-				}
-				f, err := os.Open(fullPath)
-				if err != nil {
-					continue
-				}
-				scanner := bufio.NewScanner(f)
-				// default 64KB line cap silently aborts files with long
-				// (minified) lines — raise it so matches after them aren't lost
-				scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-				lineNum := 0
-				for scanner.Scan() {
-					lineNum++
-					raw := scanner.Text()
-					if strings.ContainsRune(raw, 0) {
-						break
-					}
-					var col int
-					if re != nil {
-						loc := re.FindStringIndex(raw)
-						if loc == nil {
-							continue
-						}
-						col = loc[0]
-					} else {
-						haystack := raw
-						if !caseSensitive {
-							haystack = strings.ToLower(raw)
-						}
-						col = strings.Index(haystack, plain)
-						if col < 0 {
-							continue
-						}
-					}
-					results = append(results, SearchResultDTO{File: fullPath, Line: lineNum, Col: col, Text: raw})
-					if len(results) >= 500 {
-						f.Close()
-						return
-					}
-				}
-				f.Close()
-			}
-		}
-	}
-	walk(dir, 0)
-	return results
+	return dtos
 }
 
 func (a *App) ReplaceInFiles(dir, query, replacement string, caseSensitive, wholeWord, useRegex bool) (int, error) {
-	if query == "" {
-		return 0, nil
-	}
-	re, plain, err := buildMatcher(query, caseSensitive, wholeWord, useRegex)
-	if err != nil {
-		return 0, err
-	}
-	changed := 0
-	var walk func(d string, depth int) error
-	walk = func(d string, depth int) error {
-		if depth > 10 {
-			return nil
-		}
-		entries, err := os.ReadDir(d)
-		if err != nil {
-			return nil
-		}
-		for _, e := range entries {
-			name := e.Name()
-			if strings.HasPrefix(name, ".") {
-				continue
-			}
-			fullPath := filepath.Join(d, name)
-			if e.IsDir() {
-				if skipDirs[name] {
-					continue
-				}
-				walk(fullPath, depth+1) //nolint
-			} else {
-				if info, err := e.Info(); err != nil || info.Size() > maxSearchFileSize {
-					continue
-				}
-				content, err := os.ReadFile(fullPath)
-				if err != nil {
-					continue
-				}
-				if strings.ContainsRune(string(content), 0) {
-					continue
-				}
-				var newContent string
-				if re != nil {
-					newContent = re.ReplaceAllString(string(content), replacement)
-				} else if caseSensitive {
-					newContent = strings.ReplaceAll(string(content), query, replacement)
-				} else {
-					s := string(content)
-					lower := strings.ToLower(s)
-					lq := plain
-					var b strings.Builder
-					for {
-						idx := strings.Index(lower, lq)
-						if idx < 0 {
-							b.WriteString(s)
-							break
-						}
-						b.WriteString(s[:idx])
-						b.WriteString(replacement)
-						s = s[idx+len(query):]
-						lower = lower[idx+len(query):]
-					}
-					newContent = b.String()
-				}
-				if newContent != string(content) {
-					if err := os.WriteFile(fullPath, []byte(newContent), 0o644); err != nil {
-						return fmt.Errorf("write %s: %w", fullPath, err)
-					}
-					changed++
-				}
-			}
-		}
-		return nil
-	}
-	err = walk(dir, 0)
-	return changed, err
+	return search.Replace(dir, query, replacement, caseSensitive, wholeWord, useRegex)
 }
 
 func (a *App) GetAllFiles(root string) []string {
-	var files []string
-	var walk func(dir string, depth int)
-	walk = func(dir string, depth int) {
-		if depth > 10 {
-			return
-		}
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			return
-		}
-		for _, e := range entries {
-			name := e.Name()
-			if strings.HasPrefix(name, ".") {
-				continue
-			}
-			fullPath := filepath.Join(dir, name)
-			if e.IsDir() {
-				if skipDirs[name] {
-					continue
-				}
-				walk(fullPath, depth+1)
-			} else {
-				files = append(files, fullPath)
-			}
-		}
-	}
-	walk(root, 0)
-	return files
+	return search.AllFiles(root)
 }

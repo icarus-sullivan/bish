@@ -1,7 +1,7 @@
-// Package assistant spawns the `claude` CLI in headless streaming mode and
-// pipes newline-delimited JSON between it and the frontend. Each stdout line
-// is already a discrete JSON message (unlike LSP's Content-Length framing),
-// so the read loop is a plain bufio.Scanner.
+// cliBackend spawns the `claude` CLI in headless streaming mode and pipes
+// newline-delimited JSON between it and the frontend. Each stdout line is
+// already a discrete JSON message (unlike LSP's Content-Length framing), so
+// the read loop is a plain bufio.Scanner.
 package assistant
 
 import (
@@ -23,7 +23,7 @@ var allowedModes = map[string]bool{
 	"bypassPermissions": true, "manual": true, "dontAsk": true,
 }
 
-type session struct {
+type cliSession struct {
 	cmd     *exec.Cmd
 	stdin   io.WriteCloser
 	stderr  *capBuf
@@ -49,22 +49,22 @@ func (c *capBuf) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-type Manager struct {
+type cliBackend struct {
 	mu       sync.Mutex
-	sessions map[string]*session
+	sessions map[string]*cliSession
 	next     int
 	emit     func(event string, data ...interface{})
 }
 
-func NewManager(emit func(string, ...interface{})) *Manager {
-	return &Manager{sessions: make(map[string]*session), emit: emit}
+func newCLIBackend(emit func(string, ...interface{})) *cliBackend {
+	return &cliBackend{sessions: make(map[string]*cliSession), emit: emit}
 }
 
 // Start spawns a plan-mode (or other permissionMode) `claude` process rooted
 // at root and returns an opaque session handle. The handle stays stable
 // across ApprovePlan (which swaps the underlying process but keeps the id),
 // so the frontend never has to re-key its UI state mid-conversation.
-func (m *Manager) Start(root, permissionMode string) (string, error) {
+func (b *cliBackend) Start(root, permissionMode string) (string, error) {
 	if !allowedModes[permissionMode] {
 		return "", fmt.Errorf("assistant: invalid permission mode %q", permissionMode)
 	}
@@ -72,21 +72,21 @@ func (m *Manager) Start(root, permissionMode string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	m.mu.Lock()
-	id := fmt.Sprintf("a%d", m.next)
-	m.next++
-	s := &session{cmd: cmd, stdin: stdin, stderr: stderr, root: root, mode: permissionMode}
-	m.sessions[id] = s
-	m.mu.Unlock()
-	go m.readLoop(id, s, stdout)
+	b.mu.Lock()
+	id := fmt.Sprintf("a%d", b.next)
+	b.next++
+	s := &cliSession{cmd: cmd, stdin: stdin, stderr: stderr, root: root, mode: permissionMode}
+	b.sessions[id] = s
+	b.mu.Unlock()
+	go b.readLoop(id, s, stdout)
 	return id, nil
 }
 
 // Send writes one stream-json user turn to the session's stdin.
-func (m *Manager) Send(id, text string) error {
-	m.mu.Lock()
-	s := m.sessions[id]
-	m.mu.Unlock()
+func (b *cliBackend) Send(id, text string) error {
+	b.mu.Lock()
+	s := b.sessions[id]
+	b.mu.Unlock()
 	if s == nil {
 		return fmt.Errorf("assistant: no session %q", id)
 	}
@@ -111,17 +111,17 @@ func (m *Manager) Send(id, text string) error {
 // ApprovePlan kills the plan-mode process for id and replaces it in place
 // with a --resume'd process in acceptEdits mode, told to proceed. The
 // session id is unchanged so the frontend keeps talking to the same handle.
-func (m *Manager) ApprovePlan(id string) error {
-	m.mu.Lock()
-	s := m.sessions[id]
-	m.mu.Unlock()
+func (b *cliBackend) ApprovePlan(id string) error {
+	b.mu.Lock()
+	s := b.sessions[id]
+	b.mu.Unlock()
 	if s == nil {
 		return fmt.Errorf("assistant: no session %q", id)
 	}
 	if s.cliID == "" {
 		return fmt.Errorf("assistant: session %q has no captured session id yet", id)
 	}
-	return m.resume(id, s, "acceptEdits", "proceed with the plan")
+	return b.resume(id, s, "acceptEdits", "proceed with the plan")
 }
 
 // Interrupt stops the in-flight turn for id. If claude's own session id has
@@ -129,18 +129,18 @@ func (m *Manager) ApprovePlan(id string) error {
 // --resume in the same permission mode (idle, waiting for the next Send) so
 // conversation context survives; otherwise the session just ends and the
 // next Send starts a fresh one.
-func (m *Manager) Interrupt(id string) error {
-	m.mu.Lock()
-	s := m.sessions[id]
-	m.mu.Unlock()
+func (b *cliBackend) Interrupt(id string) error {
+	b.mu.Lock()
+	s := b.sessions[id]
+	b.mu.Unlock()
 	if s == nil {
 		return fmt.Errorf("assistant: no session %q", id)
 	}
 	if s.cliID == "" {
-		m.Stop(id)
+		b.Stop(id)
 		return nil
 	}
-	return m.resume(id, s, s.mode, "")
+	return b.resume(id, s, s.mode, "")
 }
 
 // SwitchMode changes the live permission mode for id: the running process
@@ -149,66 +149,66 @@ func (m *Manager) Interrupt(id string) error {
 // change it without swapping the process, so this is the only way a
 // mid-conversation mode change (the panel's mode pill) actually takes
 // effect on the process the model is running in.
-func (m *Manager) SwitchMode(id, newMode string) error {
+func (b *cliBackend) SwitchMode(id, newMode string) error {
 	if !allowedModes[newMode] {
 		return fmt.Errorf("assistant: invalid permission mode %q", newMode)
 	}
-	m.mu.Lock()
-	s := m.sessions[id]
-	m.mu.Unlock()
+	b.mu.Lock()
+	s := b.sessions[id]
+	b.mu.Unlock()
 	if s == nil {
 		return fmt.Errorf("assistant: no session %q", id)
 	}
 	if s.cliID == "" {
 		return fmt.Errorf("assistant: session %q has no captured session id yet", id)
 	}
-	return m.resume(id, s, newMode, "")
+	return b.resume(id, s, newMode, "")
 }
 
 // resume kills s and replaces the session at id with a freshly --resume'd
 // process in newMode — the shared "swap the live process, keep the
 // conversation" step behind ApprovePlan, Interrupt, and SwitchMode.
-func (m *Manager) resume(id string, s *session, newMode, prompt string) error {
+func (b *cliBackend) resume(id string, s *cliSession, newMode, prompt string) error {
 	root, cliID := s.root, s.cliID
-	m.killLocked(s)
+	b.killLocked(s)
 	cmd, stdin, stdout, stderr, err := spawn(root, newMode, cliID, prompt)
 	if err != nil {
-		m.mu.Lock()
-		if m.sessions[id] == s {
-			delete(m.sessions, id)
+		b.mu.Lock()
+		if b.sessions[id] == s {
+			delete(b.sessions, id)
 		}
-		m.mu.Unlock()
+		b.mu.Unlock()
 		return err
 	}
-	ns := &session{cmd: cmd, stdin: stdin, stderr: stderr, root: root, mode: newMode, cliID: cliID}
-	m.mu.Lock()
-	m.sessions[id] = ns
-	m.mu.Unlock()
-	go m.readLoop(id, ns, stdout)
+	ns := &cliSession{cmd: cmd, stdin: stdin, stderr: stderr, root: root, mode: newMode, cliID: cliID}
+	b.mu.Lock()
+	b.sessions[id] = ns
+	b.mu.Unlock()
+	go b.readLoop(id, ns, stdout)
 	return nil
 }
 
-func (m *Manager) Stop(id string) {
-	m.mu.Lock()
-	s := m.sessions[id]
-	delete(m.sessions, id)
-	m.mu.Unlock()
+func (b *cliBackend) Stop(id string) {
+	b.mu.Lock()
+	s := b.sessions[id]
+	delete(b.sessions, id)
+	b.mu.Unlock()
 	if s != nil {
-		m.killLocked(s)
+		b.killLocked(s)
 	}
 }
 
-func (m *Manager) StopAll() {
-	m.mu.Lock()
-	sessions := m.sessions
-	m.sessions = make(map[string]*session)
-	m.mu.Unlock()
+func (b *cliBackend) StopAll() {
+	b.mu.Lock()
+	sessions := b.sessions
+	b.sessions = make(map[string]*cliSession)
+	b.mu.Unlock()
 	for _, s := range sessions {
-		m.killLocked(s)
+		b.killLocked(s)
 	}
 }
 
-func (m *Manager) killLocked(s *session) {
+func (b *cliBackend) killLocked(s *cliSession) {
 	s.stopped = true
 	s.stdin.Close()
 	if s.cmd.Process != nil {
@@ -257,27 +257,27 @@ func spawn(root, permissionMode, resumeID, prompt string) (*exec.Cmd, io.WriteCl
 // readLoop forwards each NDJSON line as an assistant:msg:<id> event and
 // opportunistically captures claude's own session_id (present on every line)
 // so a later ApprovePlan can --resume this conversation.
-func (m *Manager) readLoop(id string, s *session, stdout io.Reader) {
+func (b *cliBackend) readLoop(id string, s *cliSession, stdout io.Reader) {
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 0, 64<<10), maxLine)
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		captureSessionID(s, line)
-		m.emit("assistant:msg:"+id, string(line))
+		b.emit("assistant:msg:"+id, string(line))
 	}
 	s.cmd.Wait() //nolint
-	m.mu.Lock()
-	crashed := !s.stopped && m.sessions[id] == s
+	b.mu.Lock()
+	crashed := !s.stopped && b.sessions[id] == s
 	if crashed {
-		delete(m.sessions, id)
+		delete(b.sessions, id)
 	}
-	m.mu.Unlock()
+	b.mu.Unlock()
 	if crashed {
-		m.emit("assistant:exit:"+id, strings.TrimSpace(string(s.stderr.buf)))
+		b.emit("assistant:exit:"+id, strings.TrimSpace(string(s.stderr.buf)))
 	}
 }
 
-func captureSessionID(s *session, line []byte) {
+func captureSessionID(s *cliSession, line []byte) {
 	if s.cliID != "" {
 		return
 	}

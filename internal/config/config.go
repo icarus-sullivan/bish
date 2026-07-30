@@ -13,7 +13,15 @@ type Config struct {
 	// nil = persist everything (frontend treats missing as true)
 	Persist *PersistConfig `json:"persist,omitempty"`
 	// per-feature toggles; missing key = frontend registry default (features.ts)
-	Features map[string]bool `json:"features,omitempty"`
+	Features  map[string]bool `json:"features,omitempty"`
+	Assistant AssistantConfig `json:"assistant,omitempty"`
+}
+
+// AssistantConfig selects and configures the Assistant panel's backend.
+type AssistantConfig struct {
+	Provider    string `json:"provider"`     // "claude" (default) | "ollama"
+	OllamaURL   string `json:"ollama_url"`   // e.g. http://192.168.1.20:11434
+	OllamaModel string `json:"ollama_model"` // e.g. "gemma3:4b"
 }
 
 // PersistConfig gates which per-project UI state gets saved/restored.
