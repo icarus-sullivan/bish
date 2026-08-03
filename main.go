@@ -209,8 +209,9 @@ func run(themeName, shellPath, projectPath, openFilePath string, noRestore, chil
 	a.NoRestore = noRestore
 	globalApp = a
 	a.DockMenuUpdater = func() {
-		entries, _ := project.LoadRecent()
-		setBishDockMenuFromRecents(entries)
+		projects, _ := project.LoadRecent()
+		files, _ := project.LoadRecentFiles()
+		setBishDockMenuFromRecents(projects, files)
 	}
 	a.QuitInterceptInstaller = installQuitIntercept
 

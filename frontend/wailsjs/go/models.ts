@@ -267,6 +267,22 @@ export namespace config {
 	        this.ollama_model = source["ollama_model"];
 	    }
 	}
+	export class CompletionConfig {
+	    enabled: boolean;
+	    model_path: string;
+	    server_path: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CompletionConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.model_path = source["model_path"];
+	        this.server_path = source["server_path"];
+	    }
+	}
 	export class PersistConfig {
 	    panel_width: boolean;
 	    right_sidebar: boolean;
@@ -292,6 +308,7 @@ export namespace config {
 	    persist?: PersistConfig;
 	    features?: Record<string, boolean>;
 	    assistant?: AssistantConfig;
+	    completion?: CompletionConfig;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -305,6 +322,7 @@ export namespace config {
 	        this.persist = this.convertValues(source["persist"], PersistConfig);
 	        this.features = source["features"];
 	        this.assistant = this.convertValues(source["assistant"], AssistantConfig);
+	        this.completion = this.convertValues(source["completion"], CompletionConfig);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -410,6 +428,20 @@ export namespace project {
 	
 	    static createFrom(source: any = {}) {
 	        return new RecentEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.name = source["name"];
+	    }
+	}
+	export class RecentFile {
+	    path: string;
+	    name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RecentFile(source);
 	    }
 	
 	    constructor(source: any = {}) {

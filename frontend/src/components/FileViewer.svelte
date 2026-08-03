@@ -19,9 +19,10 @@
   import { go } from '@codemirror/lang-go'
   import { shell } from '@codemirror/legacy-modes/mode/shell'
   import { ReadFile, ReadFileChunk, WriteFile, SaveNewFile, mediaUrl } from '../lib/wails'
-  import { currentThemeName, cwd, projectRoot, updateTabPath, setTabModified, pendingGoto, pendingFocus, activeSelection } from '../lib/stores'
+  import { currentThemeName, cwd, projectRoot, updateTabPath, setTabModified, pendingGoto, pendingFocus, pendingExternalReload, activeSelection, tabs } from '../lib/stores'
   import { codeIntel, intelKindFor } from '../lib/codeintel'
   import { snippets } from '../lib/snippets'
+  import { qwenComplete } from '../lib/qwenComplete'
   import { invalidateSymbols } from '../lib/autoimport'
   import { gitBlame, refreshBlame } from '../lib/gitblame'
   import { gitGutter, refreshDiff } from '../lib/gitgutter'
@@ -592,6 +593,7 @@
           lang,
           ...(featureOn('lsp') ? codeIntel(p, get(projectRoot) || get(cwd), lang, intelKindFor(p)) : []),
           ...(featureOn('snippets') ? snippets(lang, intelKindFor(p)) : []),
+          ...(featureOn('qwenComplete') ? qwenComplete(lang, intelKindFor(p)) : []),
           ...(featureOn('gitBlame') && p !== UNTITLED ? [gitBlame(p)] : []),
           ...(featureOn('gitGutter') && p !== UNTITLED ? [gitGutter(p)] : []),
           search({ top: true }),
@@ -656,6 +658,18 @@
       view.focus()
       pendingFocus.set(null)
     }
+  })
+
+  // AI Assistant wrote this file on disk — reload so its content shows up.
+  // Only the active tab has a mounted FileViewer at all (inactive tabs
+  // already re-read from disk on next activation), and only when there are
+  // no unsaved local edits — silently clobbering those would be worse than
+  // just leaving the tab stale until the user saves or switches away/back.
+  $effect(() => {
+    if ($pendingExternalReload !== path) return
+    pendingExternalReload.set(null)
+    if (get(tabs).find(t => t.id === tabId)?.modified) return
+    load(path, $currentThemeName)
   })
 
   // Reload when path or theme changes. Guard against re-runs where neither

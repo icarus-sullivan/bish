@@ -33,6 +33,8 @@ export function CloseTerminal(arg1:string):Promise<void>;
 
 export function CollapseAllTree():Promise<void>;
 
+export function CompletionSuggest(arg1:string,arg2:string):Promise<string>;
+
 export function DeleteCommand(arg1:string):Promise<void>;
 
 export function DeleteProjectCommand(arg1:string):Promise<void>;
@@ -83,6 +85,8 @@ export function GetProjectSymbols(arg1:string):Promise<Array<app.Symbol>>;
 
 export function GetProjectUI():Promise<project.UIState>;
 
+export function GetRecentFiles():Promise<Array<project.RecentFile>>;
+
 export function GetRecentProjects():Promise<Array<project.RecentEntry>>;
 
 export function GetStartupFile():Promise<string>;
@@ -127,6 +131,8 @@ export function OllamaListModels(arg1:string):Promise<Array<assistant.ModelInfo>
 
 export function OpenProject():Promise<string>;
 
+export function OpenRecentFileInNewWindow(arg1:string):Promise<void>;
+
 export function OpenRecentInNewWindow(arg1:string):Promise<void>;
 
 export function OpenRecentProject(arg1:string):Promise<void>;
@@ -150,6 +156,8 @@ export function ResizePTY(arg1:number,arg2:number):Promise<void>;
 export function ResizePTYTab(arg1:string,arg2:number,arg3:number):Promise<void>;
 
 export function RestartProcess(arg1:string):Promise<void>;
+
+export function RevealInTree(arg1:string):Promise<void>;
 
 export function RunCommand(arg1:string):Promise<void>;
 

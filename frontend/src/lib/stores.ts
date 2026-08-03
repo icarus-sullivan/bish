@@ -43,6 +43,15 @@ export const pendingGoto = writable<{ path: string; line: number; col: number } 
 // editor grabs focus even when its tab was already active (no remount)
 export const pendingFocus = writable<string | null>(null)
 
+// path reveal request consumed by FileTree once the path appears in treeNodes
+// (set by CommandPalette on file selection so the sidebar stays in sync)
+export const pendingReveal = writable<string | null>(null)
+
+// reload request consumed by FileViewer when it's the active tab for path —
+// set by AssistantPanel after the AI writes a file, so an open, unmodified
+// tab picks up the change instead of showing stale content
+export const pendingExternalReload = writable<string | null>(null)
+
 // always-current selection in the active editor (not consume-once like
 // pendingGoto — readers just check "what's selected right now")
 export interface EditorSelection {
@@ -211,6 +220,16 @@ export function closeTab(id: string) {
     const newIdx = Math.min(idx, newTabs.length - 1)
     activeTabId.set(newIdx >= 0 ? newTabs[newIdx].id : '')
   }
+}
+
+// Closes any open file/media tabs for paths (or nested under them — matters
+// for a deleted folder) with no modified-changes confirm: the file is
+// already gone from disk, so re-confirming just adds friction.
+export function closeTabsForPaths(paths: string[]) {
+  const toRemove = get(tabs).filter(t =>
+    (t.type === 'file' || t.type === 'media') && t.path &&
+    paths.some(p => t.path === p || t.path!.startsWith(p + '/')))
+  if (toRemove.length) bulkClose(toRemove)
 }
 
 // Returns non-main terminal tab IDs that need CloseTerminal() called by the caller.

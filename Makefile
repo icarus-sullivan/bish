@@ -1,4 +1,5 @@
 WAILS := $(shell go env GOPATH)/bin/wails
+UNAME_S := $(shell uname -s)
 
 VERSION  := $(shell scripts/read-config.sh version)
 APP_NAME := $(shell scripts/read-config.sh app.name)
@@ -26,7 +27,11 @@ sync-config:
 build: sync-config
 	rm -rf build
 	mkdir build
+ifeq ($(UNAME_S),Darwin)
 	sips -z 1024 1024 icons/bish_icon.png --out build/appicon.png
+else
+	cp icons/bish_icon.png build/appicon.png
+endif
 	$(WAILS) build -ldflags "-X main.version=$(VERSION) -X main.appName=$(APP_NAME) -X main.cliName=$(CLI_NAME) -X 'main.cliDescription=$(CLI_DESC)'"
 
 darwin: sync-config
@@ -36,6 +41,16 @@ darwin: sync-config
 	$(WAILS) build -platform darwin/universal -ldflags "-X main.version=$(VERSION) -X main.appName=$(APP_NAME) -X main.cliName=$(CLI_NAME) -X 'main.cliDescription=$(CLI_DESC)'"
 
 install: build
+ifeq ($(UNAME_S),Darwin)
 	rm -rf /Applications/bish.app
 	cp -r build/bin/bish.app /Applications/bish.app
 	xattr -dr com.apple.quarantine /Applications/bish.app
+else
+	mkdir -p $(HOME)/.local/bin $(HOME)/.local/share/applications $(HOME)/.local/share/icons
+	cp build/bin/bish $(HOME)/.local/bin/bish
+	cp icons/bish_icon.png $(HOME)/.local/share/icons/bish.png
+	sed -e 's#@EXEC@#$(HOME)/.local/bin/bish#' -e 's#@ICON@#$(HOME)/.local/share/icons/bish.png#' \
+	    -e 's#@NAME@#$(APP_NAME)#' -e 's#@DESC@#$(APP_DESC)#' \
+	    packaging/bish.desktop.in > $(HOME)/.local/share/applications/bish.desktop
+	-update-desktop-database $(HOME)/.local/share/applications >/dev/null 2>&1
+endif

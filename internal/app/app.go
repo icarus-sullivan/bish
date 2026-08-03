@@ -21,6 +21,7 @@ import (
 
 	"github.com/csullivan/bish/internal/assistant"
 	"github.com/csullivan/bish/internal/commands"
+	"github.com/csullivan/bish/internal/completion"
 	"github.com/csullivan/bish/internal/config"
 	"github.com/csullivan/bish/internal/lsp"
 	"github.com/csullivan/bish/internal/process"
@@ -68,6 +69,7 @@ type App struct {
 	projectMu              sync.Mutex
 	lsp                    *lsp.Manager
 	assistant              *assistant.Manager
+	completion             *completion.Manager
 	cfg                    config.Config
 	ctx                    context.Context
 	DockMenuUpdater        func()
@@ -109,6 +111,8 @@ func (a *App) Startup(ctx context.Context) {
 	a.assistant = assistant.NewManager(func(event string, data ...interface{}) {
 		runtime.EventsEmit(a.ctx, event, data...)
 	}, a.cfg.Assistant)
+	a.completion = completion.NewManager()
+	a.completion.SetConfig(a.cfg.Completion)
 	go a.readPTYLoopFor("main", a.shell)
 	go a.pollCWDLoop()
 	go a.pollWLoop()
@@ -123,6 +127,9 @@ func (a *App) Startup(ctx context.Context) {
 		go a.openProjectDir(a.StartupProject) //nolint
 	} else {
 		go a.reloadTree()
+		if a.StartupFile != "" {
+			project.AddRecentFile(a.StartupFile) //nolint
+		}
 		// skip session restore when a bare file was passed on the command line —
 		// restoring a prior project would clear the tab we're about to open for it
 		if !a.NoRestore && a.StartupFile == "" {
@@ -158,6 +165,7 @@ func (a *App) Shutdown(ctx context.Context) {
 	}
 	a.lsp.StopAll()
 	a.assistant.StopAll()
+	a.completion.Stop()
 	a.mgr.KillAll()
 	a.shell.Close()
 	a.terminalsMu.Lock()
@@ -584,6 +592,27 @@ func (a *App) ToggleTreeNode(path string) {
 	go a.saveExpandedPaths(expanded)
 }
 
+// RevealInTree expands path's ancestor directories and selects it, emitting
+// tree:update — used by Cmd+P selection to keep the sidebar in sync with the
+// active tab even when the file's parent folders are collapsed. Mirrors
+// ToggleTreeNode's lock/emit/rearm/save-expanded pattern.
+func (a *App) RevealInTree(path string) {
+	a.treeMu.Lock()
+	a.fileTree.ExpandToPath(path)
+	for i, n := range a.fileTree.Flat {
+		if n.Path == path {
+			a.fileTree.Selected = i
+			break
+		}
+	}
+	nodes := a.flatNodes()
+	expanded := a.fileTree.ExpandedPaths()
+	a.treeMu.Unlock()
+	runtime.EventsEmit(a.ctx, "tree:update", nodes)
+	a.rearmWatcher()
+	go a.saveExpandedPaths(expanded)
+}
+
 func (a *App) saveExpandedPaths(paths []string) {
 	a.projectMu.Lock()
 	cfg := a.projectCfg
@@ -954,6 +983,14 @@ func (a *App) OllamaListModels(baseURL string) ([]assistant.ModelInfo, error) {
 	return assistant.ListModels(baseURL)
 }
 
+// CompletionSuggest asks the local inline-completion model (independent of
+// the Assistant panel's provider) to fill the gap between prefix and
+// suffix. Returns "" with no error when the feature is disabled,
+// unconfigured, or the model isn't ready yet.
+func (a *App) CompletionSuggest(prefix, suffix string) (string, error) {
+	return a.completion.Suggest(a.ctx, prefix, suffix)
+}
+
 func (a *App) WritePTY(data string) error {
 	_, err := a.shell.Write([]byte(data))
 	return err
@@ -1023,6 +1060,7 @@ func (a *App) SaveConfig(cfg config.Config) error {
 	th := a.GetTheme()
 	runtime.EventsEmit(a.ctx, "theme:update", th)
 	a.assistant.SetConfig(cfg.Assistant)
+	a.completion.SetConfig(cfg.Completion)
 	return config.Save(cfg)
 }
 
@@ -1070,6 +1108,14 @@ func (a *App) NewWindow() error {
 
 func (a *App) OpenRecentInNewWindow(path string) error {
 	return launchNewInstance("--project", path)
+}
+
+// OpenRecentFileInNewWindow opens a standalone file (no project) in a new
+// window — used by the Dock menu's "Recent Files" section. launchNewInstance
+// with just the path matches the CLI's own positional-arg-as-file handling
+// (main.go), so no new flag is needed.
+func (a *App) OpenRecentFileInNewWindow(path string) error {
+	return launchNewInstance(path)
 }
 
 // launchNewInstance starts another bish window as a separate process.
@@ -1319,6 +1365,13 @@ func (a *App) SaveProjectUI(ui project.UIState) error {
 
 func (a *App) GetRecentProjects() []*project.RecentEntry {
 	entries, _ := project.LoadRecent()
+	return entries
+}
+
+// GetRecentFiles returns standalone files (opened via `bish <file>`, not
+// part of a project) recently opened, most-recent first.
+func (a *App) GetRecentFiles() []*project.RecentFile {
+	entries, _ := project.LoadRecentFiles()
 	return entries
 }
 

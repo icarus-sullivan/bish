@@ -150,6 +150,29 @@ func (t *Tree) expandPath(path string) {
 	}
 }
 
+// ExpandToPath expands every ancestor directory of path (root-to-leaf, so
+// each expandPath call can find nodes loaded by the previous one) so a
+// target file becomes visible in Flat — used to reveal a Cmd+P selection
+// even when its parent folders are collapsed.
+func (t *Tree) ExpandToPath(path string) {
+	if t.Root == nil {
+		return
+	}
+	var ancestors []string
+	for dir := filepath.Dir(path); dir != t.Root.Path && dir != "." && dir != string(filepath.Separator); {
+		ancestors = append(ancestors, dir)
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	for i := len(ancestors) - 1; i >= 0; i-- {
+		t.expandPath(ancestors[i])
+	}
+	t.flatten()
+}
+
 // CollapseAll collapses all expanded directories (keeping root expanded).
 func (t *Tree) CollapseAll() {
 	var walk func(*Node)

@@ -3,7 +3,8 @@ package main
 /*
 #include <stdlib.h>
 // Forward declarations only — definitions live in dock_impl_darwin.go
-void setBishDockMenuC(char** paths, char** names, int n);
+void setBishDockMenuC(char** projPaths, char** projNames, int projN,
+                       char** filePaths, char** fileNames, int fileN);
 */
 import "C"
 
@@ -20,24 +21,57 @@ func goOpenRecentDock(path *C.char) {
 	}
 }
 
-func setBishDockMenuFromRecents(entries []*project.RecentEntry) {
-	n := len(entries)
-	if n > 8 {
-		n = 8
+//export goOpenRecentFileDock
+func goOpenRecentFileDock(path *C.char) {
+	if globalApp != nil {
+		go globalApp.OpenRecentFileInNewWindow(C.GoString(path)) //nolint
 	}
-	if n == 0 {
+}
+
+func setBishDockMenuFromRecents(projects []*project.RecentEntry, files []*project.RecentFile) {
+	if len(projects) == 0 && len(files) == 0 {
 		return
 	}
-	cPaths := make([]*C.char, n)
-	cNames := make([]*C.char, n)
-	for i, e := range entries[:n] {
-		cPaths[i] = C.CString(e.Path)
-		cNames[i] = C.CString(e.Name)
+	pn := len(projects)
+	if pn > 8 {
+		pn = 8
+	}
+	fn := len(files)
+	if fn > 8 {
+		fn = 8
+	}
+
+	projPaths := make([]*C.char, pn)
+	projNames := make([]*C.char, pn)
+	for i := 0; i < pn; i++ {
+		projPaths[i] = C.CString(projects[i].Path)
+		projNames[i] = C.CString(projects[i].Name)
+	}
+	filePaths := make([]*C.char, fn)
+	fileNames := make([]*C.char, fn)
+	for i := 0; i < fn; i++ {
+		filePaths[i] = C.CString(files[i].Path)
+		fileNames[i] = C.CString(files[i].Name)
+	}
+
+	var pP, pN, fP, fN **C.char
+	if pn > 0 {
+		pP = (**C.char)(unsafe.Pointer(&projPaths[0]))
+		pN = (**C.char)(unsafe.Pointer(&projNames[0]))
+	}
+	if fn > 0 {
+		fP = (**C.char)(unsafe.Pointer(&filePaths[0]))
+		fN = (**C.char)(unsafe.Pointer(&fileNames[0]))
 	}
 	// setBishDockMenuC converts to NSStrings before dispatch_async, so freeing here is safe.
-	C.setBishDockMenuC((**C.char)(unsafe.Pointer(&cPaths[0])), (**C.char)(unsafe.Pointer(&cNames[0])), C.int(n))
-	for i := 0; i < n; i++ {
-		C.free(unsafe.Pointer(cPaths[i]))
-		C.free(unsafe.Pointer(cNames[i]))
+	C.setBishDockMenuC(pP, pN, C.int(pn), fP, fN, C.int(fn))
+
+	for i := 0; i < pn; i++ {
+		C.free(unsafe.Pointer(projPaths[i]))
+		C.free(unsafe.Pointer(projNames[i]))
+	}
+	for i := 0; i < fn; i++ {
+		C.free(unsafe.Pointer(filePaths[i]))
+		C.free(unsafe.Pointer(fileNames[i]))
 	}
 }

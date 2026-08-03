@@ -75,6 +75,12 @@
     if (key === 'ollama_url') loadOllamaModels()
   }
 
+  function onCompletionField(key: 'enabled' | 'model_path' | 'server_path', e: Event) {
+    const target = e.target as HTMLInputElement
+    const value = key === 'enabled' ? target.checked : target.value
+    saveCfg({ completion: { ...(cfg.completion ?? {}), [key]: value } })
+  }
+
   function onPersist(key: keyof import('../lib/stores').PersistPrefs, e: Event) {
     const checked = (e.target as HTMLInputElement).checked
     persistPrefs.update(p => ({ ...p, [key]: checked }))
@@ -189,6 +195,43 @@
             </div>
           {/if}
         {/if}
+      {/if}
+    </section>
+
+    <section>
+      <h2>Local code completion</h2>
+      <div class="row">
+        <div class="labels">
+          <span class="label">Enable</span>
+          <span class="hint">
+            Spawns llama-server as a subprocess for inline suggestions in the autocomplete popup — separate
+            from the Assistant panel above, always runs on this machine. Needs llama.cpp installed
+            (e.g. `brew install llama.cpp`) and a GGUF model downloaded, e.g.
+            `huggingface-cli download ggml-org/Qwen2.5-Coder-0.5B-Q8_0-GGUF qwen2.5-coder-0.5b-q8_0.gguf --local-dir ~/.local/share/bish/models`.
+          </span>
+        </div>
+        <input type="checkbox" checked={cfg?.completion?.enabled ?? false}
+               onchange={(e) => onCompletionField('enabled', e)} />
+      </div>
+      {#if cfg?.completion?.enabled}
+        <div class="row">
+          <div class="labels">
+            <span class="label">Model path</span>
+            <span class="hint">Path to a .gguf file, e.g. ~/.local/share/bish/models/qwen2.5-coder-0.5b-q8_0.gguf</span>
+          </div>
+          <input class="kb-input wide-input" placeholder="/path/to/qwen2.5-coder-0.5b-q8_0.gguf"
+                 value={cfg?.completion?.model_path ?? ''}
+                 onchange={(e) => onCompletionField('model_path', e)} />
+        </div>
+        <div class="row">
+          <div class="labels">
+            <span class="label">Server binary (optional)</span>
+            <span class="hint">Override for the llama-server binary — leave blank to use the one on PATH</span>
+          </div>
+          <input class="kb-input wide-input" placeholder="llama-server"
+                 value={cfg?.completion?.server_path ?? ''}
+                 onchange={(e) => onCompletionField('server_path', e)} />
+        </div>
       {/if}
     </section>
 

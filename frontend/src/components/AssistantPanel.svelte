@@ -10,7 +10,7 @@
     AssistantPickFiles, StashDropped,
   } from '../lib/wails'
   import {
-    projectRoot, cwd, tabs, activeTabId, activeSelection, pendingGoto, openFileTab,
+    projectRoot, cwd, tabs, activeTabId, activeSelection, pendingGoto, openFileTab, pendingExternalReload,
   } from '../lib/stores'
   import { BrowserOpenURL } from '../../wailsjs/runtime/runtime'
   import { fuzzyMatch } from '../lib/fuzzy'
@@ -26,6 +26,10 @@
     dontAsk: "Don't ask",
   }
   const PERM_KEY = 'bish.assistant.permissionMode'
+
+  // Tool names (across both the `claude` CLI and bish's own Ollama tool loop)
+  // that write file contents — used to auto-refresh an open tab afterward.
+  const FILE_WRITE_TOOLS = new Set(['write_file', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit'])
 
   interface ChatMsg {
     id: string
@@ -150,6 +154,11 @@
         } else if (block.type === 'tool_use') {
           const path = block.input?.file_path ?? block.input?.path ?? ''
           messages.push({ id: nextId(), turnId: turn, role: 'tool', toolName: block.name, toolPath: path })
+          if (path && FILE_WRITE_TOOLS.has(block.name)) {
+            // small settle delay — the CLI backend's tool_use announcement
+            // isn't guaranteed to strictly follow the actual disk write
+            setTimeout(() => pendingExternalReload.set(path), 300)
+          }
         }
       }
     } else if (msg.type === 'result') {

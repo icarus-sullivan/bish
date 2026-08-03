@@ -18,8 +18,19 @@ func (a *App) startWatcher() {
 	}
 	a.fsw = w
 	go func() {
-		var timer *time.Timer
+		// debounce bursts (builds touch many files at once) but cap the wait
+		// with maxWait — a sustained stream of events under 300ms apart
+		// (e.g. rsync copying many small files) would otherwise keep
+		// resetting debounce forever and never actually reload.
+		var debounce, maxWait *time.Timer
 		for {
+			var debounceC, maxWaitC <-chan time.Time
+			if debounce != nil {
+				debounceC = debounce.C
+			}
+			if maxWait != nil {
+				maxWaitC = maxWait.C
+			}
 			select {
 			case <-a.ctx.Done():
 				w.Close() //nolint
@@ -31,12 +42,20 @@ func (a *App) startWatcher() {
 				if ev.Op == fsnotify.Chmod {
 					continue
 				}
-				// debounce bursts (builds touch many files at once)
-				if timer == nil {
-					timer = time.AfterFunc(300*time.Millisecond, a.reloadTree)
+				if debounce == nil {
+					debounce = time.NewTimer(300 * time.Millisecond)
 				} else {
-					timer.Reset(300 * time.Millisecond)
+					debounce.Reset(300 * time.Millisecond)
 				}
+				if maxWait == nil {
+					maxWait = time.NewTimer(2 * time.Second)
+				}
+			case <-debounceC:
+				debounce, maxWait = nil, nil
+				a.reloadTree()
+			case <-maxWaitC:
+				debounce, maxWait = nil, nil
+				a.reloadTree()
 			case _, ok := <-w.Errors:
 				if !ok {
 					return

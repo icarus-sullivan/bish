@@ -54,6 +54,10 @@ export function CollapseAllTree() {
   return window['go']['app']['App']['CollapseAllTree']();
 }
 
+export function CompletionSuggest(arg1, arg2) {
+  return window['go']['app']['App']['CompletionSuggest'](arg1, arg2);
+}
+
 export function DeleteCommand(arg1) {
   return window['go']['app']['App']['DeleteCommand'](arg1);
 }
@@ -154,6 +158,10 @@ export function GetProjectUI() {
   return window['go']['app']['App']['GetProjectUI']();
 }
 
+export function GetRecentFiles() {
+  return window['go']['app']['App']['GetRecentFiles']();
+}
+
 export function GetRecentProjects() {
   return window['go']['app']['App']['GetRecentProjects']();
 }
@@ -242,6 +250,10 @@ export function OpenProject() {
   return window['go']['app']['App']['OpenProject']();
 }
 
+export function OpenRecentFileInNewWindow(arg1) {
+  return window['go']['app']['App']['OpenRecentFileInNewWindow'](arg1);
+}
+
 export function OpenRecentInNewWindow(arg1) {
   return window['go']['app']['App']['OpenRecentInNewWindow'](arg1);
 }
@@ -288,6 +300,10 @@ export function ResizePTYTab(arg1, arg2, arg3) {
 
 export function RestartProcess(arg1) {
   return window['go']['app']['App']['RestartProcess'](arg1);
+}
+
+export function RevealInTree(arg1) {
+  return window['go']['app']['App']['RevealInTree'](arg1);
 }
 
 export function RunCommand(arg1) {

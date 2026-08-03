@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { get } from 'svelte/store'
-  import { cwd, projectRoot, openFileTab } from '../lib/stores'
-  import { GetAllFiles } from '../lib/wails'
+  import { cwd, projectRoot, openFileTab, pendingReveal } from '../lib/stores'
+  import { GetAllFiles, RevealInTree } from '../lib/wails'
 
   let { onClose }: { onClose: () => void } = $props()
 
@@ -121,6 +121,8 @@
 
   function selectFile(path: string) {
     openFileTab(path)
+    RevealInTree(path).catch(() => {})
+    pendingReveal.set(path)
     onClose()
   }
 

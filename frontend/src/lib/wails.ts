@@ -5,7 +5,7 @@ export { EventsOn as on, EventsOff as off } from '../../wailsjs/runtime/runtime'
 export {
   GetProcesses, KillProcess, RestartProcess, StopProcess, GetProcessLogs,
   GetCommands, RunCommand, DeleteCommand, RenameCommand, AddCommand,
-  GetTreeNodes, ToggleTreeNode, CdToPath,
+  GetTreeNodes, ToggleTreeNode, RevealInTree, CdToPath,
   FSNewFile, FSNewFolder, FSRename, FSDelete, FSDeletePaths, FSCopyPath, FSRevealInFinder, FSMove, FSDuplicate, StashDropped,
   WritePTY, ResizePTY,
   GetGalleryImages, GetCurrentGalleryPath, IsVideo,
@@ -21,6 +21,7 @@ export {
   LSPStart, LSPSend, LSPStop,
   AssistantStart, AssistantSend, AssistantApprovePlan, AssistantStop, AssistantInterrupt, AssistantSwitchMode, AssistantPickFiles,
   OllamaListModels,
+  CompletionSuggest,
   ReadFileBase64,
   RefreshTree, CollapseAllTree,
   GitBlame, GitStatus, GitDiff, GitDiffText,

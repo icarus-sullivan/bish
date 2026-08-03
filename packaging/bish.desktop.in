@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=@NAME@
+Comment=@DESC@
+Exec=@EXEC@ %f
+Icon=@ICON@
+Terminal=false
+Categories=Development;

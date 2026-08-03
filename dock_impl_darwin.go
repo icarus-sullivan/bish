@@ -8,6 +8,7 @@ package main
 #import <objc/runtime.h>
 
 extern void goOpenRecentDock(char* path);
+extern void goOpenRecentFileDock(char* path);
 
 static NSMenu* gDockMenu = nil;
 static id gBishDockTarget = nil;
@@ -22,27 +23,49 @@ static NSMenu* bishDockMenuImpl(id self, SEL _cmd, NSApplication* app) {
 - (void)openProject:(NSMenuItem*)item {
     goOpenRecentDock((char*)[(NSString*)item.representedObject UTF8String]);
 }
+- (void)openFile:(NSMenuItem*)item {
+    goOpenRecentFileDock((char*)[(NSString*)item.representedObject UTF8String]);
+}
 @end
 
-void setBishDockMenuC(char** paths, char** names, int n) {
-    NSMutableArray* pathArr = [NSMutableArray arrayWithCapacity:n];
-    NSMutableArray* nameArr = [NSMutableArray arrayWithCapacity:n];
-    for (int i = 0; i < n; i++) {
-        [pathArr addObject:[NSString stringWithUTF8String:paths[i]]];
-        [nameArr addObject:[NSString stringWithUTF8String:names[i]]];
+void setBishDockMenuC(char** projPaths, char** projNames, int projN,
+                       char** filePaths, char** fileNames, int fileN) {
+    NSMutableArray* pPathArr = [NSMutableArray arrayWithCapacity:projN];
+    NSMutableArray* pNameArr = [NSMutableArray arrayWithCapacity:projN];
+    for (int i = 0; i < projN; i++) {
+        [pPathArr addObject:[NSString stringWithUTF8String:projPaths[i]]];
+        [pNameArr addObject:[NSString stringWithUTF8String:projNames[i]]];
+    }
+    NSMutableArray* fPathArr = [NSMutableArray arrayWithCapacity:fileN];
+    NSMutableArray* fNameArr = [NSMutableArray arrayWithCapacity:fileN];
+    for (int i = 0; i < fileN; i++) {
+        [fPathArr addObject:[NSString stringWithUTF8String:filePaths[i]]];
+        [fNameArr addObject:[NSString stringWithUTF8String:fileNames[i]]];
     }
     dispatch_async(dispatch_get_main_queue(), ^{
         if (!gBishDockTarget) {
             gBishDockTarget = [[BishDockTarget alloc] init];
         }
         NSMenu* menu = [[NSMenu alloc] initWithTitle:@""];
-        for (NSUInteger i = 0; i < (NSUInteger)pathArr.count; i++) {
+        for (NSUInteger i = 0; i < (NSUInteger)pPathArr.count; i++) {
             NSMenuItem* item = [[NSMenuItem alloc]
-                initWithTitle:nameArr[i]
+                initWithTitle:pNameArr[i]
                 action:@selector(openProject:)
                 keyEquivalent:@""];
             item.target = gBishDockTarget;
-            item.representedObject = pathArr[i];
+            item.representedObject = pPathArr[i];
+            [menu addItem:item];
+        }
+        if (pPathArr.count > 0 && fPathArr.count > 0) {
+            [menu addItem:[NSMenuItem separatorItem]];
+        }
+        for (NSUInteger i = 0; i < (NSUInteger)fPathArr.count; i++) {
+            NSMenuItem* item = [[NSMenuItem alloc]
+                initWithTitle:fNameArr[i]
+                action:@selector(openFile:)
+                keyEquivalent:@""];
+            item.target = gBishDockTarget;
+            item.representedObject = fPathArr[i];
             [menu addItem:item];
         }
         gDockMenu = menu;

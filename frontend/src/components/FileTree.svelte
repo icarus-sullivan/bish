@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { treeNodes, focusedPane, openFileTab, projectRoot, cwd, isMediaPath, pendingGoto, showGlobalSearch, searchScopeDir } from '../lib/stores'
+  import { treeNodes, focusedPane, openFileTab, projectRoot, cwd, isMediaPath, pendingGoto, pendingReveal, showGlobalSearch, searchScopeDir, closeTabsForPaths } from '../lib/stores'
   import ContextMenu from './ContextMenu.svelte'
-  import { ToggleTreeNode, CdToPath, FSNewFile, FSNewFolder, FSRename, FSDelete, FSDeletePaths, FSCopyPath, FSRevealInFinder, FSMove, FSDuplicate, CloseProject, RefreshTree, CollapseAllTree } from '../lib/wails'
+  import { ToggleTreeNode, CdToPath, FSNewFile, FSNewFolder, FSRename, FSDelete, FSDeletePaths, FSCopyPath, FSRevealInFinder, FSMove, FSDuplicate, CloseProject, CollapseAllTree } from '../lib/wails'
   import type { TreeNode } from '../lib/wails'
-  import { IconFilePlus, IconFolderPlus, IconRefresh, IconLibraryMinus, IconChevronRight, IconChevronDown } from '@tabler/icons-svelte'
+  import { IconFilePlus, IconFolderPlus, IconLibraryMinus, IconChevronRight, IconChevronDown } from '@tabler/icons-svelte'
   import { get } from 'svelte/store'
 
   let menu: { x: number; y: number; node: TreeNode } | null = $state(null)
@@ -24,6 +24,20 @@
   $effect(() => {
     const live = new Set($treeNodes.map(n => n.path))
     if (multiSel.some(p => !live.has(p))) multiSel = multiSel.filter(p => live.has(p))
+  })
+
+  // Cmd+P reveal: scroll the selected path into view once it actually shows
+  // up in treeNodes (RevealInTree's tree:update may arrive after this first
+  // runs). Only fires when pendingReveal is set, so plain row clicks and
+  // background auto-refreshes never trigger a scroll jump.
+  $effect(() => {
+    const path = $pendingReveal
+    if (!path || !$treeNodes.some(n => n.path === path)) return
+    pendingReveal.set(null)
+    requestAnimationFrame(() => {
+      const row = [...listEl.querySelectorAll<HTMLElement>('.row[data-path]')].find(e => e.dataset.path === path)
+      row?.scrollIntoView({ block: 'nearest' })
+    })
   })
 
   function handleClick(e: MouseEvent, node: TreeNode) {
@@ -122,7 +136,7 @@
   function menuItems(node: TreeNode) {
     if (multiSel.length > 1 && multiSel.includes(node.path)) {
       return [
-        { label: `Delete ${multiSel.length} items`, action: () => FSDeletePaths([...multiSel]), danger: true },
+        { label: `Delete ${multiSel.length} items`, action: () => FSDeletePaths([...multiSel]).then(() => closeTabsForPaths([...multiSel])), danger: true },
       ]
     }
     if (node.isDir) {
@@ -135,7 +149,7 @@
         { label: 'Copy Path',      action: async () => { const p = await FSCopyPath(node.path); navigator.clipboard.writeText(p) } },
         { label: 'Rename',         action: () => startRename(node.path, node.name) },
         { label: 'Duplicate',      action: () => FSDuplicate(node.path) },
-        { label: 'Delete',         action: () => FSDelete(node.path), danger: true },
+        { label: 'Delete',         action: () => FSDelete(node.path).then(() => closeTabsForPaths([node.path])), danger: true },
       ]
     }
     return [
@@ -213,7 +227,6 @@
     <div class="header-actions">
       <button class="hdr-btn" onclick={() => promptNew(resolveDir(), false)} title="New File"><IconFilePlus size={13} /></button>
       <button class="hdr-btn" onclick={() => promptNew(resolveDir(), true)} title="New Folder"><IconFolderPlus size={13} /></button>
-      <button class="hdr-btn" onclick={() => RefreshTree()} title="Refresh"><IconRefresh size={13} /></button>
       <button class="hdr-btn" onclick={() => CollapseAllTree()} title="Collapse All"><IconLibraryMinus size={13} /></button>
       {#if $projectRoot}
         <button class="close-project" onclick={() => CloseProject()} title="Close project">×</button>
