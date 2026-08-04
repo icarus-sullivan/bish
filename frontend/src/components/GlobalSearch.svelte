@@ -176,6 +176,8 @@
           autocomplete="off"
           spellcheck="false"
         />
+      </div>
+      <div class="row">
         <input
           bind:value={excludeGlob}
           class="input"
@@ -370,7 +372,7 @@
 
   .file-header {
     padding: 5px 14px 3px;
-    font-size: 10px;
+    font-size: 13px;
     font-weight: 600;
     color: var(--accent);
     font-family: "SF Mono", Menlo, monospace;
