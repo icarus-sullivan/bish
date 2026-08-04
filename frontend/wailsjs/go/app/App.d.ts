@@ -149,7 +149,7 @@ export function RenameCommand(arg1:string,arg2:string):Promise<void>;
 
 export function RenameProjectCommand(arg1:string,arg2:string):Promise<void>;
 
-export function ReplaceInFiles(arg1:string,arg2:string,arg3:string,arg4:boolean,arg5:boolean,arg6:boolean):Promise<number>;
+export function ReplaceInFiles(arg1:string,arg2:string,arg3:string,arg4:boolean,arg5:boolean,arg6:boolean,arg7:string,arg8:string):Promise<number>;
 
 export function ResizePTY(arg1:number,arg2:number):Promise<void>;
 
@@ -169,7 +169,7 @@ export function SaveNewFile(arg1:string,arg2:string):Promise<string>;
 
 export function SaveProjectUI(arg1:project.UIState):Promise<void>;
 
-export function SearchInFiles(arg1:string,arg2:string,arg3:boolean,arg4:boolean,arg5:boolean):Promise<Array<app.SearchResultDTO>>;
+export function SearchInFiles(arg1:string,arg2:string,arg3:boolean,arg4:boolean,arg5:boolean,arg6:string,arg7:string):Promise<Array<app.SearchResultDTO>>;
 
 export function SetQuitRequested():Promise<void>;
 

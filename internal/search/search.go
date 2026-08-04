@@ -27,6 +27,61 @@ type Result struct {
 	Text string
 }
 
+// globToRegex converts a shell glob (supporting *, ?, and ** for
+// cross-directory matches) into an anchored regexp matched against a
+// forward-slash relative path.
+func globToRegex(pattern string) (*regexp.Regexp, error) {
+	var b strings.Builder
+	b.WriteString("^")
+	for i := 0; i < len(pattern); {
+		switch {
+		case strings.HasPrefix(pattern[i:], "**"):
+			b.WriteString(".*")
+			i += 2
+		case pattern[i] == '*':
+			b.WriteString("[^/]*")
+			i++
+		case pattern[i] == '?':
+			b.WriteString("[^/]")
+			i++
+		default:
+			b.WriteString(regexp.QuoteMeta(string(pattern[i])))
+			i++
+		}
+	}
+	b.WriteString("$")
+	return regexp.Compile(b.String())
+}
+
+// compileGlobs parses a comma-separated list of glob patterns. A pattern
+// with no '/' is treated as matching at any depth (like "**/" + pattern),
+// mirroring the common VS Code include/exclude convention.
+func compileGlobs(raw string) []*regexp.Regexp {
+	var out []*regexp.Regexp
+	for _, p := range strings.Split(raw, ",") {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if !strings.Contains(p, "/") {
+			p = "**/" + p
+		}
+		if re, err := globToRegex(p); err == nil {
+			out = append(out, re)
+		}
+	}
+	return out
+}
+
+func matchesAny(patterns []*regexp.Regexp, relPath string) bool {
+	for _, re := range patterns {
+		if re.MatchString(relPath) {
+			return true
+		}
+	}
+	return false
+}
+
 func BuildMatcher(query string, caseSensitive, wholeWord, useRegex bool) (*regexp.Regexp, string, error) {
 	if useRegex || wholeWord {
 		pattern := query
@@ -49,7 +104,7 @@ func BuildMatcher(query string, caseSensitive, wholeWord, useRegex bool) (*regex
 	return nil, plain, nil
 }
 
-func Search(dir, query string, caseSensitive, wholeWord, useRegex bool) []Result {
+func Search(dir, query string, caseSensitive, wholeWord, useRegex bool, include, exclude string) []Result {
 	if query == "" {
 		return nil
 	}
@@ -57,6 +112,8 @@ func Search(dir, query string, caseSensitive, wholeWord, useRegex bool) []Result
 	if err != nil {
 		return nil
 	}
+	includeRe := compileGlobs(include)
+	excludeRe := compileGlobs(exclude)
 	var results []Result
 	var walk func(d string, depth int)
 	walk = func(d string, depth int) {
@@ -73,12 +130,19 @@ func Search(dir, query string, caseSensitive, wholeWord, useRegex bool) []Result
 				continue
 			}
 			fullPath := filepath.Join(d, name)
+			rel := filepath.ToSlash(strings.TrimPrefix(strings.TrimPrefix(fullPath, dir), "/"))
 			if e.IsDir() {
-				if skipDirs[name] {
+				if skipDirs[name] || matchesAny(excludeRe, rel) {
 					continue
 				}
 				walk(fullPath, depth+1)
 			} else {
+				if len(excludeRe) > 0 && matchesAny(excludeRe, rel) {
+					continue
+				}
+				if len(includeRe) > 0 && !matchesAny(includeRe, rel) {
+					continue
+				}
 				if info, err := e.Info(); err != nil || info.Size() > maxFileSize {
 					continue
 				}
@@ -128,7 +192,7 @@ func Search(dir, query string, caseSensitive, wholeWord, useRegex bool) []Result
 	return results
 }
 
-func Replace(dir, query, replacement string, caseSensitive, wholeWord, useRegex bool) (int, error) {
+func Replace(dir, query, replacement string, caseSensitive, wholeWord, useRegex bool, include, exclude string) (int, error) {
 	if query == "" {
 		return 0, nil
 	}
@@ -136,6 +200,8 @@ func Replace(dir, query, replacement string, caseSensitive, wholeWord, useRegex 
 	if err != nil {
 		return 0, err
 	}
+	includeRe := compileGlobs(include)
+	excludeRe := compileGlobs(exclude)
 	changed := 0
 	var walk func(d string, depth int) error
 	walk = func(d string, depth int) error {
@@ -152,12 +218,19 @@ func Replace(dir, query, replacement string, caseSensitive, wholeWord, useRegex 
 				continue
 			}
 			fullPath := filepath.Join(d, name)
+			rel := filepath.ToSlash(strings.TrimPrefix(strings.TrimPrefix(fullPath, dir), "/"))
 			if e.IsDir() {
-				if skipDirs[name] {
+				if skipDirs[name] || matchesAny(excludeRe, rel) {
 					continue
 				}
 				walk(fullPath, depth+1) //nolint
 			} else {
+				if len(excludeRe) > 0 && matchesAny(excludeRe, rel) {
+					continue
+				}
+				if len(includeRe) > 0 && !matchesAny(includeRe, rel) {
+					continue
+				}
 				if info, err := e.Info(); err != nil || info.Size() > maxFileSize {
 					continue
 				}

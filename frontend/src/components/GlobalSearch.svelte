@@ -8,6 +8,8 @@
 
   let query = $state('')
   let replaceText = $state('')
+  let includeGlob = $state('')
+  let excludeGlob = $state('')
   let caseSensitive = $state(false)
   let wholeWord = $state(false)
   let useRegex = $state(false)
@@ -35,6 +37,8 @@
     const cs = caseSensitive
     const ww = wholeWord
     const rx = useRegex
+    const inc = includeGlob
+    const exc = excludeGlob
 
     replaceCount = null
     searchError = ''
@@ -50,7 +54,7 @@
 
     const timer = setTimeout(async () => {
       try {
-        const res = await SearchInFiles(searchDir(), q, cs, ww, rx)
+        const res = await SearchInFiles(searchDir(), q, cs, ww, rx, inc, exc)
         if (myGen === gen) {
           results = res ?? []
           searching = false
@@ -72,10 +76,10 @@
     replacing = true
     searchError = ''
     try {
-      replaceCount = await ReplaceInFiles(searchDir(), query, replaceText, caseSensitive, wholeWord, useRegex)
+      replaceCount = await ReplaceInFiles(searchDir(), query, replaceText, caseSensitive, wholeWord, useRegex, includeGlob, excludeGlob)
       // re-trigger search by bumping gen through a dummy state write
       gen++ // stale guard — next $effect tick re-runs naturally via query deps
-      const res = await SearchInFiles(searchDir(), query, caseSensitive, wholeWord, useRegex)
+      const res = await SearchInFiles(searchDir(), query, caseSensitive, wholeWord, useRegex, includeGlob, excludeGlob)
       results = res ?? []
     } catch (e: any) {
       searchError = String(e)
@@ -161,6 +165,26 @@
         <button class="btn" onclick={runReplace} disabled={replacing || !query.trim()}>
           {replacing ? '…' : 'Replace All'}
         </button>
+      </div>
+      <div class="row">
+        <input
+          bind:value={includeGlob}
+          class="input"
+          placeholder="Files to include (e.g. *.go, src/**)"
+          autocapitalize="none"
+          autocorrect="off"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <input
+          bind:value={excludeGlob}
+          class="input"
+          placeholder="Files to exclude (e.g. *.test.ts)"
+          autocapitalize="none"
+          autocorrect="off"
+          autocomplete="off"
+          spellcheck="false"
+        />
       </div>
     </div>
 
@@ -366,7 +390,7 @@
     cursor: pointer;
     text-align: left;
     color: var(--foreground);
-    font-family: "SF Mono", Menlo, monospace;
+    font-family: "SF Mono", Menlo, Monaco, "Courier New", monospace;
     transition: background 0.06s;
   }
   .result-row:hover { background: var(--bg-selected); }
@@ -383,6 +407,6 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    font-size: 11px;
+    font-size: 13px;
   }
 </style>

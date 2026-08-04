@@ -124,12 +124,20 @@
   async function send() {
     const text = input.trim()
     if (!text || busy) return
-    const ctx = buildContext()
+    const cmd = SLASH_COMMANDS.find(c => c.terminalOnly && c.name === text.split(/\s+/)[0])
     turn += 1
     slashDismissed = false
     messages.push({ id: nextId(), turnId: turn, role: 'user', text })
     input = ''
     attachedFiles = []
+    if (cmd) {
+      messages.push({
+        id: nextId(), turnId: turn, role: 'status',
+        text: `${cmd.name} needs an interactive terminal session — run it in the Terminal panel instead.`,
+      })
+      return
+    }
+    const ctx = buildContext()
     busy = true
     try {
       const id = await ensureSession()
@@ -492,6 +500,33 @@
   .bubble.assistant :global(p:last-child) { margin-bottom: 0; }
   .bubble.assistant :global(pre) { background: var(--background); padding: 6px; border-radius: 4px; overflow-x: auto; }
   .bubble.assistant :global(code) { font-family: "SF Mono", Menlo, monospace; font-size: 11px; }
+
+  .bubble.assistant :global(h1), .bubble.assistant :global(h2), .bubble.assistant :global(h3),
+  .bubble.assistant :global(h4), .bubble.assistant :global(h5), .bubble.assistant :global(h6),
+  .plan-body :global(h1), .plan-body :global(h2), .plan-body :global(h3),
+  .plan-body :global(h4), .plan-body :global(h5), .plan-body :global(h6) {
+    margin: 8px 0 6px; font-size: 13px; font-weight: 600;
+  }
+  .bubble.assistant :global(h1:first-child), .bubble.assistant :global(h2:first-child), .bubble.assistant :global(h3:first-child),
+  .bubble.assistant :global(h4:first-child), .bubble.assistant :global(h5:first-child), .bubble.assistant :global(h6:first-child),
+  .plan-body :global(h1:first-child), .plan-body :global(h2:first-child), .plan-body :global(h3:first-child),
+  .plan-body :global(h4:first-child), .plan-body :global(h5:first-child), .plan-body :global(h6:first-child) {
+    margin-top: 0;
+  }
+  .bubble.assistant :global(ul), .bubble.assistant :global(ol) { margin: 0 0 6px; padding-left: 18px; }
+  .bubble.assistant :global(li), .plan-body :global(li) { margin: 0 0 2px; }
+  .bubble.assistant :global(blockquote), .plan-body :global(blockquote) {
+    border-left: 2px solid var(--border); margin: 0 0 6px; padding-left: 9px; color: var(--muted);
+  }
+  .bubble.assistant :global(table), .plan-body :global(table) { border-collapse: collapse; margin: 0 0 6px; }
+  .bubble.assistant :global(th), .bubble.assistant :global(td),
+  .plan-body :global(th), .plan-body :global(td) {
+    border: 1px solid var(--border); padding: 3px 6px;
+  }
+  .bubble.assistant :global(th), .plan-body :global(th) { font-weight: 600; }
+  .bubble.assistant :global(hr), .plan-body :global(hr) { border: none; border-top: 1px solid var(--border); margin: 6px 0; }
+  .bubble.assistant :global(a), .plan-body :global(a) { color: var(--accent); }
+  .bubble.assistant :global(img), .plan-body :global(img) { max-width: 100%; }
 
   .tool-pill {
     display: flex; align-items: center; gap: 6px; align-self: flex-start;

@@ -242,7 +242,7 @@ func runTool(root, name string, args map[string]any, hasVision bool) (toolResult
 		if err != nil {
 			return toolResult{}, err
 		}
-		results := search.Search(full, str("query"), false, false, false)
+		results := search.Search(full, str("query"), false, false, false, "", "")
 		var b strings.Builder
 		for _, r := range results {
 			rel, err := filepath.Rel(root, r.File)

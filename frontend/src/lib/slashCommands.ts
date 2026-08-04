@@ -1,6 +1,6 @@
 // Well-known Claude Code CLI slash commands. Informational/insertable only —
 // the spawned `claude` subprocess interprets these itself once sent.
-export interface SlashCommand { name: string; description: string }
+export interface SlashCommand { name: string; description: string; terminalOnly?: boolean }
 
 export const SLASH_COMMANDS: SlashCommand[] = [
   { name: '/clear', description: 'Clear conversation history' },
@@ -15,4 +15,9 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: '/memory', description: 'Edit memory files' },
   { name: '/status', description: 'Show session status and config' },
   { name: '/bug', description: 'Report a bug to Anthropic' },
+  // These need an interactive TTY (submenu UI / OAuth browser flow) that the
+  // embedded assistant's headless subprocess can't provide — run in the Terminal panel instead.
+  { name: '/mcp', description: 'Manage MCP servers — run in the Terminal panel', terminalOnly: true },
+  { name: '/plugin', description: 'Manage plugins — run in the Terminal panel', terminalOnly: true },
+  { name: '/login', description: 'Sign in — run in the Terminal panel', terminalOnly: true },
 ]

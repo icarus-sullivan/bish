@@ -1381,8 +1381,8 @@ func (a *App) GetProjectRoot() string {
 	return a.projectRoot
 }
 
-func (a *App) SearchInFiles(dir, query string, caseSensitive, wholeWord, useRegex bool) []SearchResultDTO {
-	results := search.Search(dir, query, caseSensitive, wholeWord, useRegex)
+func (a *App) SearchInFiles(dir, query string, caseSensitive, wholeWord, useRegex bool, include, exclude string) []SearchResultDTO {
+	results := search.Search(dir, query, caseSensitive, wholeWord, useRegex, include, exclude)
 	if results == nil {
 		return nil
 	}
@@ -1393,8 +1393,8 @@ func (a *App) SearchInFiles(dir, query string, caseSensitive, wholeWord, useRege
 	return dtos
 }
 
-func (a *App) ReplaceInFiles(dir, query, replacement string, caseSensitive, wholeWord, useRegex bool) (int, error) {
-	return search.Replace(dir, query, replacement, caseSensitive, wholeWord, useRegex)
+func (a *App) ReplaceInFiles(dir, query, replacement string, caseSensitive, wholeWord, useRegex bool, include, exclude string) (int, error) {
+	return search.Replace(dir, query, replacement, caseSensitive, wholeWord, useRegex, include, exclude)
 }
 
 func (a *App) GetAllFiles(root string) []string {

@@ -286,8 +286,8 @@ export function RenameProjectCommand(arg1, arg2) {
   return window['go']['app']['App']['RenameProjectCommand'](arg1, arg2);
 }
 
-export function ReplaceInFiles(arg1, arg2, arg3, arg4, arg5, arg6) {
-  return window['go']['app']['App']['ReplaceInFiles'](arg1, arg2, arg3, arg4, arg5, arg6);
+export function ReplaceInFiles(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8) {
+  return window['go']['app']['App']['ReplaceInFiles'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
 }
 
 export function ResizePTY(arg1, arg2) {
@@ -326,8 +326,8 @@ export function SaveProjectUI(arg1) {
   return window['go']['app']['App']['SaveProjectUI'](arg1);
 }
 
-export function SearchInFiles(arg1, arg2, arg3, arg4, arg5) {
-  return window['go']['app']['App']['SearchInFiles'](arg1, arg2, arg3, arg4, arg5);
+export function SearchInFiles(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
+  return window['go']['app']['App']['SearchInFiles'](arg1, arg2, arg3, arg4, arg5, arg6, arg7);
 }
 
 export function SetQuitRequested() {
