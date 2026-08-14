@@ -11,6 +11,7 @@ import { getIndentUnit, indentUnit } from '@codemirror/language'
 import { LSPStart, LSPSend, LSPStop, on } from './wails'
 import { openFileTab } from './stores'
 import type { IntelKind } from './codeintel'
+import { recordDiagnostics, clearDiagnostics } from './diagnostics'
 
 const IDLE_SHUTDOWN_MS = 5 * 60_000
 
@@ -102,6 +103,7 @@ for (const lang of ['go', 'js', 'py', 'svelte'] as IntelKind[]) {
 on('project:change', () => {
   // backend already killed the servers; drop stale protocol state
   for (const lang of [...clients.keys()]) dropClient(lang)
+  clearDiagnostics()
 })
 
 async function ensureClient(lang: IntelKind, root: string): Promise<Entry | null> {
@@ -116,6 +118,16 @@ async function ensureClient(lang: IntelKind, root: string): Promise<Entry | null
   const client = new LSPClient({
     rootUri: pathToUri(root),
     extensions: [serverDiagnostics()],
+    notificationHandlers: {
+      // fires before serverDiagnostics()'s own handler (extensions are tried
+      // after top-level config handlers) — always record for the Problems
+      // panel, then fall through (return false) so the open editor's gutter
+      // still gets updated as before.
+      'textDocument/publishDiagnostics': (_client, params) => {
+        recordDiagnostics(params.uri, params.diagnostics)
+        return false
+      },
+    },
   })
   const origDisplay = client.workspace.displayFile.bind(client.workspace)
   client.workspace.displayFile = async (uri: string) =>

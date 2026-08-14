@@ -1,0 +1,40 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>bish — shared file</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #1e1e2e; overflow: hidden; font-family: -apple-system, sans-serif; }
+  #banner {
+    font-size: 12px; color: #cdd6f4; background: #313244;
+    padding: 6px 12px; display: flex; align-items: center; gap: 8px; box-sizing: border-box;
+  }
+  #banner .dot { width: 7px; height: 7px; border-radius: 50%; background: #a6e3a1; flex-shrink: 0; }
+  #banner.disconnected .dot { background: #f38ba8; }
+  #editor {
+    position: absolute; top: 30px; left: 0; right: 0; bottom: 0;
+    overflow: auto; font: 13px "SF Mono", Menlo, Monaco, monospace;
+  }
+  .cm-editor { height: 100%; }
+</style>
+</head>
+<body>
+  <div id="banner"><span class="dot"></span><span id="status">Connecting…</span></div>
+  <div id="editor"></div>
+  <script src="assets/coedit.js"></script>
+  <script>
+    const banner = document.getElementById('banner')
+    const status = document.getElementById('status')
+
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const wsUrl = proto + '//' + location.host + location.pathname.replace(/\/$/, '') + '/ws'
+
+    BishCoedit.mount(document.getElementById('editor'), wsUrl, {
+      onStatus: (text, disconnected) => {
+        status.textContent = text
+        banner.classList.toggle('disconnected', !!disconnected)
+      },
+    })
+  </script>
+</body>
+</html>

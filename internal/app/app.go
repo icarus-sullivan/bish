@@ -23,11 +23,16 @@ import (
 	"github.com/csullivan/bish/internal/commands"
 	"github.com/csullivan/bish/internal/completion"
 	"github.com/csullivan/bish/internal/config"
+	"github.com/csullivan/bish/internal/dap"
+	"github.com/csullivan/bish/internal/extensions"
+	"github.com/csullivan/bish/internal/liveshare"
 	"github.com/csullivan/bish/internal/lsp"
 	"github.com/csullivan/bish/internal/process"
 	"github.com/csullivan/bish/internal/project"
 	bishpty "github.com/csullivan/bish/internal/pty"
+	"github.com/csullivan/bish/internal/remote"
 	"github.com/csullivan/bish/internal/search"
+	"github.com/csullivan/bish/internal/telemetry"
 	"github.com/csullivan/bish/internal/theme"
 	"github.com/csullivan/bish/internal/tree"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -48,15 +53,21 @@ const maxEditorFileSize = 5 * 1024 * 1024 // CodeMirror chokes on single docs mu
 var skipDirs = tree.SkipDirs
 
 type App struct {
-	mgr                    *process.Manager
-	cmdStore               *commands.Store
-	cmdMu                  sync.Mutex
-	shell                  *bishpty.PTY
-	terminals              map[string]*bishpty.PTY
-	terminalsMu            sync.Mutex
-	termCount              int
-	fileTree               *tree.Tree
-	treeMu                 sync.Mutex
+	mgr         *process.Manager
+	cmdStore    *commands.Store
+	cmdMu       sync.Mutex
+	shell       *bishpty.PTY
+	terminals   map[string]*bishpty.PTY
+	terminalsMu sync.Mutex
+	termCount   int
+	fileTree    *tree.Tree
+	treeMu      sync.Mutex
+	// multi-root workspace: additional folders beyond the primary project
+	// root, each with its own Tree. Guarded by treeMu (tree-display state,
+	// not project identity) — order is add-order, matching the sidebar.
+	extraRoots             []string
+	extraTrees             map[string]*tree.Tree
+	selectedPath           string
 	fsw                    *fsnotify.Watcher
 	cwd                    string
 	cwdFile                string
@@ -67,9 +78,14 @@ type App struct {
 	projectRoot            string
 	projectCfg             *project.Config
 	projectMu              sync.Mutex
+	remoteDest             string // "" = local project; else an SSH destination ("user@host")
 	lsp                    *lsp.Manager
+	dap                    *dap.Manager
+	liveShare              *liveshare.Manager
 	assistant              *assistant.Manager
 	completion             *completion.Manager
+	telemetry              *telemetry.Manager
+	prevProcStatus         map[string]process.Status // refreshLoop's crash/finish notification edge-detector
 	cfg                    config.Config
 	ctx                    context.Context
 	DockMenuUpdater        func()
@@ -95,6 +111,7 @@ func New(cfg config.Config, mgr *process.Manager, store *commands.Store,
 		shell:       shell,
 		terminals:   make(map[string]*bishpty.PTY),
 		fileTree:    &tree.Tree{}, // loaded async in Startup — a sync walk of cwd (often $HOME) blocks the window
+		extraTrees:  make(map[string]*tree.Tree),
 		cwd:         cwd,
 		cwdFile:     cwdFile,
 		wFilePath:   wFilePath,
@@ -108,11 +125,22 @@ func (a *App) Startup(ctx context.Context) {
 	a.lsp = lsp.NewManager(func(event string, data ...interface{}) {
 		runtime.EventsEmit(a.ctx, event, data...)
 	})
+	a.dap = dap.NewManager(func(event string, data ...interface{}) {
+		runtime.EventsEmit(a.ctx, event, data...)
+	})
+	a.liveShare = liveshare.NewManager(func(event string, data ...interface{}) {
+		runtime.EventsEmit(a.ctx, event, data...)
+	})
 	a.assistant = assistant.NewManager(func(event string, data ...interface{}) {
 		runtime.EventsEmit(a.ctx, event, data...)
 	}, a.cfg.Assistant)
 	a.completion = completion.NewManager()
 	a.completion.SetConfig(a.cfg.Completion)
+	a.telemetry = telemetry.NewManager()
+	a.telemetry.SetConfig(a.cfg.Telemetry.Enabled, a.cfg.Telemetry.Endpoint)
+	a.telemetry.StartLoop(ctx.Done())
+	a.prevProcStatus = map[string]process.Status{}
+	_ = runtime.InitializeNotifications(ctx) // no-op error on unsupported platforms, notifications just won't fire
 	go a.readPTYLoopFor("main", a.shell)
 	go a.pollCWDLoop()
 	go a.pollWLoop()
@@ -164,8 +192,11 @@ func (a *App) Shutdown(ctx context.Context) {
 		}
 	}
 	a.lsp.StopAll()
+	a.dap.Stop()
+	a.liveShare.StopAll()
 	a.assistant.StopAll()
 	a.completion.Stop()
+	a.telemetry.Flush()
 	a.mgr.KillAll()
 	a.shell.Close()
 	a.terminalsMu.Lock()
@@ -179,7 +210,21 @@ func (a *App) Shutdown(ctx context.Context) {
 }
 
 func (a *App) NewTerminal() (string, error) {
-	p, err := bishpty.New(a.cfg.Shell, a.cwdFile, a.wFilePath, a.galleryFile)
+	a.projectMu.Lock()
+	dir := a.projectRoot
+	dest := a.remoteDest
+	a.projectMu.Unlock()
+	if dir == "" {
+		dir = a.cwd
+	}
+
+	var p *bishpty.PTY
+	var err error
+	if dest != "" {
+		p, err = bishpty.NewRemote(dest, dir)
+	} else {
+		p, err = bishpty.New(a.cfg.Shell, a.cwdFile, a.wFilePath, a.galleryFile)
+	}
 	if err != nil {
 		return "", err
 	}
@@ -189,14 +234,9 @@ func (a *App) NewTerminal() (string, error) {
 	a.terminals[id] = p
 	a.terminalsMu.Unlock()
 	go a.readPTYLoopFor(id, p)
-	// cd to project root or current cwd
-	a.projectMu.Lock()
-	dir := a.projectRoot
-	a.projectMu.Unlock()
-	if dir == "" {
-		dir = a.cwd
-	}
-	fmt.Fprintf(p, "cd %q\n", dir) //nolint
+	if dest == "" {
+		fmt.Fprintf(p, "cd %q\n", dir) //nolint
+	} // else: remote cwd is already baked into the ssh command itself (bishpty.NewRemote)
 	return id, nil
 }
 
@@ -230,6 +270,92 @@ func (a *App) ResizePTYTab(id string, rows, cols int) {
 	if ok {
 		p.Resize(rows, cols)
 	}
+}
+
+// ptyFor resolves a terminal id ("main" or a NewTerminal-issued tab id) to
+// its PTY — the same two places readPTYLoopFor's callers already look.
+func (a *App) ptyFor(id string) *bishpty.PTY {
+	if id == "main" {
+		return a.shell
+	}
+	a.terminalsMu.Lock()
+	defer a.terminalsMu.Unlock()
+	return a.terminals[id]
+}
+
+// -- Live Share (terminal pairing) --
+
+// StartLiveShare shares terminalId's live output with anyone who opens the
+// returned link on the local network — idempotent, returns the existing
+// link if already sharing. See internal/liveshare's doc comment for scope.
+func (a *App) StartLiveShare(terminalId string) (string, error) {
+	p := a.ptyFor(terminalId)
+	if p == nil {
+		return "", fmt.Errorf("terminal %s not found", terminalId)
+	}
+	return a.liveShare.Start(terminalId, func(b []byte) error {
+		_, err := p.Write(b)
+		return err
+	})
+}
+
+func (a *App) StopLiveShare(terminalId string) {
+	a.liveShare.Stop(terminalId)
+}
+
+func (a *App) IsLiveSharing(terminalId string) bool {
+	return a.liveShare.IsSharing(terminalId)
+}
+
+func (a *App) GetLiveShareGuests(terminalId string) []liveshare.GuestInfo {
+	return a.liveShare.Guests(terminalId)
+}
+
+// SetLiveShareGuestPermission is the host's read-only/can-type toggle for
+// one connected guest — defaults to read-only when a guest first connects.
+func (a *App) SetLiveShareGuestPermission(terminalId, guestId string, canType bool) error {
+	return a.liveShare.SetGuestPermission(terminalId, guestId, canType)
+}
+
+// -- Live Share (editor co-editing, phase 2 — PM_ASKS.md #12.b) --
+
+// StartEditShare shares path for co-editing. Go is a dumb relay here — guest
+// bytes come back as an "editshare:data" event for the host frontend's
+// Y.Doc (frontend/src/lib/coedit.ts) to apply; it never touches the file
+// itself except via the normal WriteFile save path.
+func (a *App) StartEditShare(path string) (string, error) {
+	a.telemetry.Count("coedit_session")
+	return a.liveShare.StartEdit(path, func(b []byte) error {
+		runtime.EventsEmit(a.ctx, "editshare:data", liveshare.EditData{Path: path, Data: base64.StdEncoding.EncodeToString(b)})
+		return nil
+	})
+}
+
+func (a *App) StopEditShare(path string) {
+	a.liveShare.StopEdit(path)
+}
+
+func (a *App) IsEditSharing(path string) bool {
+	return a.liveShare.IsEditSharing(path)
+}
+
+func (a *App) GetEditShareGuests(path string) []liveshare.GuestInfo {
+	return a.liveShare.EditGuests(path)
+}
+
+func (a *App) SetEditShareGuestPermission(path, guestId string, canType bool) error {
+	return a.liveShare.SetEditGuestPermission(path, guestId, canType)
+}
+
+// EditShareBroadcast relays one blob of Yjs protocol bytes (base64) from the
+// host frontend's Y.Doc to every guest connected to path's session.
+func (a *App) EditShareBroadcast(path, dataB64 string) error {
+	b, err := base64.StdEncoding.DecodeString(dataB64)
+	if err != nil {
+		return err
+	}
+	a.liveShare.BroadcastEdit(path, b)
+	return nil
 }
 
 func (a *App) readPTYLoopFor(id string, p *bishpty.PTY) {
@@ -266,7 +392,9 @@ func (a *App) readPTYLoopFor(id string, p *bishpty.PTY) {
 
 	flush := func() {
 		if len(pending) > 0 {
-			runtime.EventsEmit(a.ctx, dataEvent, string(pending))
+			s := string(pending) // copies — pending's backing array gets reused below
+			runtime.EventsEmit(a.ctx, dataEvent, s)
+			a.liveShare.Broadcast(id, []byte(s)) // no-op unless this terminal is currently shared
 			pending = pending[:0]
 		}
 	}
@@ -277,6 +405,7 @@ func (a *App) readPTYLoopFor(id string, p *bishpty.PTY) {
 			if !ok {
 				flush()
 				runtime.EventsEmit(a.ctx, exitEvent)
+				a.liveShare.Stop(id)
 				return
 			}
 			pending = append(pending, data...)
@@ -417,11 +546,13 @@ func (a *App) refreshLoop() {
 			return
 		case <-time.After(2 * time.Second):
 			a.mgr.Refresh()
+			procs := a.visibleProcesses()
+			a.notifyProcessChanges(procs)
 			// emit only on change — idle app does zero store writes/re-renders
-			cur, err := json.Marshal(a.visibleProcesses())
+			cur, err := json.Marshal(procs)
 			if err != nil || !bytes.Equal(cur, last) {
 				last = cur
-				runtime.EventsEmit(a.ctx, "processes:update", a.visibleProcesses())
+				runtime.EventsEmit(a.ctx, "processes:update", procs)
 			}
 		}
 	}
@@ -575,15 +706,38 @@ func (a *App) GetTreeNodes() []TreeNodeDTO {
 	return a.flatNodes()
 }
 
-func (a *App) ToggleTreeNode(path string) {
-	a.treeMu.Lock()
-	for i, n := range a.fileTree.Flat {
+// treeForPathLocked finds which tree (primary or an extra workspace root)
+// contains path — caller must hold treeMu. O(n) linear scan, matching the
+// existing style of every other tree lookup here; trees are lazily loaded
+// so this never scans more than what's already visible.
+func (a *App) treeForPathLocked(path string) *tree.Tree {
+	for _, n := range a.fileTree.Flat {
 		if n.Path == path {
-			a.fileTree.Selected = i
-			a.fileTree.Toggle()
-			break
+			return a.fileTree
 		}
 	}
+	for _, t := range a.extraTrees {
+		for _, n := range t.Flat {
+			if n.Path == path {
+				return t
+			}
+		}
+	}
+	return nil
+}
+
+func (a *App) ToggleTreeNode(path string) {
+	a.treeMu.Lock()
+	if t := a.treeForPathLocked(path); t != nil {
+		for i, n := range t.Flat {
+			if n.Path == path {
+				t.Selected = i
+				t.Toggle()
+				break
+			}
+		}
+	}
+	a.selectedPath = path
 	nodes := a.flatNodes()
 	expanded := a.fileTree.ExpandedPaths()
 	a.treeMu.Unlock()
@@ -595,7 +749,9 @@ func (a *App) ToggleTreeNode(path string) {
 // RevealInTree expands path's ancestor directories and selects it, emitting
 // tree:update — used by Cmd+P selection to keep the sidebar in sync with the
 // active tab even when the file's parent folders are collapsed. Mirrors
-// ToggleTreeNode's lock/emit/rearm/save-expanded pattern.
+// ToggleTreeNode's lock/emit/rearm/save-expanded pattern. Only the primary
+// root's tree supports reveal-by-ancestor-walk today — a path outside it
+// (an extra workspace root) just no-ops rather than failing.
 func (a *App) RevealInTree(path string) {
 	a.treeMu.Lock()
 	a.fileTree.ExpandToPath(path)
@@ -605,6 +761,7 @@ func (a *App) RevealInTree(path string) {
 			break
 		}
 	}
+	a.selectedPath = path
 	nodes := a.flatNodes()
 	expanded := a.fileTree.ExpandedPaths()
 	a.treeMu.Unlock()
@@ -631,6 +788,9 @@ func (a *App) RefreshTree() {
 func (a *App) CollapseAllTree() {
 	a.treeMu.Lock()
 	a.fileTree.CollapseAll()
+	for _, t := range a.extraTrees {
+		t.CollapseAll()
+	}
 	nodes := a.flatNodes()
 	a.treeMu.Unlock()
 	runtime.EventsEmit(a.ctx, "tree:update", nodes)
@@ -638,6 +798,9 @@ func (a *App) CollapseAllTree() {
 }
 
 func (a *App) CdToPath(path string) error {
+	if a.remoteDest != "" {
+		return nil // no meaningful "cd" on the local main shell for a remote path
+	}
 	_, err := a.shell.Write([]byte(fmt.Sprintf("cd %q\n", path)))
 	return err
 }
@@ -648,11 +811,19 @@ func (a *App) FSNewFile(dirPath, name string) error {
 	if name == "" {
 		name = "newfile"
 	}
-	f, err := os.Create(filepath.Join(dirPath, name))
+	path := filepath.Join(dirPath, name)
+	var err error
+	if a.remoteDest != "" {
+		err = remote.CreateFile(a.remoteDest, path)
+	} else {
+		var f *os.File
+		if f, err = os.Create(path); err == nil {
+			f.Close()
+		}
+	}
 	if err != nil {
 		return err
 	}
-	f.Close()
 	a.reloadTree()
 	return nil
 }
@@ -661,7 +832,14 @@ func (a *App) FSNewFolder(dirPath, name string) error {
 	if name == "" {
 		name = "newfolder"
 	}
-	if err := os.MkdirAll(filepath.Join(dirPath, name), 0o755); err != nil {
+	path := filepath.Join(dirPath, name)
+	var err error
+	if a.remoteDest != "" {
+		err = remote.Mkdir(a.remoteDest, path)
+	} else {
+		err = os.MkdirAll(path, 0o755)
+	}
+	if err != nil {
 		return err
 	}
 	a.reloadTree()
@@ -669,7 +847,13 @@ func (a *App) FSNewFolder(dirPath, name string) error {
 }
 
 func (a *App) FSRename(oldPath, newPath string) error {
-	if err := os.Rename(oldPath, newPath); err != nil {
+	var err error
+	if a.remoteDest != "" {
+		err = remote.Rename(a.remoteDest, oldPath, newPath)
+	} else {
+		err = os.Rename(oldPath, newPath)
+	}
+	if err != nil {
 		return err
 	}
 	a.reloadTree()
@@ -810,7 +994,13 @@ func (a *App) FSMove(paths []string, destDir string) error {
 }
 
 func (a *App) FSDelete(path string) error {
-	if err := os.RemoveAll(path); err != nil {
+	var err error
+	if a.remoteDest != "" {
+		err = remote.Remove(a.remoteDest, path)
+	} else {
+		err = os.RemoveAll(path)
+	}
+	if err != nil {
 		return err
 	}
 	a.reloadTree()
@@ -834,7 +1024,13 @@ func (a *App) FSDeletePaths(paths []string) error {
 	}
 	var firstErr error
 	for _, p := range paths {
-		if err := os.RemoveAll(p); err != nil && firstErr == nil {
+		var err error
+		if a.remoteDest != "" {
+			err = remote.Remove(a.remoteDest, p)
+		} else {
+			err = os.RemoveAll(p)
+		}
+		if err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
@@ -859,6 +1055,19 @@ func (a *App) ReadFileBase64(path string) (string, error) {
 }
 
 func (a *App) ReadFile(path string) (string, error) {
+	if a.remoteDest != "" {
+		// ponytail: no cheap remote stat-then-size-guard round trip yet —
+		// just cat and run the same binary heuristic below.
+		content, err := remote.ReadFile(a.remoteDest, path)
+		if err != nil {
+			return "", err
+		}
+		data := []byte(content)
+		if bytes.IndexByte(data[:min(len(data), 8000)], 0) != -1 {
+			return "", fmt.Errorf("binary file — not displayable as text")
+		}
+		return content, nil
+	}
 	if fi, err := os.Stat(path); err == nil && fi.Size() > maxEditorFileSize {
 		return "", fmt.Errorf("file too large to open in editor (%.1f MB, limit %d MB)",
 			float64(fi.Size())/(1024*1024), maxEditorFileSize/(1024*1024))
@@ -912,6 +1121,9 @@ func (a *App) ReadFileChunk(path string, offset, length int64) (FileChunk, error
 }
 
 func (a *App) WriteFile(path, content string) error {
+	if a.remoteDest != "" {
+		return remote.WriteFile(a.remoteDest, path, content)
+	}
 	return os.WriteFile(path, []byte(content), 0o644)
 }
 
@@ -933,6 +1145,29 @@ func (a *App) LSPStop(lang string) {
 	a.lsp.Stop(lang)
 }
 
+// -- Debugger (DAP) methods --
+
+// DebugStart spawns `dlv dap` rooted at root and runs the launch handshake,
+// applying breakpoints (absolute path → 1-based line numbers) before the
+// program starts running. Blocks until the program is confirmed running or
+// the handshake fails (most commonly a build error).
+func (a *App) DebugStart(root string, breakpoints map[string][]int) error {
+	a.telemetry.Count("debug_session")
+	return a.dap.Start(root, breakpoints)
+}
+
+// DebugSetBreakpoints replaces the breakpoint set for one file in the
+// running session (no-op if no session is active).
+func (a *App) DebugSetBreakpoints(path string, lines []int) error {
+	return a.dap.SetBreakpoints(path, lines)
+}
+
+func (a *App) DebugContinue() error { return a.dap.Continue() }
+func (a *App) DebugStepOver() error { return a.dap.StepOver() }
+func (a *App) DebugStepIn() error   { return a.dap.StepIn() }
+func (a *App) DebugStepOut() error  { return a.dap.StepOut() }
+func (a *App) DebugStop()           { a.dap.Stop() }
+
 // -- Assistant methods --
 
 // AssistantPickFiles opens a native multi-file picker for attaching context
@@ -947,6 +1182,7 @@ func (a *App) AssistantPickFiles() ([]string, error) {
 // permissionMode the panel asked for) rooted at root, and returns a session
 // handle the frontend keeps using for the rest of the conversation.
 func (a *App) AssistantStart(root, permissionMode string) (string, error) {
+	a.telemetry.Count("assistant_session")
 	return a.assistant.Start(root, permissionMode)
 }
 
@@ -955,10 +1191,12 @@ func (a *App) AssistantSend(sessionID, text string) error {
 	return a.assistant.Send(sessionID, text)
 }
 
-// AssistantApprovePlan swaps the session's plan-mode process for a
-// --resume'd acceptEdits process told to proceed with the approved plan.
-func (a *App) AssistantApprovePlan(sessionID string) error {
-	return a.assistant.ApprovePlan(sessionID)
+// AssistantRespondPermission answers a pending permission ask — the plan
+// card's Approve/Reject buttons, and any other tool-use prompt the CLI
+// paused on, both route through here. requestID is the id captured off the
+// "permission_request" event the panel received for that ask.
+func (a *App) AssistantRespondPermission(sessionID, requestID string, allow bool, message string) error {
+	return a.assistant.RespondPermission(sessionID, requestID, allow, message)
 }
 
 func (a *App) AssistantStop(sessionID string) {
@@ -971,8 +1209,8 @@ func (a *App) AssistantInterrupt(sessionID string) error {
 	return a.assistant.Interrupt(sessionID)
 }
 
-// AssistantSwitchMode changes the live session's permission mode — permission
-// mode is fixed at process spawn, so this kills and --resume's the process.
+// AssistantSwitchMode changes the live session's permission mode in place,
+// over the control protocol — no process restart involved.
 func (a *App) AssistantSwitchMode(sessionID, mode string) error {
 	return a.assistant.SwitchMode(sessionID, mode)
 }
@@ -1037,6 +1275,13 @@ func (a *App) IsVideo(path string) bool {
 // -- Theme/Config methods --
 
 func (a *App) GetTheme() ThemeDTO {
+	if ct, ok := a.cfg.CustomThemes[a.cfg.Theme]; ok {
+		return ThemeDTO{
+			Background: ct.Background, Foreground: ct.Foreground, Border: ct.Border,
+			BorderFocused: ct.BorderFocused, Accent: ct.Accent, Muted: ct.Muted,
+			Success: ct.Success, Error: ct.Error, Warning: ct.Warning,
+		}
+	}
 	th := theme.Get(a.cfg.Theme)
 	return ThemeDTO{
 		Background:    th.Background,
@@ -1061,21 +1306,104 @@ func (a *App) SaveConfig(cfg config.Config) error {
 	runtime.EventsEmit(a.ctx, "theme:update", th)
 	a.assistant.SetConfig(cfg.Assistant)
 	a.completion.SetConfig(cfg.Completion)
+	a.telemetry.SetConfig(cfg.Telemetry.Enabled, cfg.Telemetry.Endpoint)
 	return config.Save(cfg)
+}
+
+// ExportSettingsFile writes content (a JSON bundle the frontend builds
+// itself, since it covers theme/features from config.Config *and*
+// frontend-local custom keybindings Go has no model of) to a user-chosen
+// path via a native Save dialog.
+func (a *App) ExportSettingsFile(content string) (string, error) {
+	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		DefaultFilename: "bish-settings.json",
+		Title:           "Export Settings",
+		Filters:         []runtime.FileFilter{{DisplayName: "JSON (*.json)", Pattern: "*.json"}},
+	})
+	if err != nil || path == "" {
+		return "", err
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+// ImportSettingsFile opens a native Open dialog and returns the chosen
+// file's raw content ("" if cancelled) — the frontend parses and applies it.
+func (a *App) ImportSettingsFile() (string, error) {
+	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title:   "Import Settings",
+		Filters: []runtime.FileFilter{{DisplayName: "JSON (*.json)", Pattern: "*.json"}},
+	})
+	if err != nil || path == "" {
+		return "", err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+// -- Extensions --
+
+// ExtensionDTO adds the persisted enable state to a discovered extension.
+type ExtensionDTO struct {
+	extensions.Extension
+	Enabled bool `json:"enabled"`
+}
+
+// GetExtensions discovers extensions under ~/.bish/extensions and marks
+// each enabled/disabled per the saved config (missing = enabled).
+func (a *App) GetExtensions() []ExtensionDTO {
+	found := extensions.Discover(extensions.Dir())
+	out := make([]ExtensionDTO, len(found))
+	for i, e := range found {
+		enabled := true
+		if v, ok := a.cfg.Extensions[e.Name]; ok {
+			enabled = v
+		}
+		out[i] = ExtensionDTO{Extension: e, Enabled: enabled}
+	}
+	return out
+}
+
+// SetExtensionEnabled persists one extension's enable state — the frontend
+// starts/stops its Worker immediately either way, this just makes it stick
+// across restarts.
+func (a *App) SetExtensionEnabled(name string, enabled bool) error {
+	if a.cfg.Extensions == nil {
+		a.cfg.Extensions = map[string]bool{}
+	}
+	a.cfg.Extensions[name] = enabled
+	return config.Save(a.cfg)
 }
 
 // -- helpers --
 
+// flatNodes concatenates the primary tree's flat rows with each extra
+// workspace root's, in add-order — the frontend renders each tree's own
+// depth-0 root row as that section's header, so no separate "group" DTO is
+// needed (multi-root falls out of the existing single-tree row renderer).
 func (a *App) flatNodes() []TreeNodeDTO {
-	result := make([]TreeNodeDTO, len(a.fileTree.Flat))
-	for i, n := range a.fileTree.Flat {
-		result[i] = TreeNodeDTO{
-			Name:     n.Name,
-			Path:     n.Path,
-			IsDir:    n.IsDir,
-			Depth:    n.Depth,
-			Expanded: n.Expanded,
-			Selected: i == a.fileTree.Selected,
+	result := make([]TreeNodeDTO, 0, len(a.fileTree.Flat))
+	add := func(t *tree.Tree) {
+		for _, n := range t.Flat {
+			result = append(result, TreeNodeDTO{
+				Name:     n.Name,
+				Path:     n.Path,
+				IsDir:    n.IsDir,
+				Depth:    n.Depth,
+				Expanded: n.Expanded,
+				Selected: n.Path == a.selectedPath,
+			})
+		}
+	}
+	add(a.fileTree)
+	for _, r := range a.extraRoots {
+		if t := a.extraTrees[r]; t != nil {
+			add(t)
 		}
 	}
 	return result
@@ -1084,14 +1412,32 @@ func (a *App) flatNodes() []TreeNodeDTO {
 func (a *App) reloadTree() {
 	a.projectMu.Lock()
 	root := a.projectRoot
+	dest := a.remoteDest
 	a.projectMu.Unlock()
 	if root == "" {
 		root = a.cwd
 	}
 	a.treeMu.Lock()
+	if dest != "" {
+		a.fileTree.FS = remote.TreeFS{Dest: dest}
+	} else {
+		a.fileTree.FS = nil
+	}
 	expanded := a.fileTree.ExpandedPaths()
 	a.fileTree.Load(root)
 	a.fileTree.RestoreExpanded(expanded)
+
+	for _, r := range a.extraRoots {
+		t := a.extraTrees[r]
+		if t == nil {
+			t = &tree.Tree{}
+			a.extraTrees[r] = t
+		}
+		exp := t.ExpandedPaths()
+		t.Load(r)
+		t.RestoreExpanded(exp)
+	}
+
 	nodes := a.flatNodes()
 	a.treeMu.Unlock()
 	runtime.EventsEmit(a.ctx, "tree:update", nodes)
@@ -1184,6 +1530,7 @@ func (a *App) SaveNewFile(content, defaultDir string) (string, error) {
 
 func (a *App) openProjectDir(dir string) error {
 	a.lsp.StopAll() // stale servers point at the old root
+	a.dap.Stop()    // stale debug session points at the old root
 	cfg, err := project.Load(dir)
 	if err != nil {
 		cfg = &project.Config{CWD: dir}
@@ -1191,7 +1538,12 @@ func (a *App) openProjectDir(dir string) error {
 	a.projectMu.Lock()
 	a.projectRoot = dir
 	a.projectCfg = cfg
+	a.remoteDest = ""
 	a.projectMu.Unlock()
+	a.treeMu.Lock()
+	a.extraRoots = append([]string{}, cfg.ExtraRoots...)
+	a.extraTrees = make(map[string]*tree.Tree, len(a.extraRoots))
+	a.treeMu.Unlock()
 	runtime.WindowSetTitle(a.ctx, filepath.Base(dir))
 	a.reloadTree()
 	// restore saved expansion from previous session
@@ -1205,13 +1557,142 @@ func (a *App) openProjectDir(dir string) error {
 	// cd main shell to project root
 	fmt.Fprintf(a.shell, "cd %q\n", dir) //nolint
 	runtime.EventsEmit(a.ctx, "project:change", dir)
+	runtime.EventsEmit(a.ctx, "project:remote", false)
 	runtime.EventsEmit(a.ctx, "project:commands", cfg.Cmds)
+	runtime.EventsEmit(a.ctx, "project:tasks", project.LoadTasks(dir))
 	project.AddRecent(dir)    //nolint
 	project.AddToSession(dir) //nolint
 	if a.DockMenuUpdater != nil {
 		go a.DockMenuUpdater()
 	}
 	return nil
+}
+
+// OpenRemoteProject points the whole window (file tree, editor, new
+// terminals) at path on an SSH destination — see internal/remote for why
+// this shells out to `ssh` rather than speaking the protocol directly.
+// Deliberately out of scope for this first cut: remote git panel, remote
+// LSP/debugger, remote search, and the Recent Projects list (which assumes
+// a locally-`os.Stat`-able path) — all degrade harmlessly rather than being
+// specially handled.
+func (a *App) OpenRemoteProject(dest, path string) error {
+	if dest == "" || path == "" {
+		return fmt.Errorf("host and path are required")
+	}
+	if err := remote.Reachable(dest); err != nil {
+		return fmt.Errorf("can't reach %s: %w", dest, err)
+	}
+	if isDir, err := remote.Stat(dest, path); err != nil || !isDir {
+		return fmt.Errorf("%s:%s is not a directory", dest, path)
+	}
+	a.lsp.StopAll()
+	a.dap.Stop()
+	a.projectMu.Lock()
+	a.projectRoot = path
+	a.remoteDest = dest
+	a.projectCfg = &project.Config{CWD: path}
+	a.projectMu.Unlock()
+	// multi-root workspaces are local-only for now (extra roots are always
+	// browsed via SSH to a.remoteDest, which is a single global destination)
+	a.treeMu.Lock()
+	a.extraRoots = nil
+	a.extraTrees = make(map[string]*tree.Tree)
+	a.treeMu.Unlock()
+	runtime.WindowSetTitle(a.ctx, fmt.Sprintf("%s — %s", filepath.Base(path), dest))
+	a.reloadTree()
+	runtime.EventsEmit(a.ctx, "project:change", path)
+	runtime.EventsEmit(a.ctx, "project:remote", true)
+	runtime.EventsEmit(a.ctx, "project:commands", nil)
+	runtime.EventsEmit(a.ctx, "project:tasks", nil)
+	return nil
+}
+
+// IsRemoteProject reports whether the open project lives on an SSH
+// destination (fetched once at startup, mirroring GetProjectRoot).
+func (a *App) IsRemoteProject() bool {
+	a.projectMu.Lock()
+	defer a.projectMu.Unlock()
+	return a.remoteDest != ""
+}
+
+// AddWorkspaceRoot opens a directory picker and attaches it as an extra
+// folder in the current workspace (multi-root), alongside the primary
+// project. Persisted on the primary project's config so reopening it
+// restores the same set of folders.
+func (a *App) AddWorkspaceRoot() (string, error) {
+	dir, err := runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Add Folder to Workspace",
+	})
+	if err != nil || dir == "" {
+		return "", err
+	}
+	a.projectMu.Lock()
+	if dir == a.projectRoot {
+		a.projectMu.Unlock()
+		return "", fmt.Errorf("already the workspace's primary folder")
+	}
+	a.projectMu.Unlock()
+
+	a.treeMu.Lock()
+	for _, r := range a.extraRoots {
+		if r == dir {
+			a.treeMu.Unlock()
+			return "", fmt.Errorf("already in the workspace")
+		}
+	}
+	a.extraRoots = append(a.extraRoots, dir)
+	a.treeMu.Unlock()
+
+	a.saveExtraRoots()
+	a.reloadTree()
+	return dir, nil
+}
+
+// RemoveWorkspaceRoot detaches an extra folder added via AddWorkspaceRoot.
+// No-op if root is the primary project root (use CloseProject for that).
+func (a *App) RemoveWorkspaceRoot(root string) {
+	a.treeMu.Lock()
+	out := a.extraRoots[:0]
+	for _, r := range a.extraRoots {
+		if r != root {
+			out = append(out, r)
+		}
+	}
+	a.extraRoots = out
+	delete(a.extraTrees, root)
+	a.treeMu.Unlock()
+
+	a.saveExtraRoots()
+	a.reloadTree()
+}
+
+func (a *App) saveExtraRoots() {
+	a.treeMu.Lock()
+	extra := append([]string{}, a.extraRoots...)
+	a.treeMu.Unlock()
+	a.projectMu.Lock()
+	cfg := a.projectCfg
+	a.projectMu.Unlock()
+	if cfg == nil {
+		return
+	}
+	cfg.ExtraRoots = extra
+	project.Save(cfg) //nolint
+}
+
+// GetWorkspaceRoots returns the primary project root followed by every
+// extra folder attached via AddWorkspaceRoot, in add-order.
+func (a *App) GetWorkspaceRoots() []string {
+	a.projectMu.Lock()
+	root := a.projectRoot
+	a.projectMu.Unlock()
+	a.treeMu.Lock()
+	defer a.treeMu.Unlock()
+	out := make([]string, 0, len(a.extraRoots)+1)
+	if root != "" {
+		out = append(out, root)
+	}
+	return append(out, a.extraRoots...)
 }
 
 func (a *App) OpenProject() (string, error) {
@@ -1234,18 +1715,66 @@ func (a *App) OpenRecentProject(path string) error {
 
 func (a *App) CloseProject() {
 	a.lsp.StopAll()
+	a.dap.Stop()
 	a.projectMu.Lock()
 	root := a.projectRoot
+	wasRemote := a.remoteDest != ""
 	a.projectRoot = ""
 	a.projectCfg = nil
+	a.remoteDest = ""
 	a.projectMu.Unlock()
-	if root != "" {
+	if root != "" && !wasRemote {
 		project.RemoveFromSession(root) //nolint
 	}
+	a.treeMu.Lock()
+	a.extraRoots = nil
+	a.extraTrees = make(map[string]*tree.Tree)
+	a.treeMu.Unlock()
 	runtime.WindowSetTitle(a.ctx, "bish")
 	a.reloadTree()
 	runtime.EventsEmit(a.ctx, "project:change", "")
+	runtime.EventsEmit(a.ctx, "project:remote", false)
 	runtime.EventsEmit(a.ctx, "project:commands", nil)
+	runtime.EventsEmit(a.ctx, "project:tasks", nil)
+}
+
+// GetTasks returns the git-shareable .bish/tasks.json run buttons for the
+// open project (nil if none open or no tasks file present).
+func (a *App) GetTasks() []*project.Task {
+	a.projectMu.Lock()
+	root := a.projectRoot
+	a.projectMu.Unlock()
+	if root == "" {
+		return nil
+	}
+	return project.LoadTasks(root)
+}
+
+// RunTask spawns a task directly via the process manager (not the `w`-file
+// mechanism RunProjectCommand uses) so it shows up in the Process List with
+// its task name and running/exit-code status, without also getting
+// auto-saved into the user's local Project Commands (a side effect of the
+// w-file path that only makes sense for manually-typed commands).
+func (a *App) RunTask(id string) error {
+	a.projectMu.Lock()
+	root := a.projectRoot
+	a.projectMu.Unlock()
+	if root == "" {
+		return fmt.Errorf("no project open")
+	}
+	var found *project.Task
+	for _, t := range project.LoadTasks(root) {
+		if t.ID == id {
+			found = t
+			break
+		}
+	}
+	if found == nil {
+		return fmt.Errorf("task not found (was .bish/tasks.json edited?)")
+	}
+	a.telemetry.Count("task_run")
+	_, err := a.mgr.Add(found.Command, found.Cwd, found.Name)
+	return err
 }
 
 func (a *App) GetProjectCommands() []*project.Cmd {

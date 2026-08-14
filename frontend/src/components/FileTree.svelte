@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { treeNodes, focusedPane, openFileTab, projectRoot, cwd, isMediaPath, pendingGoto, pendingReveal, showGlobalSearch, searchScopeDir, closeTabsForPaths } from '../lib/stores'
+  import { treeNodes, focusedPane, openFileTab, projectRoot, cwd, isMediaPath, pendingGoto, pendingReveal, showGlobalSearch, searchScopeDir, closeTabsForPaths, isRemoteProject, showOpenRemote } from '../lib/stores'
   import ContextMenu from './ContextMenu.svelte'
-  import { ToggleTreeNode, CdToPath, FSNewFile, FSNewFolder, FSRename, FSDelete, FSDeletePaths, FSCopyPath, FSRevealInFinder, FSMove, FSDuplicate, CloseProject, CollapseAllTree } from '../lib/wails'
+  import { ToggleTreeNode, CdToPath, FSNewFile, FSNewFolder, FSRename, FSDelete, FSDeletePaths, FSCopyPath, FSRevealInFinder, FSMove, FSDuplicate, CloseProject, CollapseAllTree, AddWorkspaceRoot, RemoveWorkspaceRoot } from '../lib/wails'
   import type { TreeNode } from '../lib/wails'
-  import { IconFilePlus, IconFolderPlus, IconLibraryMinus, IconChevronRight, IconChevronDown } from '@tabler/icons-svelte'
+  import { IconFilePlus, IconFolderPlus, IconLibraryMinus, IconChevronRight, IconChevronDown, IconServer, IconFolders } from '@tabler/icons-svelte'
   import { get } from 'svelte/store'
 
   let menu: { x: number; y: number; node: TreeNode } | null = $state(null)
@@ -25,6 +25,14 @@
     const live = new Set($treeNodes.map(n => n.path))
     if (multiSel.some(p => !live.has(p))) multiSel = multiSel.filter(p => live.has(p))
   })
+
+  // multi-root: every depth-0 row is a workspace root header — the first is
+  // always the primary project (closed via CloseProject, not this)
+  const extraRootPaths = $derived($treeNodes.filter(n => n.depth === 0).map(n => n.path).slice(1))
+
+  function addWorkspaceRoot() {
+    AddWorkspaceRoot().catch(() => {})
+  }
 
   // Cmd+P reveal: scroll the selected path into view once it actually shows
   // up in treeNodes (RevealInTree's tree:update may arrive after this first
@@ -140,6 +148,7 @@
       ]
     }
     if (node.isDir) {
+      const isExtraRoot = extraRootPaths.includes(node.path)
       return [
         { label: 'New File',       action: () => promptNew(node.path, false) },
         { label: 'New Folder',     action: () => promptNew(node.path, true) },
@@ -147,9 +156,13 @@
         { label: 'Open in Terminal', action: () => CdToPath(node.path) },
         { label: 'Reveal in Finder', action: () => FSRevealInFinder(node.path) },
         { label: 'Copy Path',      action: async () => { const p = await FSCopyPath(node.path); navigator.clipboard.writeText(p) } },
-        { label: 'Rename',         action: () => startRename(node.path, node.name) },
-        { label: 'Duplicate',      action: () => FSDuplicate(node.path) },
-        { label: 'Delete',         action: () => FSDelete(node.path).then(() => closeTabsForPaths([node.path])), danger: true },
+        ...(isExtraRoot ? [] : [
+          { label: 'Rename',    action: () => startRename(node.path, node.name) },
+          { label: 'Duplicate', action: () => FSDuplicate(node.path) },
+        ]),
+        ...(isExtraRoot
+          ? [{ label: 'Remove from Workspace', action: () => RemoveWorkspaceRoot(node.path), danger: true }]
+          : [{ label: 'Delete', action: () => FSDelete(node.path).then(() => closeTabsForPaths([node.path])), danger: true }]),
       ]
     }
     return [
@@ -224,10 +237,15 @@
 >
   <div class="header">
     <span class="header-label">Files</span>
+    {#if $isRemoteProject}<span class="remote-badge" title="Remote project"><IconServer size={10} /> remote</span>{/if}
     <div class="header-actions">
       <button class="hdr-btn" onclick={() => promptNew(resolveDir(), false)} title="New File"><IconFilePlus size={13} /></button>
       <button class="hdr-btn" onclick={() => promptNew(resolveDir(), true)} title="New Folder"><IconFolderPlus size={13} /></button>
       <button class="hdr-btn" onclick={() => CollapseAllTree()} title="Collapse All"><IconLibraryMinus size={13} /></button>
+      {#if $projectRoot}
+        <button class="hdr-btn" onclick={addWorkspaceRoot} title="Add Folder to Workspace…"><IconFolders size={13} /></button>
+      {/if}
+      <button class="hdr-btn" onclick={() => showOpenRemote.set(true)} title="Open Remote Folder…"><IconServer size={13} /></button>
       {#if $projectRoot}
         <button class="close-project" onclick={() => CloseProject()} title="Close project">×</button>
       {/if}
@@ -334,6 +352,13 @@
     transition: color 0.15s;
   }
   .panel.focused .header-label { color: var(--accent); }
+
+  .remote-badge {
+    display: flex; align-items: center; gap: 3px;
+    font-size: 10px; color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    padding: 1px 6px; border-radius: 8px; margin-left: 6px;
+  }
 
   .header-actions {
     display: flex;

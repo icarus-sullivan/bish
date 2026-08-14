@@ -159,6 +159,24 @@ func (a *App) GitStatus() *GitStatusDTO {
 	if dir == "" {
 		return nil
 	}
+	return gitStatusFor(dir)
+}
+
+// GitStatusForRoots returns per-root status for a multi-root workspace
+// (root path → status, omitting roots that aren't git repos), so the Git
+// panel can show one section per workspace folder instead of assuming a
+// single project root.
+func (a *App) GitStatusForRoots(roots []string) map[string]*GitStatusDTO {
+	out := make(map[string]*GitStatusDTO, len(roots))
+	for _, r := range roots {
+		if st := gitStatusFor(r); st != nil {
+			out[r] = st
+		}
+	}
+	return out
+}
+
+func gitStatusFor(dir string) *GitStatusDTO {
 	out, err := exec.Command("git", "-C", dir, "status", "--porcelain=v1", "--branch").Output()
 	if err != nil {
 		return nil
@@ -215,6 +233,17 @@ func (a *App) GitCommit(message string) error {
 	if dir == "" {
 		return errors.New("no project")
 	}
+	return gitCommitIn(dir, message)
+}
+
+// GitCommitForRoot commits in a specific workspace root — the multi-root
+// Git panel's per-root commit box calls this instead of GitCommit, which
+// only ever knows about the primary project root.
+func (a *App) GitCommitForRoot(root, message string) error {
+	return gitCommitIn(root, message)
+}
+
+func gitCommitIn(dir, message string) error {
 	out, err := exec.Command("git", "-C", dir, "commit", "-m", message).CombinedOutput()
 	if err != nil {
 		return errors.New(strings.TrimSpace(string(out)))
@@ -228,6 +257,14 @@ func (a *App) GitBranches() []string {
 	if dir == "" {
 		return nil
 	}
+	return gitBranchesIn(dir)
+}
+
+func (a *App) GitBranchesForRoot(root string) []string {
+	return gitBranchesIn(root)
+}
+
+func gitBranchesIn(dir string) []string {
 	out, err := exec.Command("git", "-C", dir, "branch", "--format=%(HEAD)%(refname:short)").Output()
 	if err != nil {
 		return nil
@@ -257,6 +294,14 @@ func (a *App) GitCheckout(branch string) error {
 	if dir == "" {
 		return errors.New("no project")
 	}
+	return gitCheckoutIn(dir, branch)
+}
+
+func (a *App) GitCheckoutForRoot(root, branch string) error {
+	return gitCheckoutIn(root, branch)
+}
+
+func gitCheckoutIn(dir, branch string) error {
 	out, err := exec.Command("git", "-C", dir, "checkout", branch).CombinedOutput()
 	if err != nil {
 		return errors.New(strings.TrimSpace(string(out)))

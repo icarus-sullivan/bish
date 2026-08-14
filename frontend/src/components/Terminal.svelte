@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Terminal } from '@xterm/xterm'
+  import type { IMarker, IDecoration } from '@xterm/xterm'
   import { FitAddon } from '@xterm/addon-fit'
   import { Unicode11Addon } from '@xterm/addon-unicode11'
   import { WebglAddon } from '@xterm/addon-webgl'
@@ -10,6 +11,7 @@
   import { on, WritePTY, ResizePTY, WritePTYTab, ResizePTYTab, StashDropped } from '../lib/wails'
   import { terminalLinkHandler, fileLinkProvider } from '../lib/termlinks'
   import { featureOn } from '../lib/features'
+  import ContextMenu from './ContextMenu.svelte'
 
   let { terminalId = 'main' }: { terminalId?: string } = $props()
 
@@ -27,6 +29,11 @@
   let showFind = $state(false)
   let findQuery = $state('')
   let findInput: HTMLInputElement | undefined = $state()
+
+  // structured terminal blocks (OSC 133, see internal/pty's shell init) —
+  // one Block per command, spanning from its preexec mark to its precmd mark
+  interface Block { startMarker: IMarker; endMarker?: IMarker; command: string; exitCode: number | null; decoration?: IDecoration }
+  let blockMenu = $state<{ x: number; y: number; items: { label: string; action: () => void }[] } | null>(null)
 
   function closeFind() {
     showFind = false
@@ -149,7 +156,74 @@
     })
     // OSC 0/2 title escapes (set by preexec in the bish shell init, or by
     // programs like claude/vim themselves) → tab label
-    term.onTitleChange((t) => setTerminalTitle(terminalId, t))
+    let pendingCommand = ''
+    term.onTitleChange((t) => { setTerminalTitle(terminalId, t); pendingCommand = t })
+
+    // Structured terminal blocks: the shell init unconditionally emits OSC
+    // 133 semantic marks (see internal/pty) — parsing them costs nothing
+    // when the feature is off (xterm silently drops unregistered OSC idents
+    // the same way it would anyway), so gate the whole thing on registering
+    // the handler at all, not on a runtime check inside it.
+    let currentBlock: Block | null = null
+    const blocks: Block[] = []
+    let oscDisposable: { dispose(): void } | undefined
+    if (featureOn('terminalBlocks')) {
+      oscDisposable = term.parser.registerOscHandler(133, (data) => {
+        const kind = data[0]
+        if (kind === 'C') {
+          currentBlock = { startMarker: term.registerMarker(0), command: pendingCommand, exitCode: null }
+          blocks.push(currentBlock)
+        } else if (kind === 'D') {
+          if (currentBlock) {
+            const arg = data.split(';')[1]
+            currentBlock.endMarker = term.registerMarker(0)
+            currentBlock.exitCode = arg !== undefined ? parseInt(arg, 10) : null
+            decorateBlock(currentBlock)
+            currentBlock = null
+          }
+        }
+        return true
+      })
+    }
+
+    function decorateBlock(block: Block) {
+      block.decoration?.dispose()
+      const dec = term.registerDecoration({ marker: block.startMarker, anchor: 'left', width: 2 })
+      if (!dec) return
+      block.decoration = dec
+      dec.onRender((el) => {
+        el.classList.add('bish-block-marker')
+        el.classList.toggle('bish-block-fail', block.exitCode !== 0)
+        el.title = block.command + (block.exitCode ? ` (exit ${block.exitCode})` : '')
+        el.onclick = (e) => {
+          e.stopPropagation()
+          const r = el.getBoundingClientRect()
+          blockMenu = {
+            x: r.right + 4, y: r.top,
+            items: [
+              { label: 'Copy Command', action: () => navigator.clipboard.writeText(block.command) },
+              { label: 'Copy Output', action: () => navigator.clipboard.writeText(blockOutput(block)) },
+              { label: 'Rerun', action: () => {
+                const cmd = block.command + '\n'
+                isMain ? WritePTY(cmd) : WritePTYTab(terminalId, cmd)
+              } },
+            ],
+          }
+        }
+      })
+    }
+
+    function blockOutput(block: Block): string {
+      const buf = term.buffer.active
+      const start = block.startMarker.line + 1 // skip the echoed command line itself
+      const end = block.endMarker ? block.endMarker.line : buf.baseY + term.rows
+      const lines: string[] = []
+      for (let y = start; y < end; y++) {
+        const line = buf.getLine(y)
+        if (line) lines.push(line.translateToString(true))
+      }
+      return lines.join('\n').replace(/\n+$/, '')
+    }
 
     const dataEvent = isMain ? 'pty:data' : 'pty:data:' + terminalId
     const exitEvent = isMain ? 'pty:exit' : 'pty:exit:' + terminalId
@@ -215,6 +289,7 @@
       unsubFont()
       resizeObserver.disconnect()
       container.removeEventListener('bish:filedrop', onDrop)
+      oscDisposable?.dispose()
       dropGl()
       term.dispose()
     }
@@ -261,6 +336,10 @@
   {/if}
   <div use:initTerm class="term-container" style:visibility={ready ? 'visible' : 'hidden'}></div>
 </div>
+
+{#if blockMenu}
+  <ContextMenu x={blockMenu.x} y={blockMenu.y} items={blockMenu.items} onClose={() => blockMenu = null} />
+{/if}
 
 <style>
   .term-wrap {
@@ -314,4 +393,14 @@
   }
   :global(.xterm) { height: 100%; }
   :global(.xterm-viewport) { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+  /* structured terminal blocks: a git-gutter-style left-edge marker per
+     command, red on nonzero exit — click for Copy Command/Output, Rerun */
+  :global(.bish-block-marker) {
+    background: var(--success);
+    opacity: 0.5;
+    cursor: pointer;
+    transition: opacity 0.1s;
+  }
+  :global(.bish-block-marker:hover) { opacity: 1; }
+  :global(.bish-block-marker.bish-block-fail) { background: var(--error); opacity: 0.85; }
 </style>

@@ -1,10 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { showGlobalSearch, searchScopeDir, openFileTab, cwd, projectRoot, pendingGoto } from '../lib/stores'
-  import { SearchInFiles, ReplaceInFiles } from '../lib/wails'
+  import { SearchInFiles, ReplaceInFiles, GetWorkspaceRoots } from '../lib/wails'
   import { get } from 'svelte/store'
   import type { SearchResultDTO } from '../lib/wails'
   import { registerKeybind } from '../lib/keybinds'
+  import { modalA11y } from '../lib/a11y'
 
   let query = $state('')
   let replaceText = $state('')
@@ -25,8 +26,25 @@
     return registerKeybind({ combo: 'escape', handler: () => showGlobalSearch.set(false) })
   })
 
-  function searchDir() {
-    return get(searchScopeDir) || get(projectRoot) || get(cwd)
+  // unscoped ("search whole project") spans every workspace root, not just
+  // the primary one — a single-root project just gets a one-element list
+  async function searchDirs(): Promise<string[]> {
+    const scoped = get(searchScopeDir)
+    if (scoped) return [scoped]
+    const roots = await GetWorkspaceRoots().catch(() => [])
+    return roots.length ? roots : [get(projectRoot) || get(cwd)]
+  }
+
+  // last-used dirs, for relPath() to strip whichever root a result is under
+  let lastDirs: string[] = []
+
+  async function searchAll(
+    q: string, cs: boolean, ww: boolean, rx: boolean, inc: string, exc: string,
+  ): Promise<SearchResultDTO[]> {
+    const dirs = await searchDirs()
+    lastDirs = dirs
+    const perDir = await Promise.all(dirs.map(d => SearchInFiles(d, q, cs, ww, rx, inc, exc).catch(() => [])))
+    return perDir.flat()
   }
 
   // takeLatest: ignore results from stale requests
@@ -54,9 +72,9 @@
 
     const timer = setTimeout(async () => {
       try {
-        const res = await SearchInFiles(searchDir(), q, cs, ww, rx, inc, exc)
+        const res = await searchAll(q, cs, ww, rx, inc, exc)
         if (myGen === gen) {
-          results = res ?? []
+          results = res
           searching = false
         }
       } catch (e: any) {
@@ -76,11 +94,13 @@
     replacing = true
     searchError = ''
     try {
-      replaceCount = await ReplaceInFiles(searchDir(), query, replaceText, caseSensitive, wholeWord, useRegex, includeGlob, excludeGlob)
+      const dirs = await searchDirs()
+      const counts = await Promise.all(dirs.map(d =>
+        ReplaceInFiles(d, query, replaceText, caseSensitive, wholeWord, useRegex, includeGlob, excludeGlob).catch(() => 0)))
+      replaceCount = counts.reduce((a, b) => a + b, 0)
       // re-trigger search by bumping gen through a dummy state write
       gen++ // stale guard — next $effect tick re-runs naturally via query deps
-      const res = await SearchInFiles(searchDir(), query, caseSensitive, wholeWord, useRegex, includeGlob, excludeGlob)
-      results = res ?? []
+      results = await searchAll(query, caseSensitive, wholeWord, useRegex, includeGlob, excludeGlob)
     } catch (e: any) {
       searchError = String(e)
     } finally {
@@ -95,8 +115,8 @@
   }
 
   function relPath(file: string) {
-    const dir = searchDir()
-    return dir && file.startsWith(dir + '/') ? file.slice(dir.length + 1) : file
+    const dir = lastDirs.find(d => file.startsWith(d + '/'))
+    return dir ? file.slice(dir.length + 1) : file
   }
 
   const grouped = $derived(
@@ -107,15 +127,17 @@
   )
 </script>
 
-<div class="overlay" onclick={() => showGlobalSearch.set(false)} role="dialog" aria-modal="true">
-  <div class="panel" onclick={(e) => e.stopPropagation()}>
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="overlay" onclick={() => showGlobalSearch.set(false)}>
+  <div class="panel" role="dialog" aria-modal="true" tabindex="-1" use:modalA11y={() => showGlobalSearch.set(false)} onclick={(e) => e.stopPropagation()}>
 
     <div class="header">
       <span class="title">Search in Files</span>
       {#if $searchScopeDir}
         <span class="scope" title={$searchScopeDir}>{$searchScopeDir.split('/').pop()}/</span>
       {/if}
-      <button class="close-btn" onclick={() => showGlobalSearch.set(false)}>✕</button>
+      <button class="close-btn" onclick={() => showGlobalSearch.set(false)} aria-label="Close">✕</button>
     </div>
 
     <div class="inputs">

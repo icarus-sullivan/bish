@@ -3,7 +3,8 @@
   import { focusedPane, galleryMode, cwd, showRight, activeRightPanel,
            rightWidth, currentThemeName,
            showPalette, showActionPalette, showGlobalSearch, searchScopeDir, tabs, activeTabId, closeTab, reopenMainTab,
-           addTerminalTab, cycleTab, gitBranch, activeSelection } from './lib/stores'
+           addTerminalTab, cycleTab, gitBranch, activeSelection, showOpenRemote, shareDialogTerminalId,
+           shareDialogFilePath, showWelcomeTour, showShortcutsOverlay } from './lib/stores'
   import { get } from 'svelte/store'
   import { initEvents } from './lib/events'
   import { registerKeybind } from './lib/keybinds'
@@ -26,6 +27,12 @@
   import ProcessLogs from './components/ProcessLogs.svelte'
   import Settings from './components/Settings.svelte'
   import DiffViewer from './components/DiffViewer.svelte'
+  import MergeConflict from './components/MergeConflict.svelte'
+  import OpenRemoteDialog from './components/OpenRemoteDialog.svelte'
+  import LiveShareDialog from './components/LiveShareDialog.svelte'
+  import EditShareDialog from './components/EditShareDialog.svelte'
+  import WelcomeTour from './components/WelcomeTour.svelte'
+  import ShortcutsOverlay from './components/ShortcutsOverlay.svelte'
   import { OpenProject } from './lib/wails'
   import { projectRoot } from './lib/stores'
   import lightModeIcon from './assets/light_mode.svg'
@@ -57,6 +64,7 @@
       try {
         const cfg: any = await GetConfig()
         currentThemeName.set(cfg?.theme || 'obsidian')
+        if (!cfg?.onboarding_seen && get(tabs).length === 0) showWelcomeTour.set(true)
       } catch {}
     })()
 
@@ -131,6 +139,10 @@
           else reopenMainTab()
           focusedPane.set('terminal')
         },
+      }),
+      registerKeybind({
+        combo: 'shift+?',
+        handler: (e) => { e.preventDefault(); showShortcutsOverlay.update(v => !v) },
       }),
       registerKeybind({
         combo: 'escape',
@@ -226,6 +238,9 @@
                   <span>Open Terminal</span>
                   <span class="keys"><kbd>⏎</kbd></span>
                 </button>
+                <button class="welcome-row" onclick={() => showOpenRemote.set(true)}>
+                  <span>Open Remote Folder…</span>
+                </button>
               </div>
             </div>
           {/if}
@@ -246,6 +261,8 @@
                   <Settings />
                 {:else if tab.type === 'diff'}
                   <DiffViewer path={tab.path ?? ''} />
+                {:else if tab.type === 'conflict'}
+                  <MergeConflict path={tab.path ?? ''} tabId={tab.id} />
                 {/if}
               </div>
             {/if}
@@ -275,6 +292,22 @@
 
   {#if $showGlobalSearch}
     <GlobalSearch />
+  {/if}
+
+  <OpenRemoteDialog />
+
+  {#if $shareDialogTerminalId}
+    <LiveShareDialog terminalId={$shareDialogTerminalId} onClose={() => shareDialogTerminalId.set(null)} />
+  {/if}
+
+  {#if $shareDialogFilePath}
+    <EditShareDialog path={$shareDialogFilePath} onClose={() => shareDialogFilePath.set(null)} />
+  {/if}
+
+  <WelcomeTour />
+
+  {#if $showShortcutsOverlay}
+    <ShortcutsOverlay onClose={() => showShortcutsOverlay.set(false)} />
   {/if}
 
   <!-- ─── status bar ─── -->

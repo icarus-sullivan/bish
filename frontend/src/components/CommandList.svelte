@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { commands, focusedPane, selectedCommand, projectRoot, projectCommands, cwd } from '../lib/stores'
+  import { commands, focusedPane, selectedCommand, projectRoot, projectCommands, projectTasks, cwd, activeRightPanel } from '../lib/stores'
   import ContextMenu from './ContextMenu.svelte'
-  import { RunCommand, RenameCommand, DeleteCommand, RunProjectCommand, DeleteProjectCommand, RenameProjectCommand, AddCommand, AddProjectCommand } from '../lib/wails'
-  import { IconPlus, IconPlayerPlayFilled } from '@tabler/icons-svelte'
+  import { RunCommand, RenameCommand, DeleteCommand, RunProjectCommand, DeleteProjectCommand, RenameProjectCommand, AddCommand, AddProjectCommand, RunTask } from '../lib/wails'
+  import { IconPlus, IconPlayerPlayFilled, IconChecklist } from '@tabler/icons-svelte'
   import { get } from 'svelte/store'
+  import { modalA11y } from '../lib/a11y'
 
   let menu: { x: number; y: number; id: string } | null = $state(null)
   let renaming: { id: string; value: string } | null = $state(null)
@@ -47,6 +48,14 @@
     if (isProject) RunProjectCommand(id)
     else RunCommand(id)
     focusedPane.set('terminal')
+  }
+
+  // tasks (.bish/tasks.json) spawn directly via the process manager, so
+  // jump to the Process List where their running/exit-code status shows up
+  function runTask(id: string) {
+    RunTask(id).catch(() => {})
+    activeRightPanel.set('processes')
+    focusedPane.set('processes')
   }
 
   function showMenu(e: MouseEvent, id: string) {
@@ -102,6 +111,17 @@
     </div>
   </div>
   <div class="list">
+    {#if isProject && $projectTasks.length > 0}
+      <div class="section-label"><IconChecklist size={11} /> Tasks <span class="section-hint">.bish/tasks.json</span></div>
+      {#each $projectTasks as task (task.id)}
+        <div class="row task-row" title={task.command}>
+          <button class="play-btn" onclick={() => runTask(task.id)} title="Run"><IconPlayerPlayFilled size={10} /></button>
+          <span class="cmd-name">{task.name}</span>
+          <span class="dir-badge">{dirName(task.cwd)}</span>
+        </div>
+      {/each}
+      <div class="section-label">{isProject ? 'Project Commands' : 'Saved Commands'}</div>
+    {/if}
     {#if isProject}
       {#if $projectCommands.length === 0}
         <div class="empty">use <code>w cmd</code> to save</div>
@@ -171,22 +191,24 @@
 {/if}
 
 {#if showAdd}
-  <div class="add-overlay" onclick={() => showAdd = false} role="dialog" aria-modal="true">
-    <div class="add-panel" onclick={(e) => e.stopPropagation()}>
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="add-overlay" onclick={() => showAdd = false}>
+    <div class="add-panel" role="dialog" aria-modal="true" tabindex="-1" use:modalA11y={() => showAdd = false} onclick={(e) => e.stopPropagation()}>
       <div class="add-header">
         <span class="add-title">Add Command</span>
-        <button class="add-close" onclick={() => showAdd = false}>✕</button>
+        <button class="add-close" onclick={() => showAdd = false} aria-label="Close">✕</button>
       </div>
       <div class="add-body">
         <input class="add-input" bind:value={addCommand} placeholder="command *"
           autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false"
-          onkeydown={(e) => { if (e.key === 'Enter') submitAdd(); if (e.key === 'Escape') showAdd = false }} />
+          onkeydown={(e) => { if (e.key === 'Enter') submitAdd() }} />
         <input class="add-input" bind:value={addName} placeholder="name (optional)"
           autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false"
-          onkeydown={(e) => { if (e.key === 'Enter') submitAdd(); if (e.key === 'Escape') showAdd = false }} />
+          onkeydown={(e) => { if (e.key === 'Enter') submitAdd() }} />
         <input class="add-input" bind:value={addCwd} placeholder="working directory (optional)"
           autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false"
-          onkeydown={(e) => { if (e.key === 'Enter') submitAdd(); if (e.key === 'Escape') showAdd = false }} />
+          onkeydown={(e) => { if (e.key === 'Enter') submitAdd() }} />
         {#if addError}<div class="add-error">{addError}</div>{/if}
       </div>
       <div class="add-footer">
@@ -238,6 +260,17 @@
     padding: 1px 6px;
     border-radius: 8px;
   }
+
+  .section-label {
+    display: flex; align-items: center; gap: 4px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--muted); padding: 8px 12px 3px;
+  }
+  .section-hint {
+    font-weight: 400; text-transform: none; letter-spacing: 0;
+    font-family: "SF Mono", Menlo, monospace; opacity: 0.7; margin-left: 2px;
+  }
+  .task-row { cursor: default; }
 
   .list { overflow-y: auto; flex: 1; padding: 4px 0; }
   .empty { padding: 10px 12px; color: var(--muted); font-size: 11px; font-style: italic; }

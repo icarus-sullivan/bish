@@ -5,11 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "build": "pnpm run build:guest && vite build",
+    "preview": "vite preview",
+    "build:guest": "esbuild src/guest/coeditGuest.ts --bundle --minify --outfile=../internal/liveshare/assets/coedit.js"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^4.0.0",
+    "esbuild": "^0.28.2",
     "svelte": "^5.0.0",
     "typescript": "^5.0.0",
     "vite": "^6.0.0"
@@ -41,7 +43,11 @@
     "@xterm/xterm": "^5.5.0",
     "codemirror": "^6.0.2",
     "dompurify": "^3.4.11",
-    "marked": "^18.0.5"
+    "lib0": "^0.2.117",
+    "marked": "^18.0.5",
+    "y-codemirror.next": "^0.3.5",
+    "y-protocols": "^1.0.7",
+    "yjs": "^13.6.32"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

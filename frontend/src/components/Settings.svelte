@@ -1,13 +1,15 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { GetConfig, SaveConfig, OllamaListModels } from '../lib/wails'
-  import { currentThemeName, persistPrefs, formatOnSave } from '../lib/stores'
+  import { GetConfig, SaveConfig, GetTheme, OllamaListModels, ExportSettingsFile, ImportSettingsFile, GetCommands, AddCommand } from '../lib/wails'
+  import { currentThemeName, persistPrefs, formatOnSave, showWelcomeTour } from '../lib/stores'
   import { features, FEATURES } from '../lib/features'
   import { customKeybinds, applyCustomKeybinds } from '../lib/keymap'
   import { listCommands } from '../lib/commands'
   import { themes } from '../lib/themes'
+  import { loadedExtensions, setExtensionEnabled } from '../lib/extensions'
+  import { setUserSnippets } from '../lib/snippets'
   import { get } from 'svelte/store'
-  import { IconChevronDown } from '@tabler/icons-svelte'
+  import { IconChevronDown, IconDownload, IconUpload, IconPlus, IconTrash } from '@tabler/icons-svelte'
 
   const editorFeatures = FEATURES.filter(f => f.section === 'editor')
   const terminalFeatures = FEATURES.filter(f => f.section === 'terminal')
@@ -63,6 +65,92 @@
     saveCfg({ theme: name })
   }
 
+  // ─── Custom themes (duplicate a built-in, tweak its colors) ────────────
+  const themeColorKeys = ['background', 'foreground', 'border', 'borderFocused', 'accent', 'muted', 'success', 'error', 'warning'] as const
+  let editingTheme = $state<Record<string, string> | null>(null)
+  let editingThemeName = $state('')
+
+  async function startDuplicateTheme() {
+    const base = await GetTheme().catch(() => null)
+    if (!base) return
+    editingTheme = { ...(base as any) }
+    editingThemeName = `${$currentThemeName}-custom`
+  }
+
+  function editTheme(name: string) {
+    const t = cfg?.custom_themes?.[name]
+    if (!t) return
+    editingTheme = { ...t }
+    editingThemeName = name
+  }
+
+  async function saveCustomTheme() {
+    const name = editingThemeName.trim()
+    if (!name || !editingTheme) return
+    const list = { ...(cfg?.custom_themes ?? {}), [name]: editingTheme }
+    currentThemeName.set(name)
+    await saveCfg({ custom_themes: list, theme: name })
+    editingTheme = null
+  }
+
+  async function deleteCustomTheme(name: string) {
+    const list = { ...(cfg?.custom_themes ?? {}) }
+    delete list[name]
+    if ($currentThemeName === name) currentThemeName.set('default')
+    await saveCfg({ custom_themes: list, theme: $currentThemeName === name ? 'default' : cfg.theme })
+  }
+
+  // Export/Import bundle theme + feature toggles (both already live in
+  // config.Config) with custom keybindings, which only exist in frontend
+  // localStorage — hence a frontend-built JSON blob rather than a Go-side
+  // settings-file format.
+  let syncMessage = $state('')
+  let syncError = $state('')
+
+  async function exportSettings() {
+    syncError = ''; syncMessage = ''
+    const bundle = {
+      version: 1,
+      theme: get(currentThemeName),
+      features: get(features),
+      keybinds: get(customKeybinds),
+      commands: await GetCommands().catch(() => []),
+    }
+    try {
+      const path = await ExportSettingsFile(JSON.stringify(bundle, null, 2))
+      if (path) syncMessage = `Exported to ${path}`
+    } catch (e: any) {
+      syncError = String(e?.message ?? e)
+    }
+  }
+
+  async function importSettings() {
+    syncError = ''; syncMessage = ''
+    try {
+      const raw = await ImportSettingsFile()
+      if (!raw) return
+      const bundle = JSON.parse(raw)
+      if (typeof bundle.theme === 'string') {
+        currentThemeName.set(bundle.theme)
+        await saveCfg({ theme: bundle.theme })
+      }
+      if (bundle.features && typeof bundle.features === 'object') {
+        features.set({ ...get(features), ...bundle.features })
+        await saveCfg({ features: get(features) })
+      }
+      if (bundle.keybinds && typeof bundle.keybinds === 'object') {
+        customKeybinds.set(bundle.keybinds)
+        applyCustomKeybinds()
+      }
+      if (Array.isArray(bundle.commands)) {
+        for (const c of bundle.commands) await AddCommand(c.name, c.cwd, c.command).catch(() => {})
+      }
+      syncMessage = 'Settings imported.'
+    } catch (e: any) {
+      syncError = 'Could not import: ' + String(e?.message ?? e)
+    }
+  }
+
   function onProvider(e: Event) {
     const provider = (e.target as HTMLSelectElement).value
     saveCfg({ assistant: { ...(cfg.assistant ?? {}), provider } })
@@ -85,6 +173,24 @@
     const checked = (e.target as HTMLInputElement).checked
     persistPrefs.update(p => ({ ...p, [key]: checked }))
     saveCfg({ persist: get(persistPrefs) })
+  }
+
+  // ─── Snippets (Settings > Snippets) ────────────────────────────────────
+  const snippetLangs = ['js', 'go', 'py', 'svelte']
+  let newSnippet = $state({ lang: 'js', label: '', detail: '', template: '' })
+
+  async function addSnippet() {
+    if (!newSnippet.label.trim() || !newSnippet.template.trim()) return
+    const list = [...(cfg?.snippets ?? []), { ...newSnippet }]
+    await saveCfg({ snippets: list })
+    setUserSnippets(list)
+    newSnippet = { lang: 'js', label: '', detail: '', template: '' }
+  }
+
+  async function deleteSnippet(i: number) {
+    const list = (cfg?.snippets ?? []).filter((_: any, idx: number) => idx !== i)
+    await saveCfg({ snippets: list })
+    setUserSnippets(list)
   }
 
   const persistItems: { key: keyof import('../lib/stores').PersistPrefs; label: string; hint: string }[] = [
@@ -111,10 +217,46 @@
             {#each themes as t}
               <option value={t.value}>{t.label}</option>
             {/each}
+            {#each Object.keys(cfg?.custom_themes ?? {}) as name}
+              <option value={name}>{name} (custom)</option>
+            {/each}
           </select>
           <IconChevronDown size={13} class="select-chevron" />
         </span>
       </div>
+      <div class="row">
+        <div class="labels">
+          <span class="label">Custom themes</span>
+          <span class="hint">Start from the theme selected above, nudge a few colors, save under a new name</span>
+        </div>
+        <button class="sync-btn" onclick={startDuplicateTheme}>Duplicate &amp; Edit</button>
+      </div>
+      {#each Object.keys(cfg?.custom_themes ?? {}) as name}
+        <div class="row">
+          <span class="label">{name}</span>
+          <div class="sync-btns">
+            <button class="sync-btn" onclick={() => editTheme(name)}>Edit</button>
+            <button class="act-btn" title="Delete" onclick={() => deleteCustomTheme(name)}><IconTrash size={13} /></button>
+          </div>
+        </div>
+      {/each}
+      {#if editingTheme}
+        <div class="theme-editor">
+          <input class="kb-input wide-input" placeholder="theme name" bind:value={editingThemeName} />
+          <div class="swatches">
+            {#each themeColorKeys as k}
+              <label class="swatch">
+                <input type="color" bind:value={editingTheme[k]} />
+                <span>{k}</span>
+              </label>
+            {/each}
+          </div>
+          <div class="sync-btns">
+            <button class="sync-btn" onclick={() => editingTheme = null}>Cancel</button>
+            <button class="commit-btn" onclick={saveCustomTheme} disabled={!editingThemeName.trim()}>Save Theme</button>
+          </div>
+        </div>
+      {/if}
     </section>
 
     <section>
@@ -136,6 +278,33 @@
           <input type="checkbox" checked={$features[f.id]} onchange={(e) => onFeature(f.id, e)} />
         </div>
       {/each}
+    </section>
+
+    <section>
+      <h2>Snippets</h2>
+      <p class="section-hint">Personal autocomplete snippets, additive to the built-ins (log, fn, iferr, def…). Trigger by typing the label.</p>
+      {#each (cfg?.snippets ?? []) as s, i}
+        <div class="row snippet-row">
+          <div class="labels">
+            <span class="label"><code>{s.label}</code> <span class="hint">({s.lang})</span></span>
+            <span class="hint">{s.detail || s.template}</span>
+          </div>
+          <button class="act-btn" title="Delete" onclick={() => deleteSnippet(i)}><IconTrash size={13} /></button>
+        </div>
+      {/each}
+      <div class="snippet-form">
+        <span class="select-wrap">
+          <select bind:value={newSnippet.lang}>
+            {#each snippetLangs as l}<option value={l}>{l}</option>{/each}
+          </select>
+          <IconChevronDown size={13} class="select-chevron" />
+        </span>
+        <input class="kb-input" placeholder="trigger, e.g. err" bind:value={newSnippet.label} />
+        <input class="kb-input wide-input" placeholder="detail (optional)" bind:value={newSnippet.detail} />
+        <textarea class="kb-input snippet-template" rows="2" placeholder="template — mark tab stops like dollar-sign-curly-braces"
+                  bind:value={newSnippet.template}></textarea>
+        <button class="sync-btn" onclick={addSnippet}><IconPlus size={13} /> Add Snippet</button>
+      </div>
     </section>
 
     <section>
@@ -249,6 +418,28 @@
     </section>
 
     <section>
+      <h2>Extensions</h2>
+      <p class="section-hint">Local extensions from <code>~/.bish/extensions</code> — no marketplace yet, drop a folder in and restart.</p>
+      {#if $loadedExtensions.length === 0}
+        <p class="section-hint">None installed.</p>
+      {:else}
+        {#each $loadedExtensions as ext (ext.name)}
+          <div class="row">
+            <div class="labels">
+              <span class="label">{ext.name}</span>
+              <span class="hint">
+                {(ext.commands?.length ?? 0)} command{(ext.commands?.length ?? 0) === 1 ? '' : 's'},
+                {(ext.panels?.length ?? 0)} panel{(ext.panels?.length ?? 0) === 1 ? '' : 's'}
+              </span>
+            </div>
+            <input type="checkbox" checked={ext.enabled}
+                   onchange={(e) => setExtensionEnabled(ext.name, (e.target as HTMLInputElement).checked)} />
+          </div>
+        {/each}
+      {/if}
+    </section>
+
+    <section>
       <h2>Keyboard</h2>
       <p class="section-hint">Assign a combo to any command, e.g. <code>mod+shift+k</code> (mod = ⌘/Ctrl). Blank = unbound.</p>
       {#each commandList as c}
@@ -265,7 +456,67 @@
     </section>
 
     <section>
+      <h2>Sync</h2>
+      <p class="section-hint">Move your theme, feature toggles, keybindings, and saved commands to another machine as a JSON file.</p>
+      <div class="row">
+        <div class="labels">
+          <span class="label">Export / Import</span>
+          <span class="hint">
+            {#if syncError}<span class="sync-error">{syncError}</span>
+            {:else if syncMessage}{syncMessage}
+            {:else}Cloud sync isn't available yet — file-based for now{/if}
+          </span>
+        </div>
+        <div class="sync-btns">
+          <button class="sync-btn" onclick={exportSettings} title="Export Settings…"><IconDownload size={13} /> Export</button>
+          <button class="sync-btn" onclick={importSettings} title="Import Settings…"><IconUpload size={13} /> Import</button>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Privacy</h2>
+      <div class="row">
+        <div class="labels">
+          <span class="label">Usage telemetry</span>
+          <span class="hint">
+            Off by default. When on, sends daily counts of which features you used (feature name + count only —
+            no file paths, content, or other identifying data) to the endpoint below.
+          </span>
+        </div>
+        <input type="checkbox" checked={cfg?.telemetry?.enabled ?? false}
+               onchange={(e) => saveCfg({ telemetry: { ...(cfg.telemetry ?? {}), enabled: (e.target as HTMLInputElement).checked } })} />
+      </div>
+      {#if cfg?.telemetry?.enabled}
+        <div class="row">
+          <div class="labels">
+            <span class="label">Collector endpoint</span>
+            <span class="hint">A URL you control — nothing sends until this is set, even with the toggle on.</span>
+          </div>
+          <input class="kb-input wide-input" placeholder="https://telemetry.example.com/ingest"
+                 value={cfg?.telemetry?.endpoint ?? ''}
+                 onchange={(e) => saveCfg({ telemetry: { ...(cfg.telemetry ?? {}), endpoint: (e.target as HTMLInputElement).value } })} />
+        </div>
+      {/if}
+      <div class="row">
+        <div class="labels">
+          <span class="label">Desktop notifications</span>
+          <span class="hint">Native OS notification when a background process crashes or a task finishes while bish is minimized.</span>
+        </div>
+        <input type="checkbox" checked={cfg?.notifications ?? true}
+               onchange={(e) => saveCfg({ notifications: (e.target as HTMLInputElement).checked })} />
+      </div>
+    </section>
+
+    <section>
       <h2>Session</h2>
+      <div class="row">
+        <div class="labels">
+          <span class="label">Welcome tour</span>
+          <span class="hint">Replay the first-run overview of what makes bish different</span>
+        </div>
+        <button class="sync-btn" onclick={() => showWelcomeTour.set(true)}>Replay</button>
+      </div>
       <p class="section-hint">What bish remembers per project (stored in ~/.config/bish)</p>
       {#each persistItems as item}
         <div class="row">
@@ -395,6 +646,34 @@
     padding: 1px 4px;
     border-radius: 3px;
   }
+
+  .sync-btns { display: flex; gap: 8px; flex-shrink: 0; }
+  .sync-btn {
+    display: flex; align-items: center; gap: 5px;
+    background: var(--bg-raised); border: 1px solid var(--border); border-radius: 5px;
+    color: var(--foreground); font-size: 12px; padding: 6px 10px; cursor: pointer;
+    transition: border-color 0.1s, background 0.1s;
+  }
+  .sync-btn:hover { background: var(--bg-hover); border-color: var(--accent); }
+  .sync-error { color: var(--error); }
+
+  .theme-editor {
+    display: flex; flex-direction: column; gap: 10px;
+    padding: 10px; margin: 6px 0; background: var(--bg-raised);
+    border: 1px solid var(--border); border-radius: 6px;
+  }
+  .swatches { display: flex; flex-wrap: wrap; gap: 10px; }
+  .swatch { display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 10px; color: var(--muted); }
+  .swatch input[type='color'] { width: 32px; height: 24px; padding: 0; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; background: none; }
+  .snippet-row { border-bottom: 1px solid var(--border); }
+  .act-btn {
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    background: none; border: none; color: var(--muted); cursor: pointer;
+    padding: 3px 4px; border-radius: 3px; transition: color 0.1s, background 0.1s;
+  }
+  .act-btn:hover { color: var(--error); background: var(--bg-hover); }
+  .snippet-form { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 0; align-items: flex-start; }
+  .snippet-template { flex-basis: 100%; font-family: "SF Mono", Menlo, monospace; resize: vertical; }
 
   input[type='checkbox'] {
     width: 15px;

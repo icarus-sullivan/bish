@@ -18,7 +18,7 @@ import (
 type Backend interface {
 	Start(root, permissionMode string) (string, error)
 	Send(id, text string) error
-	ApprovePlan(id string) error
+	RespondPermission(id, requestID string, allow bool, message string) error
 	Interrupt(id string) error
 	SwitchMode(id, newMode string) error
 	Stop(id string)
@@ -71,8 +71,8 @@ func (m *Manager) Send(id, text string) error {
 	return m.current().Send(id, text)
 }
 
-func (m *Manager) ApprovePlan(id string) error {
-	return m.current().ApprovePlan(id)
+func (m *Manager) RespondPermission(id, requestID string, allow bool, message string) error {
+	return m.current().RespondPermission(id, requestID, allow, message)
 }
 
 func (m *Manager) Interrupt(id string) error {

@@ -1,5 +1,5 @@
 import { writable, get } from 'svelte/store'
-import type { Process, SavedCommand, TreeNode, Theme, ProjectCmd } from './wails'
+import type { Process, SavedCommand, TreeNode, Theme, ProjectCmd, Task } from './wails'
 
 export type Pane = 'processes' | 'commands' | 'terminal' | 'tree'
 
@@ -25,8 +25,27 @@ export const currentThemeName = writable<string>('catppuccin')
 // pinned project root (empty = follow CWD)
 export const projectRoot = writable<string>('')
 
+// true when the open project lives on an SSH destination (see OpenRemoteProject)
+export const isRemoteProject = writable<boolean>(false)
+
+// remote-open dialog visibility
+export const showOpenRemote = writable<boolean>(false)
+
+// first-run welcome tour + the "?" shortcuts overlay
+export const showWelcomeTour = writable<boolean>(false)
+export const showShortcutsOverlay = writable<boolean>(false)
+
+// terminal id whose Share dialog is open, or null
+export const shareDialogTerminalId = writable<string | null>(null)
+
+// file path whose co-editing Share dialog is open, or null
+export const shareDialogFilePath = writable<string | null>(null)
+
 // project-scoped commands (populated when a project is open)
 export const projectCommands = writable<ProjectCmd[]>([])
+
+// git-shareable .bish/tasks.json run buttons (populated when a project is open)
+export const projectTasks = writable<Task[]>([])
 
 // command palette visibility
 export const showPalette = writable<boolean>(false)
@@ -91,7 +110,7 @@ export const rightWidth = writable<number>(220)
 
 export interface Tab {
   id: string
-  type: 'terminal' | 'file' | 'logs' | 'media' | 'settings' | 'diff'
+  type: 'terminal' | 'file' | 'logs' | 'media' | 'settings' | 'diff' | 'conflict'
   label: string
   baseLabel?: string  // terminal tabs: original label, restored when title clears
   path?: string       // file + media tabs
@@ -144,6 +163,15 @@ export function openDiffTab(path: string) {
   if (existing) { activeTabId.set(id); return }
   const label = (path.split('/').pop() || path) + ' (diff)'
   tabs.update(ts => [...ts, { id, type: 'diff', label, path }])
+  activeTabId.set(id)
+}
+
+export function openConflictTab(path: string) {
+  const id = 'conflict:' + path
+  const existing = get(tabs).find(t => t.id === id)
+  if (existing) { activeTabId.set(id); return }
+  const label = (path.split('/').pop() || path) + ' (resolve)'
+  tabs.update(ts => [...ts, { id, type: 'conflict', label, path }])
   activeTabId.set(id)
 }
 

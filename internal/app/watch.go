@@ -73,12 +73,20 @@ func (a *App) rearmWatcher() {
 	}
 	a.projectMu.Lock()
 	root := a.projectRoot
+	remote := a.remoteDest != ""
 	a.projectMu.Unlock()
+	if remote {
+		return // no local inotify equivalent over SSH — manual refresh only
+	}
 	if root == "" {
 		root = a.cwd
 	}
 	a.treeMu.Lock()
 	dirs := append([]string{root}, a.fileTree.ExpandedPaths()...)
+	// extra workspace roots: watch each root dir itself (top-level changes
+	// only) — expanded-subdir tracking for them is a v1 cut, manual refresh
+	// covers it via the "Collapse All" / re-expand path
+	dirs = append(dirs, a.extraRoots...)
 	a.treeMu.Unlock()
 	for _, p := range a.fsw.WatchList() {
 		a.fsw.Remove(p) //nolint

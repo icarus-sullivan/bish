@@ -1,7 +1,11 @@
-// cliBackend spawns the `claude` CLI in headless streaming mode and pipes
-// newline-delimited JSON between it and the frontend. Each stdout line is
-// already a discrete JSON message (unlike LSP's Content-Length framing), so
-// the read loop is a plain bufio.Scanner.
+// cliBackend spawns the `claude` CLI in headless streaming mode and speaks
+// its bidirectional control protocol over the same stdio: a plain
+// "user"/"assistant"/"result" stream for the conversation, plus
+// "control_request"/"control_response" envelopes for everything that isn't
+// a conversation turn — the startup handshake, permission asks (including
+// ExitPlanMode), live mode switches, and interrupts. Undocumented in
+// `claude --help`; reverse-engineered from the `@anthropic-ai/claude-agent-sdk`
+// npm package, which drives the same CLI binary the same way.
 package assistant
 
 import (
@@ -12,6 +16,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // maxLine caps a single NDJSON line (a plan can be one long line); a session
@@ -29,9 +34,21 @@ type cliSession struct {
 	stderr  *capBuf
 	writeMu sync.Mutex
 	root    string
-	mode    string // permission mode this process was spawned with
-	cliID   string // claude's own session_id, captured off the stream; needed for --resume
+	mode    string // permission mode this process is currently running under
 	stopped bool   // set before a deliberate kill so the exit isn't reported as a crash
+}
+
+// write sends one NDJSON line (a user turn, control_request, or
+// control_response) to the live process's stdin.
+func (s *cliSession) write(v map[string]any) error {
+	line, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	_, err = fmt.Fprintf(s.stdin, "%s\n", line)
+	return err
 }
 
 // capBuf keeps only the last limit bytes written — enough to explain why a
@@ -53,6 +70,7 @@ type cliBackend struct {
 	mu       sync.Mutex
 	sessions map[string]*cliSession
 	next     int
+	reqSeq   int64
 	emit     func(event string, data ...interface{})
 }
 
@@ -61,14 +79,15 @@ func newCLIBackend(emit func(string, ...interface{})) *cliBackend {
 }
 
 // Start spawns a plan-mode (or other permissionMode) `claude` process rooted
-// at root and returns an opaque session handle. The handle stays stable
-// across ApprovePlan (which swaps the underlying process but keeps the id),
-// so the frontend never has to re-key its UI state mid-conversation.
+// at root and returns an opaque session handle. The process lives for the
+// whole conversation — mode switches, plan approval, and interrupts are all
+// handled in place over the control protocol, so the handle never has to be
+// re-keyed by a kill+respawn.
 func (b *cliBackend) Start(root, permissionMode string) (string, error) {
 	if !allowedModes[permissionMode] {
 		return "", fmt.Errorf("assistant: invalid permission mode %q", permissionMode)
 	}
-	cmd, stdin, stdout, stderr, err := spawn(root, permissionMode, "", "")
+	cmd, stdin, stdout, stderr, err := spawn(root, permissionMode)
 	if err != nil {
 		return "", err
 	}
@@ -79,18 +98,23 @@ func (b *cliBackend) Start(root, permissionMode string) (string, error) {
 	b.sessions[id] = s
 	b.mu.Unlock()
 	go b.readLoop(id, s, stdout)
+	// Handshake: tells the CLI this harness can answer permission prompts
+	// interactively over this stdio. Without it, tools that need approval —
+	// ExitPlanMode included — are unusable: the CLI has nowhere to send the
+	// ask, so it never exposes the tool, and the model falls back to
+	// describing what it would do (e.g. writing a plan to a scratch file)
+	// instead of actually calling it.
+	b.controlRequest(s, "initialize", nil)
 	return id, nil
 }
 
 // Send writes one stream-json user turn to the session's stdin.
 func (b *cliBackend) Send(id, text string) error {
-	b.mu.Lock()
-	s := b.sessions[id]
-	b.mu.Unlock()
+	s := b.session(id)
 	if s == nil {
 		return fmt.Errorf("assistant: no session %q", id)
 	}
-	line, err := json.Marshal(map[string]any{
+	return s.write(map[string]any{
 		"type": "user",
 		"message": map[string]any{
 			"role": "user",
@@ -99,93 +123,96 @@ func (b *cliBackend) Send(id, text string) error {
 			},
 		},
 	})
-	if err != nil {
-		return err
-	}
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
-	_, err = fmt.Fprintf(s.stdin, "%s\n", line)
-	return err
 }
 
-// ApprovePlan kills the plan-mode process for id and replaces it in place
-// with a --resume'd process in acceptEdits mode, told to proceed. The
-// session id is unchanged so the frontend keeps talking to the same handle.
-func (b *cliBackend) ApprovePlan(id string) error {
-	b.mu.Lock()
-	s := b.sessions[id]
-	b.mu.Unlock()
+// RespondPermission answers a pending `can_use_tool` control_request — the
+// plan card's Approve/Reject buttons, and any other tool the CLI paused on
+// to ask, route through here. requestID is the control_request's own id, as
+// captured off the stream when the ask arrived (see readLoop).
+func (b *cliBackend) RespondPermission(id, requestID string, allow bool, message string) error {
+	s := b.session(id)
 	if s == nil {
 		return fmt.Errorf("assistant: no session %q", id)
 	}
-	if s.cliID == "" {
-		return fmt.Errorf("assistant: session %q has no captured session id yet", id)
+	var decision map[string]any
+	if allow {
+		decision = map[string]any{"behavior": "allow"}
+	} else {
+		if message == "" {
+			message = "The user rejected this."
+		}
+		decision = map[string]any{"behavior": "deny", "message": message}
 	}
-	return b.resume(id, s, "acceptEdits", "proceed with the plan")
+	return s.write(map[string]any{
+		"type": "control_response",
+		"response": map[string]any{
+			"subtype":    "success",
+			"request_id": requestID,
+			"response":   decision,
+		},
+	})
 }
 
-// Interrupt stops the in-flight turn for id. If claude's own session id has
-// already been captured off the stream, it immediately respawns via
-// --resume in the same permission mode (idle, waiting for the next Send) so
-// conversation context survives; otherwise the session just ends and the
-// next Send starts a fresh one.
+// Interrupt stops the in-flight turn without killing the process — the
+// control protocol's own interrupt request, answered in place.
 func (b *cliBackend) Interrupt(id string) error {
-	b.mu.Lock()
-	s := b.sessions[id]
-	b.mu.Unlock()
+	s := b.session(id)
 	if s == nil {
 		return fmt.Errorf("assistant: no session %q", id)
 	}
-	if s.cliID == "" {
-		b.Stop(id)
-		return nil
-	}
-	return b.resume(id, s, s.mode, "")
+	return b.controlRequest(s, "interrupt", nil)
 }
 
-// SwitchMode changes the live permission mode for id: the running process
-// (whatever it was doing) is killed and replaced via --resume in newMode.
-// Permission mode is fixed at process spawn time — there is no way to
-// change it without swapping the process, so this is the only way a
-// mid-conversation mode change (the panel's mode pill) actually takes
-// effect on the process the model is running in.
+// SwitchMode changes the live permission mode for id in place. Permission
+// mode used to be treated as fixed at process spawn time (forcing a
+// kill+--resume to change it); the control protocol's set_permission_mode
+// request changes it on the running process instead — the same process
+// that's mid-conversation, and mid-ExitPlanMode-ask, keeps running.
 func (b *cliBackend) SwitchMode(id, newMode string) error {
 	if !allowedModes[newMode] {
 		return fmt.Errorf("assistant: invalid permission mode %q", newMode)
 	}
-	b.mu.Lock()
-	s := b.sessions[id]
-	b.mu.Unlock()
+	s := b.session(id)
 	if s == nil {
 		return fmt.Errorf("assistant: no session %q", id)
 	}
-	if s.cliID == "" {
-		return fmt.Errorf("assistant: session %q has no captured session id yet", id)
-	}
-	return b.resume(id, s, newMode, "")
+	s.mode = newMode
+	return b.controlRequest(s, "set_permission_mode", map[string]any{"mode": wireMode(newMode)})
 }
 
-// resume kills s and replaces the session at id with a freshly --resume'd
-// process in newMode — the shared "swap the live process, keep the
-// conversation" step behind ApprovePlan, Interrupt, and SwitchMode.
-func (b *cliBackend) resume(id string, s *cliSession, newMode, prompt string) error {
-	root, cliID := s.root, s.cliID
-	b.killLocked(s)
-	cmd, stdin, stdout, stderr, err := spawn(root, newMode, cliID, prompt)
-	if err != nil {
-		b.mu.Lock()
-		if b.sessions[id] == s {
-			delete(b.sessions, id)
-		}
-		b.mu.Unlock()
-		return err
+// wireMode translates bish's permission-mode vocabulary to the control
+// protocol's. The `claude` CLI's --permission-mode flag accepts "manual" as
+// an alias for its internal "default" mode (confirmed via --help); the
+// control protocol's set_permission_mode request documents only "default",
+// not the alias, so translate explicitly rather than assume the same
+// leniency applies over the wire.
+func wireMode(mode string) string {
+	if mode == "manual" {
+		return "default"
 	}
-	ns := &cliSession{cmd: cmd, stdin: stdin, stderr: stderr, root: root, mode: newMode, cliID: cliID}
+	return mode
+}
+
+func (b *cliBackend) session(id string) *cliSession {
 	b.mu.Lock()
-	b.sessions[id] = ns
-	b.mu.Unlock()
-	go b.readLoop(id, ns, stdout)
-	return nil
+	defer b.mu.Unlock()
+	return b.sessions[id]
+}
+
+// controlRequest sends a harness-initiated control_request (initialize,
+// set_permission_mode, interrupt) on s's stdin. extra is merged into the
+// request body alongside subtype; nil for subtypes that take no fields.
+func (b *cliBackend) controlRequest(s *cliSession, subtype string, extra map[string]any) error {
+	req := map[string]any{"subtype": subtype}
+	for k, v := range extra {
+		req[k] = v
+	}
+	reqID := fmt.Sprintf("bish-%d", atomic.AddInt64(&b.reqSeq, 1))
+	return s.write(map[string]any{
+		"type":       "control_request",
+		"request_id": reqID,
+		"request":    req,
+	})
 }
 
 func (b *cliBackend) Stop(id string) {
@@ -216,11 +243,9 @@ func (b *cliBackend) killLocked(s *cliSession) {
 	}
 }
 
-// spawn starts `claude` in headless NDJSON mode. resumeID, when non-empty,
-// resumes an existing conversation instead of starting a fresh one. prompt,
-// when non-empty, is sent as the initial turn (e.g. "proceed with the
-// plan"); left empty, the process just waits idle for the first Send.
-func spawn(root, permissionMode, resumeID, prompt string) (*exec.Cmd, io.WriteCloser, io.Reader, *capBuf, error) {
+// spawn starts `claude` in headless NDJSON mode with stream-json on both
+// sides of stdio — the same shape the control protocol rides on.
+func spawn(root, permissionMode string) (*exec.Cmd, io.WriteCloser, io.Reader, *capBuf, error) {
 	args := []string{
 		"-p",
 		"--verbose", // required for --output-format stream-json in print mode
@@ -229,12 +254,6 @@ func spawn(root, permissionMode, resumeID, prompt string) (*exec.Cmd, io.WriteCl
 		"--include-partial-messages",
 		"--replay-user-messages",
 		"--permission-mode", permissionMode,
-	}
-	if resumeID != "" {
-		args = append(args, "--resume", resumeID)
-	}
-	if prompt != "" {
-		args = append(args, prompt)
 	}
 	cmd := exec.Command("claude", args...)
 	cmd.Dir = root
@@ -254,15 +273,56 @@ func spawn(root, permissionMode, resumeID, prompt string) (*exec.Cmd, io.WriteCl
 	return cmd, stdin, stdout, stderr, nil
 }
 
-// readLoop forwards each NDJSON line as an assistant:msg:<id> event and
-// opportunistically captures claude's own session_id (present on every line)
-// so a later ApprovePlan can --resume this conversation.
+// controlRequestProbe is the subset of an inbound control_request this
+// backend acts on — everything else (mcp_message, hook_callback,
+// request_user_dialog, ...) is ignored: bish registers no hooks, hosts no
+// dialogs, and runs no SDK-side MCP servers, so the CLI has no reason to
+// send them here.
+type controlRequestProbe struct {
+	Type      string `json:"type"`
+	RequestID string `json:"request_id"`
+	Request   struct {
+		Subtype   string          `json:"subtype"`
+		ToolName  string          `json:"tool_name"`
+		Input     json.RawMessage `json:"input"`
+		ToolUseID string          `json:"tool_use_id"`
+		Title     string          `json:"title"`
+	} `json:"request"`
+}
+
+// readLoop forwards each conversation NDJSON line as an assistant:msg:<id>
+// event. control_request/control_response envelopes are protocol plumbing,
+// not conversation content: a `can_use_tool` ask is translated into a
+// synthetic "permission_request" message the frontend renders as an
+// approve/reject card; every other control message is consumed here and
+// never forwarded.
 func (b *cliBackend) readLoop(id string, s *cliSession, stdout io.Reader) {
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 0, 64<<10), maxLine)
 	for scanner.Scan() {
 		line := scanner.Bytes()
-		captureSessionID(s, line)
+		var probe controlRequestProbe
+		if json.Unmarshal(line, &probe) == nil {
+			switch probe.Type {
+			case "control_request":
+				if probe.Request.Subtype == "can_use_tool" {
+					data, err := json.Marshal(map[string]any{
+						"type":        "permission_request",
+						"request_id":  probe.RequestID,
+						"tool_use_id": probe.Request.ToolUseID,
+						"tool_name":   probe.Request.ToolName,
+						"input":       probe.Request.Input,
+						"title":       probe.Request.Title,
+					})
+					if err == nil {
+						b.emit("assistant:msg:"+id, string(data))
+					}
+				}
+				continue
+			case "control_response":
+				continue // ack for our own initialize/set_permission_mode/interrupt — nothing to correlate
+			}
+		}
 		b.emit("assistant:msg:"+id, string(line))
 	}
 	s.cmd.Wait() //nolint
@@ -274,17 +334,5 @@ func (b *cliBackend) readLoop(id string, s *cliSession, stdout io.Reader) {
 	b.mu.Unlock()
 	if crashed {
 		b.emit("assistant:exit:"+id, strings.TrimSpace(string(s.stderr.buf)))
-	}
-}
-
-func captureSessionID(s *cliSession, line []byte) {
-	if s.cliID != "" {
-		return
-	}
-	var probe struct {
-		SessionID string `json:"session_id"`
-	}
-	if json.Unmarshal(line, &probe) == nil && probe.SessionID != "" {
-		s.cliID = probe.SessionID
 	}
 }

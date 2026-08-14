@@ -3,6 +3,7 @@
 import {app} from '../models';
 import {commands} from '../models';
 import {config} from '../models';
+import {liveshare} from '../models';
 import {process} from '../models';
 import {project} from '../models';
 import {assistant} from '../models';
@@ -11,11 +12,13 @@ export function AddCommand(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function AddProjectCommand(arg1:string,arg2:string,arg3:string):Promise<void>;
 
-export function AssistantApprovePlan(arg1:string):Promise<void>;
+export function AddWorkspaceRoot():Promise<string>;
 
 export function AssistantInterrupt(arg1:string):Promise<void>;
 
 export function AssistantPickFiles():Promise<Array<string>>;
+
+export function AssistantRespondPermission(arg1:string,arg2:string,arg3:boolean,arg4:string):Promise<void>;
 
 export function AssistantSend(arg1:string,arg2:string):Promise<void>;
 
@@ -35,9 +38,27 @@ export function CollapseAllTree():Promise<void>;
 
 export function CompletionSuggest(arg1:string,arg2:string):Promise<string>;
 
+export function DebugContinue():Promise<void>;
+
+export function DebugSetBreakpoints(arg1:string,arg2:Array<number>):Promise<void>;
+
+export function DebugStart(arg1:string,arg2:Record<string, Array<number>>):Promise<void>;
+
+export function DebugStepIn():Promise<void>;
+
+export function DebugStepOut():Promise<void>;
+
+export function DebugStepOver():Promise<void>;
+
+export function DebugStop():Promise<void>;
+
 export function DeleteCommand(arg1:string):Promise<void>;
 
 export function DeleteProjectCommand(arg1:string):Promise<void>;
+
+export function EditShareBroadcast(arg1:string,arg2:string):Promise<void>;
+
+export function ExportSettingsFile(arg1:string):Promise<string>;
 
 export function FSCopyPath(arg1:string):Promise<string>;
 
@@ -59,6 +80,8 @@ export function FSRevealInFinder(arg1:string):Promise<void>;
 
 export function FileOutline(arg1:string):Promise<Array<app.OutlineSym>>;
 
+export function FileTests(arg1:string):Promise<Array<app.GoTest>>;
+
 export function GetAllFiles(arg1:string):Promise<Array<string>>;
 
 export function GetCWD():Promise<string>;
@@ -69,7 +92,15 @@ export function GetConfig():Promise<config.Config>;
 
 export function GetCurrentGalleryPath():Promise<string>;
 
+export function GetEditShareGuests(arg1:string):Promise<Array<liveshare.GuestInfo>>;
+
+export function GetExtensions():Promise<Array<app.ExtensionDTO>>;
+
 export function GetGalleryImages(arg1:string):Promise<Array<string>>;
+
+export function GetGoTests(arg1:string):Promise<Array<app.GoTest>>;
+
+export function GetLiveShareGuests(arg1:string):Promise<Array<liveshare.GuestInfo>>;
 
 export function GetMediaBase():Promise<string>;
 
@@ -91,17 +122,27 @@ export function GetRecentProjects():Promise<Array<project.RecentEntry>>;
 
 export function GetStartupFile():Promise<string>;
 
+export function GetTasks():Promise<Array<project.Task>>;
+
 export function GetTheme():Promise<app.ThemeDTO>;
 
 export function GetTreeNodes():Promise<Array<app.TreeNodeDTO>>;
+
+export function GetWorkspaceRoots():Promise<Array<string>>;
 
 export function GitBlame(arg1:string):Promise<Array<app.BlameLine>>;
 
 export function GitBranches():Promise<Array<string>>;
 
+export function GitBranchesForRoot(arg1:string):Promise<Array<string>>;
+
 export function GitCheckout(arg1:string):Promise<void>;
 
+export function GitCheckoutForRoot(arg1:string,arg2:string):Promise<void>;
+
 export function GitCommit(arg1:string):Promise<void>;
+
+export function GitCommitForRoot(arg1:string,arg2:string):Promise<void>;
 
 export function GitDiff(arg1:string):Promise<Array<app.DiffLine>>;
 
@@ -111,7 +152,17 @@ export function GitStage(arg1:string):Promise<void>;
 
 export function GitStatus():Promise<app.GitStatusDTO>;
 
+export function GitStatusForRoots(arg1:Array<string>):Promise<Record<string, app.GitStatusDTO>>;
+
 export function GitUnstage(arg1:string):Promise<void>;
+
+export function ImportSettingsFile():Promise<string>;
+
+export function IsEditSharing(arg1:string):Promise<boolean>;
+
+export function IsLiveSharing(arg1:string):Promise<boolean>;
+
+export function IsRemoteProject():Promise<boolean>;
 
 export function IsVideo(arg1:string):Promise<boolean>;
 
@@ -137,6 +188,8 @@ export function OpenRecentInNewWindow(arg1:string):Promise<void>;
 
 export function OpenRecentProject(arg1:string):Promise<void>;
 
+export function OpenRemoteProject(arg1:string,arg2:string):Promise<void>;
+
 export function ReadFile(arg1:string):Promise<string>;
 
 export function ReadFileBase64(arg1:string):Promise<string>;
@@ -144,6 +197,8 @@ export function ReadFileBase64(arg1:string):Promise<string>;
 export function ReadFileChunk(arg1:string,arg2:number,arg3:number):Promise<app.FileChunk>;
 
 export function RefreshTree():Promise<void>;
+
+export function RemoveWorkspaceRoot(arg1:string):Promise<void>;
 
 export function RenameCommand(arg1:string,arg2:string):Promise<void>;
 
@@ -161,7 +216,11 @@ export function RevealInTree(arg1:string):Promise<void>;
 
 export function RunCommand(arg1:string):Promise<void>;
 
+export function RunGoTest(arg1:string,arg2:string):Promise<string>;
+
 export function RunProjectCommand(arg1:string):Promise<void>;
+
+export function RunTask(arg1:string):Promise<void>;
 
 export function SaveConfig(arg1:config.Config):Promise<void>;
 
@@ -171,9 +230,23 @@ export function SaveProjectUI(arg1:project.UIState):Promise<void>;
 
 export function SearchInFiles(arg1:string,arg2:string,arg3:boolean,arg4:boolean,arg5:boolean,arg6:string,arg7:string):Promise<Array<app.SearchResultDTO>>;
 
+export function SetEditShareGuestPermission(arg1:string,arg2:string,arg3:boolean):Promise<void>;
+
+export function SetExtensionEnabled(arg1:string,arg2:boolean):Promise<void>;
+
+export function SetLiveShareGuestPermission(arg1:string,arg2:string,arg3:boolean):Promise<void>;
+
 export function SetQuitRequested():Promise<void>;
 
+export function StartEditShare(arg1:string):Promise<string>;
+
+export function StartLiveShare(arg1:string):Promise<string>;
+
 export function StashDropped(arg1:Array<string>):Promise<Array<string>>;
+
+export function StopEditShare(arg1:string):Promise<void>;
+
+export function StopLiveShare(arg1:string):Promise<void>;
 
 export function StopProcess(arg1:string):Promise<void>;
 

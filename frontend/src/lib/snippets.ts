@@ -9,6 +9,18 @@ import type { IntelKind } from './codeintel'
 
 interface Snip { label: string; detail: string; template: string }
 
+// User-defined snippets from Settings > Snippets (config.Config.Snippets),
+// additive to the built-ins below — set once on load, re-applied on the
+// next file open/reload rather than reactively mid-buffer.
+let userSnippets: Record<string, Snip[]> = {}
+
+export function setUserSnippets(list: { lang: string; label: string; detail: string; template: string }[]) {
+  userSnippets = {}
+  for (const s of list ?? []) {
+    (userSnippets[s.lang] ??= []).push({ label: s.label, detail: s.detail, template: s.template })
+  }
+}
+
 const SNIPPETS: Record<string, Snip[]> = {
   js: [
     { label: 'log',     detail: 'console.log',  template: 'console.log(${})' },
@@ -33,7 +45,7 @@ const SNIPPETS: Record<string, Snip[]> = {
 
 function snippetSource(kind: IntelKind): CompletionSource {
   const key = kind === 'svelte' ? 'js' : kind
-  const options = (SNIPPETS[key] ?? []).map(d =>
+  const options = [...(SNIPPETS[key] ?? []), ...(userSnippets[key] ?? [])].map(d =>
     snippetCompletion(d.template, { label: d.label, detail: d.detail, type: 'snippet' }))
   return (ctx) => {
     const word = ctx.matchBefore(/\w+/)

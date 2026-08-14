@@ -6,7 +6,7 @@
     IconSparkles, IconPlus, IconPlayerStop, IconPlayerStopFilled, IconSendFilled, IconX, IconCheck, IconCode, IconSlash,
   } from '@tabler/icons-svelte'
   import {
-    on, AssistantStart, AssistantSend, AssistantApprovePlan, AssistantStop, AssistantInterrupt, AssistantSwitchMode,
+    on, AssistantStart, AssistantSend, AssistantRespondPermission, AssistantStop, AssistantInterrupt, AssistantSwitchMode,
     AssistantPickFiles, StashDropped,
   } from '../lib/wails'
   import {
@@ -34,12 +34,19 @@
   interface ChatMsg {
     id: string
     turnId: number
-    role: 'user' | 'assistant' | 'tool' | 'plan' | 'status' | 'error'
+    role: 'user' | 'assistant' | 'tool' | 'plan' | 'permission' | 'status' | 'error'
     text?: string
     html?: string
     toolName?: string
     toolPath?: string
     planDone?: 'approved' | 'rejected'
+    // set on a 'plan' card as soon as its ExitPlanMode tool_use block
+    // arrives, before the CLI's matching can_use_tool ask shows up
+    toolUseId?: string
+    // the pending can_use_tool control_request's own id — arrives slightly
+    // after toolUseId, via a separate 'permission_request' event; Approve/
+    // Reject can't answer the CLI until this is set
+    requestId?: string
   }
 
   let messages = $state<ChatMsg[]>([])
@@ -156,7 +163,10 @@
         if (block.type === 'text' && block.text) {
           messages.push({ id: nextId(), turnId: turn, role: 'assistant', html: await renderMd(block.text) })
         } else if (block.type === 'tool_use' && block.name === 'ExitPlanMode') {
-          messages.push({ id: nextId(), turnId: turn, role: 'plan', html: await renderMd(block.input?.plan ?? '') })
+          messages.push({
+            id: nextId(), turnId: turn, role: 'plan', toolUseId: block.id,
+            html: await renderMd(block.input?.plan ?? ''),
+          })
           planPending = true
           busy = false
         } else if (block.type === 'tool_use') {
@@ -169,29 +179,47 @@
           }
         }
       }
+    } else if (msg.type === 'permission_request') {
+      // The CLI is blocked on a can_use_tool ask. If it matches a plan card
+      // already on screen (ExitPlanMode), just attach the request id so
+      // Approve/Reject can answer it. Otherwise it's some other tool the
+      // current permission mode wants a human decision on — show a generic
+      // approval card for it.
+      const plan = [...messages].reverse().find(m => m.role === 'plan' && m.toolUseId === msg.tool_use_id && !m.requestId)
+      if (plan) {
+        plan.requestId = msg.request_id
+        messages = messages
+      } else {
+        messages.push({
+          id: nextId(), turnId: turn, role: 'permission',
+          toolName: msg.tool_name, requestId: msg.request_id, text: msg.title,
+        })
+        busy = false
+      }
     } else if (msg.type === 'result') {
       busy = false
       if (msg.is_error) messages.push({ id: nextId(), turnId: turn, role: 'error', text: msg.result ?? 'The assistant hit an error.' })
     }
   }
 
-  async function approvePlan(m: ChatMsg) {
-    if (!sessionId) return
-    planPending = false
-    m.planDone = 'approved'
+  // Answers the CLI's pending can_use_tool ask either way — approve or
+  // reject both resolve it and let the model keep generating in the same
+  // turn (a reject just tells it no and lets it react, e.g. revise the plan).
+  async function respondPermission(m: ChatMsg, allow: boolean) {
+    if (!sessionId || !m.requestId) return
+    if (m.role === 'plan') planPending = false
+    m.planDone = allow ? 'approved' : 'rejected'
     busy = true
-    messages.push({ id: nextId(), turnId: turn, role: 'status', text: 'Executing approved plan…' })
+    messages.push({
+      id: nextId(), turnId: turn, role: 'status',
+      text: allow ? 'Continuing…' : 'Rejected — waiting for the assistant…',
+    })
     try {
-      await AssistantApprovePlan(sessionId)
+      await AssistantRespondPermission(sessionId, m.requestId, allow, '')
     } catch (e) {
       messages.push({ id: nextId(), turnId: turn, role: 'error', text: `${e}` })
       busy = false
     }
-  }
-
-  function rejectPlan(m: ChatMsg) {
-    planPending = false
-    m.planDone = 'rejected'
   }
 
   // interrupts the in-flight turn but keeps the conversation (Go resumes
@@ -359,11 +387,24 @@
         <div class="plan-body">{@html m.html}</div>
         {#if !m.planDone}
           <div class="plan-actions">
-            <button class="approve" onclick={() => approvePlan(m)}><IconCheck size={13} /> Approve</button>
-            <button class="reject" onclick={() => rejectPlan(m)}><IconX size={13} /> Reject</button>
+            <button class="approve" disabled={!m.requestId} onclick={() => respondPermission(m, true)}><IconCheck size={13} /> Approve</button>
+            <button class="reject" disabled={!m.requestId} onclick={() => respondPermission(m, false)}><IconX size={13} /> Reject</button>
           </div>
         {:else}
           <div class="plan-status">{m.planDone === 'approved' ? 'Approved' : 'Rejected — keep refining below'}</div>
+        {/if}
+      </div>
+    {:else if m.role === 'permission'}
+      <div class="plan-card">
+        <div class="plan-label">Permission</div>
+        <div class="plan-body">{m.text || `Allow "${m.toolName}"?`}</div>
+        {#if !m.planDone}
+          <div class="plan-actions">
+            <button class="approve" onclick={() => respondPermission(m, true)}><IconCheck size={13} /> Allow</button>
+            <button class="reject" onclick={() => respondPermission(m, false)}><IconX size={13} /> Deny</button>
+          </div>
+        {:else}
+          <div class="plan-status">{m.planDone === 'approved' ? 'Allowed' : 'Denied'}</div>
         {/if}
       </div>
     {:else if m.role === 'status'}
@@ -555,6 +596,7 @@
   }
   .plan-actions .approve { border-color: var(--success); color: var(--success); }
   .plan-actions .reject { border-color: var(--error); color: var(--error); }
+  .plan-actions button:disabled { opacity: 0.4; cursor: default; }
   .plan-status { font-size: 11px; color: var(--muted); padding: 0 9px 9px; }
 
   .status { font-size: 11px; color: var(--muted); align-self: center; }

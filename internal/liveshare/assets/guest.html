@@ -1,0 +1,70 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>bish — shared terminal</title>
+<link rel="stylesheet" href="assets/xterm.css">
+<style>
+  html, body { margin: 0; height: 100%; background: #1e1e2e; overflow: hidden; }
+  #banner {
+    font: 12px -apple-system, sans-serif; color: #cdd6f4; background: #313244;
+    padding: 6px 12px; display: flex; align-items: center; gap: 8px;
+  }
+  #banner .dot { width: 7px; height: 7px; border-radius: 50%; background: #a6e3a1; flex-shrink: 0; }
+  #banner.disconnected .dot { background: #f38ba8; }
+  #term { position: absolute; top: 30px; left: 0; right: 0; bottom: 0; padding: 8px; box-sizing: border-box; }
+</style>
+</head>
+<body>
+  <div id="banner"><span class="dot"></span><span id="status">Connecting…</span></div>
+  <div id="term"></div>
+  <script src="assets/xterm.js"></script>
+  <script>
+    const term = new Terminal({
+      fontFamily: '"SF Mono", Menlo, Monaco, monospace',
+      fontSize: 13,
+      theme: { background: '#1e1e2e', foreground: '#cdd6f4' },
+      convertEol: false,
+      disableStdin: true, // flipped on once the host grants "can type"
+    })
+    term.open(document.getElementById('term'))
+    term.write('\x1b[2mconnecting to shared terminal…\x1b[0m\r\n')
+
+    const banner = document.getElementById('banner')
+    const status = document.getElementById('status')
+    let canType = false
+
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const ws = new WebSocket(proto + '//' + location.host + location.pathname.replace(/\/$/, '') + '/ws')
+    ws.binaryType = 'arraybuffer'
+
+    ws.onopen = () => { status.textContent = 'Connected — read-only'; }
+    ws.onclose = () => { banner.classList.add('disconnected'); status.textContent = 'Disconnected'; term.options.disableStdin = true }
+    ws.onerror = () => { banner.classList.add('disconnected'); status.textContent = 'Connection error' }
+
+    ws.onmessage = (ev) => {
+      if (typeof ev.data === 'string') {
+        // control message
+        let msg
+        try { msg = JSON.parse(ev.data) } catch { return }
+        if (msg.type === 'permission') {
+          canType = !!msg.canType
+          term.options.disableStdin = !canType
+          status.textContent = 'Connected — ' + (canType ? 'you can type' : 'read-only')
+        }
+        return
+      }
+      term.write(new Uint8Array(ev.data))
+    }
+
+    term.onData((data) => {
+      if (canType && ws.readyState === WebSocket.OPEN) ws.send(data)
+    })
+
+    window.addEventListener('resize', () => {
+      // no addon-fit vendored for the guest page (ponytail: fixed size is
+      // fine for a pairing session — add fit if this gets real usage)
+    })
+  </script>
+</body>
+</html>

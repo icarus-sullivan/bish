@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte'
   import { EditorView, keymap } from '@codemirror/view'
-  import { EditorState } from '@codemirror/state'
+  import { EditorState, Compartment } from '@codemirror/state'
+  import { coEditExtension, editSharePath } from '../lib/coedit'
   import { defaultKeymap, historyKeymap, indentMore, indentLess } from '@codemirror/commands'
   import { search, searchKeymap, getSearchQuery } from '@codemirror/search'
   import { completionKeymap, acceptCompletion } from '@codemirror/autocomplete'
@@ -26,10 +27,13 @@
   import { invalidateSymbols } from '../lib/autoimport'
   import { gitBlame, refreshBlame } from '../lib/gitblame'
   import { gitGutter, refreshDiff } from '../lib/gitgutter'
+  import { breakpointGutter } from '../lib/breakpointGutter'
+  import { testGutter, refreshTests } from '../lib/testGutter'
   import { lspFormat } from '../lib/lsp'
   import { registerKeybind } from '../lib/keybinds'
   import { formatOnSave } from '../lib/stores'
   import { featureOn } from '../lib/features'
+  import InlineEditPopover from './InlineEditPopover.svelte'
   import { indentUnit } from '@codemirror/language'
   import { svelte } from '@replit/codemirror-lang-svelte'
   import { get } from 'svelte/store'
@@ -43,6 +47,11 @@
   let container: HTMLDivElement
   let view: EditorView | null = null
   let panelObserver: MutationObserver | undefined
+  // Live Share editor co-editing (phase 2): a Compartment so toggling
+  // collab on/off is one dispatch, not a full editor teardown/remount —
+  // load()'s reactive effects are already fragile (see the guard on
+  // lastLoaded below), this must not add another trigger into that path.
+  const collabCompartment = new Compartment()
 
   // keep the tab store in sync so closeTab can guard against losing edits
   function setModified(m: boolean) {
@@ -149,6 +158,29 @@
   let saving = $state(false)
   let saveError = $state('')
   let loadError = $state('')
+
+  // ─── Cmd+K inline AI edit ───────────────────────────────────────────────
+  let inlineEditPopover = $state<{ x: number; y: number; from: number; to: number; text: string } | null>(null)
+
+  function openInlineEdit(v: EditorView): boolean {
+    if (!featureOn('assistant')) return true
+    const sel = v.state.selection.main
+    if (sel.empty) return true
+    const coords = v.coordsAtPos(sel.from)
+    if (!coords) return true
+    inlineEditPopover = {
+      x: coords.left, y: coords.bottom + 4,
+      from: sel.from, to: sel.to,
+      text: v.state.sliceDoc(sel.from, sel.to),
+    }
+    return true
+  }
+
+  function acceptInlineEdit(newText: string) {
+    if (!inlineEditPopover || !view) return
+    view.dispatch({ changes: { from: inlineEditPopover.from, to: inlineEditPopover.to, insert: newText } })
+    inlineEditPopover = null
+  }
 
   // ─── raw chunked view (files ReadFile refuses: too large / binary) ────────
   const CHUNK = 64 * 1024
@@ -596,6 +628,9 @@
           ...(featureOn('qwenComplete') ? qwenComplete(lang, intelKindFor(p)) : []),
           ...(featureOn('gitBlame') && p !== UNTITLED ? [gitBlame(p)] : []),
           ...(featureOn('gitGutter') && p !== UNTITLED ? [gitGutter(p)] : []),
+          ...(featureOn('debugger') && p !== UNTITLED && intelKindFor(p) === 'go' ? [breakpointGutter(p)] : []),
+          ...(featureOn('tests') && p.endsWith('_test.go') ? [testGutter(p)] : []),
+          collabCompartment.of(coEditExtension(p) ?? []),
           search({ top: true }),
           // Highest priority: always consume Tab so focus never escapes the editor
           Prec.highest(keymap.of([
@@ -608,6 +643,7 @@
             ...searchKeymap,
             ...completionKeymap,
           ]),
+          Prec.highest(keymap.of([{ key: 'Mod-k', run: openInlineEdit }])),
           EditorView.updateListener.of((upd) => {
             if (upd.docChanged) setModified(true)
             if (upd.docChanged || upd.selectionSet || upd.transactions.some(tr => tr.effects.length))
@@ -650,6 +686,14 @@
   }
 
   $effect(() => { $pendingGoto; applyGoto() })
+
+  // Live Share co-editing toggled on/off for this path — reconfigure the
+  // compartment in place (imperative dispatch, not a load() rerun).
+  $effect(() => {
+    if (!view) return
+    const ext = $editSharePath === path ? (coEditExtension(path) ?? []) : []
+    view.dispatch({ effects: collabCompartment.reconfigure(ext) })
+  })
 
   // re-focus when this file is re-picked (palette/tree) while already the
   // active tab — no remount happens, so load()'s focus never runs
@@ -702,6 +746,7 @@
         setModified(false)
         refreshBlame(view)
         refreshDiff(view)
+        refreshTests(view)
       }
       invalidateSymbols()
     } catch (e: any) {
@@ -769,6 +814,15 @@
     </div>
   {/if}
 </div>
+
+{#if inlineEditPopover}
+  <InlineEditPopover
+    x={inlineEditPopover.x} y={inlineEditPopover.y}
+    path={path} selectedText={inlineEditPopover.text}
+    onAccept={acceptInlineEdit}
+    onClose={() => inlineEditPopover = null}
+  />
+{/if}
 
 <style>
   .viewer-wrap {

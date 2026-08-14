@@ -77,11 +77,15 @@ func New(shell, cwdFile, wFilePath, galleryFilePath string) (*PTY, error) {
 func writeInitFile(path string) {
 	content := `# auto-injected by bish
 precmd() {
+  local __bish_ec=$? # must be captured before anything else touches it
+  printf '\033]133;D;%d\007' "$__bish_ec" # end the previous command's block, if any
   [[ -n "$BISH_CWD_FILE" ]] && printf '%s' "$PWD" > "$BISH_CWD_FILE"
   printf '\033]0;\007' # clear title -> tab label falls back to default
+  printf '\033]133;A\007\033]133;B\007' # prompt start/end (FTCS semantic marks)
 }
 preexec() {
   printf '\033]0;%s\007' "$1" # running command as terminal title (zsh-only)
+  printf '\033]133;C\007' # command output starts here — the block boundary
 }
 w() {
   [[ $# -eq 0 ]] && { echo "usage: w <command> [args...]"; return 1; }
@@ -108,13 +112,20 @@ func writeBashInit(path string) {
 	content := `# auto-injected by bish (bash)
 [[ -f ~/.bashrc ]] && source ~/.bashrc
 __bish_precmd() {
+  local __bish_ec=$? # must be captured before anything else touches it
+  printf '\033]133;D;%d\007' "$__bish_ec" # end the previous command's block, if any
+  __bish_preexec_done=                    # reset the DEBUG-trap-fires-per-pipeline-stage guard
   [[ -n "$BISH_CWD_FILE" ]] && printf '%s' "$PWD" > "$BISH_CWD_FILE"
   printf '\033]0;\007' # clear title -> tab label falls back to default
+  printf '\033]133;A\007\033]133;B\007' # prompt start/end (FTCS semantic marks)
 }
 __bish_preexec() {
   [[ -n "$COMP_LINE" ]] && return               # skip completion
   case "$BASH_COMMAND" in __bish_precmd) return;; esac
+  [[ -n "$__bish_preexec_done" ]] && return      # DEBUG fires per pipeline stage — only mark the first
+  __bish_preexec_done=1
   printf '\033]0;%s\007' "$BASH_COMMAND"         # running command as title
+  printf '\033]133;C\007'                        # command output starts here — the block boundary
 }
 PROMPT_COMMAND="__bish_precmd${PROMPT_COMMAND:+; $PROMPT_COMMAND}"
 trap '__bish_preexec' DEBUG
@@ -160,6 +171,34 @@ func setupZshZDOTDIR(pid int, initFile string) (zdotdir string, cleanup func()) 
 	}
 
 	return zdotdir, func() { os.RemoveAll(zdotdir) }
+}
+
+// NewRemote opens an interactive shell on dest via the system `ssh` binary
+// (see internal/remote's doc comment for why: it's the one thing a remote-dev
+// user already has configured) — no bish shell-integration hooks (cwd
+// tracking, `w`, gallery) since those depend on local files that don't exist
+// on the remote end.
+func NewRemote(dest, cwd string) (*PTY, error) {
+	remoteShell := fmt.Sprintf("cd %s 2>/dev/null; exec $SHELL -l", shellQuote(cwd))
+	args := []string{
+		"-o", "BatchMode=yes",
+		"-o", "ControlMaster=auto",
+		"-o", "ControlPath=~/.ssh/bish-ctrl-%r@%h:%p",
+		"-o", "ControlPersist=10m",
+		"-t", dest, remoteShell,
+	}
+	cmd := exec.Command("ssh", args...)
+	cmd.Env = append(os.Environ(), "TERM=xterm-256color", "COLORTERM=truecolor")
+
+	f, err := pty.Start(cmd)
+	if err != nil {
+		return nil, err
+	}
+	return &PTY{f: f, cmd: cmd}, nil
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 func (p *PTY) Write(b []byte) (int, error) {

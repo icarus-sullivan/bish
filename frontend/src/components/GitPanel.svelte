@@ -1,21 +1,51 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { get } from 'svelte/store'
-  import { GitStatus, GitStage, GitUnstage, GitCommit, GitBranches, GitCheckout, on } from '../lib/wails'
+  import {
+    GitStatus, GitStage, GitUnstage, GitCommit, GitBranches, GitCheckout,
+    GitCommitForRoot, GitBranchesForRoot, GitCheckoutForRoot, GitStatusForRoots, GetWorkspaceRoots, on,
+  } from '../lib/wails'
   import type { GitStatusDTO, GitFileStatus } from '../lib/wails'
-  import { activeRightPanel, projectRoot, openFileTab, openDiffTab } from '../lib/stores'
+  import { activeRightPanel, projectRoot, openFileTab, openDiffTab, openConflictTab, isRemoteProject } from '../lib/stores'
   import { featureOn } from '../lib/features'
-  import { IconRefresh, IconGitBranch, IconPlus, IconMinus, IconCheck, IconChevronDown } from '@tabler/icons-svelte'
+  import { IconRefresh, IconGitBranch, IconPlus, IconMinus, IconCheck, IconChevronDown, IconGitMerge } from '@tabler/icons-svelte'
 
+  interface RootSection { root: string; status: GitStatusDTO | null; branches: string[]; message: string }
+
+  // single-root (unchanged from before multi-root support — this is still
+  // the common case and stays on its original, simplest path)
   let status = $state<GitStatusDTO | null>(null)
   let branches = $state<string[]>([])
   let message = $state('')
+
+  // multi-root: one independent section per workspace folder
+  let multi = $state(false)
+  let sections = $state<RootSection[]>([])
+
   let busy = $state(false)
   let error = $state('')
 
   const openChange = (p: string) => featureOn('gitDiff') ? openDiffTab(p) : openFileTab(p)
 
   async function refresh() {
+    if (get(isRemoteProject)) { status = null; sections = []; multi = false; return } // ponytail: no remote git in v1
+    const roots = await GetWorkspaceRoots().catch(() => [])
+    if (roots.length > 1) {
+      multi = true
+      const statuses = await GitStatusForRoots(roots).catch(() => ({} as Record<string, GitStatusDTO | null>))
+      const prevMsgs = new Map(sections.map(s => [s.root, s.message]))
+      sections = await Promise.all(roots.map(async (r): Promise<RootSection> => {
+        const st = (statuses as Record<string, GitStatusDTO | null>)[r] ?? null
+        return {
+          root: r,
+          status: st,
+          branches: st ? await GitBranchesForRoot(r).catch(() => []) : [],
+          message: prevMsgs.get(r) ?? '',
+        }
+      }))
+      return
+    }
+    multi = false
     status = await GitStatus().catch(() => null)
     branches = await GitBranches().catch(() => [])
   }
@@ -31,11 +61,18 @@
     if (active) refresh()
   })
 
-  // XY porcelain: X=index(staged), Y=worktree(unstaged); "??" untracked
-  const isStaged   = (s: string) => s[0] !== ' ' && s[0] !== '?'
-  const isUnstaged = (s: string) => s[1] !== ' ' || s === '??'
-  const staged   = $derived(((status?.files ?? []) as GitFileStatus[]).filter(f => isStaged(f.status)))
-  const unstaged = $derived(((status?.files ?? []) as GitFileStatus[]).filter(f => isUnstaged(f.status)))
+  // XY porcelain: X=index(staged), Y=worktree(unstaged); "??" untracked;
+  // unmerged (conflict) shows as UU/AA/DD/AU/UA/UD/DU — 'U' on either side,
+  // or both sides agreeing on A/D (both-added, both-deleted).
+  const isConflicted = (s: string) => s[0] === 'U' || s[1] === 'U' || s === 'AA' || s === 'DD'
+  const isStaged   = (s: string) => !isConflicted(s) && s[0] !== ' ' && s[0] !== '?'
+  const isUnstaged = (s: string) => !isConflicted(s) && (s[1] !== ' ' || s === '??')
+  const stagedOf     = (st: GitStatusDTO | null) => ((st?.files ?? []) as GitFileStatus[]).filter(f => isStaged(f.status))
+  const unstagedOf   = (st: GitStatusDTO | null) => ((st?.files ?? []) as GitFileStatus[]).filter(f => isUnstaged(f.status))
+  const conflictedOf = (st: GitStatusDTO | null) => ((st?.files ?? []) as GitFileStatus[]).filter(f => isConflicted(f.status))
+  const staged     = $derived(stagedOf(status))
+  const unstaged   = $derived(unstagedOf(status))
+  const conflicted = $derived(conflictedOf(status))
 
   async function act(fn: () => Promise<void>) {
     busy = true; error = ''
@@ -46,6 +83,7 @@
 
   const stage   = (p: string) => act(() => GitStage(p))
   const unstage = (p: string) => act(() => GitUnstage(p))
+
   async function commit() {
     if (!message.trim() || staged.length === 0) return
     await act(() => GitCommit(message))
@@ -56,6 +94,15 @@
     if (b && b !== status?.branch) await act(() => GitCheckout(b))
   }
 
+  async function commitSection(s: RootSection) {
+    if (!s.message.trim() || stagedOf(s.status).length === 0) return
+    await act(() => GitCommitForRoot(s.root, s.message))
+  }
+  async function switchBranchSection(s: RootSection, e: Event) {
+    const b = (e.target as HTMLSelectElement).value
+    if (b && b !== s.status?.branch) await act(() => GitCheckoutForRoot(s.root, b))
+  }
+
   function statusColor(s: string): string {
     if (s.includes('?')) return 'var(--muted)'
     if (s.includes('D')) return 'var(--error)'
@@ -64,20 +111,19 @@
   }
   const code = (s: string) => s.trim() || s
   function fileName(p: string) { return p.split('/').pop() || p }
-  function dirName(p: string) {
-    const root = $projectRoot
+  function dirName(p: string, root: string) {
     let rel = root && p.startsWith(root + '/') ? p.slice(root.length + 1) : p
     const i = rel.lastIndexOf('/')
     return i === -1 ? '' : rel.slice(0, i)
   }
 </script>
 
-{#snippet fileRow(f: GitFileStatus, action: 'stage' | 'unstage')}
+{#snippet fileRow(f: GitFileStatus, action: 'stage' | 'unstage', root: string)}
   <div class="row">
     <span class="st" style="color:{statusColor(f.status)}">{code(f.status)}</span>
     <button class="name-btn" onclick={() => openChange(f.path)} title={f.path}>
       <span class="name">{fileName(f.path)}</span>
-      {#if dirName(f.path)}<span class="dir">{dirName(f.path)}</span>{/if}
+      {#if dirName(f.path, root)}<span class="dir">{dirName(f.path, root)}</span>{/if}
     </button>
     {#if action === 'stage'}
       <button class="act-btn" title="Stage" disabled={busy} onclick={() => stage(f.path)}><IconPlus size={13} /></button>
@@ -87,10 +133,67 @@
   </div>
 {/snippet}
 
+{#snippet conflictRow(f: GitFileStatus, root: string)}
+  <div class="row conflict-row">
+    <IconGitMerge size={12} color="var(--error)" />
+    <button class="name-btn" onclick={() => openConflictTab(f.path)} title={f.path}>
+      <span class="name">{fileName(f.path)}</span>
+      {#if dirName(f.path, root)}<span class="dir">{dirName(f.path, root)}</span>{/if}
+    </button>
+  </div>
+{/snippet}
+
+{#snippet rootSection(s: RootSection)}
+  <div class="root-section">
+    <div class="root-header">
+      <span class="root-name" title={s.root}>{s.root.split('/').pop()}</span>
+      {#if s.status?.branch}
+        <span class="branch-wrap" title={s.status.branch}>
+          <IconGitBranch size={11} />
+          <span class="select-wrap">
+            <select class="branch-select" value={s.status.branch} onchange={(e) => switchBranchSection(s, e)} disabled={busy}>
+              {#if !s.branches.includes(s.status.branch)}<option>{s.status.branch}</option>{/if}
+              {#each s.branches as b}<option value={b}>{b}</option>{/each}
+            </select>
+            <IconChevronDown size={12} class="select-chevron" />
+          </span>
+        </span>
+      {/if}
+    </div>
+    {#if !s.status}
+      <div class="empty">Not a git repository</div>
+    {:else}
+      <div class="commit-box">
+        <input class="commit-input" placeholder="Commit message…" bind:value={s.message}
+               onkeydown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) commitSection(s) }} />
+        <button class="commit-btn" disabled={busy || !s.message.trim() || stagedOf(s.status).length === 0} onclick={() => commitSection(s)}>
+          <IconCheck size={13} /> Commit{stagedOf(s.status).length ? ` (${stagedOf(s.status).length})` : ''}
+        </button>
+      </div>
+      {#if s.status.files.length === 0}
+        <div class="empty">No changes</div>
+      {:else}
+        {#if conflictedOf(s.status).length}
+          <div class="section conflict-section">Conflicts</div>
+          {#each conflictedOf(s.status) as f (f.path)}{@render conflictRow(f, s.root)}{/each}
+        {/if}
+        {#if stagedOf(s.status).length}
+          <div class="section">Staged</div>
+          {#each stagedOf(s.status) as f (f.path)}{@render fileRow(f, 'unstage', s.root)}{/each}
+        {/if}
+        {#if unstagedOf(s.status).length}
+          <div class="section">Changes</div>
+          {#each unstagedOf(s.status) as f (f.path)}{@render fileRow(f, 'stage', s.root)}{/each}
+        {/if}
+      {/if}
+    {/if}
+  </div>
+{/snippet}
+
 <div class="panel">
   <div class="header">
     <span class="header-label">Git</span>
-    {#if status?.branch}
+    {#if !multi && status?.branch}
       <span class="branch-wrap" title={status.branch}>
         <IconGitBranch size={11} />
         <span class="select-wrap">
@@ -107,8 +210,14 @@
     </div>
   </div>
 
-  {#if !status}
-    <div class="empty">Not a git repository</div>
+  {#if error}<div class="err">{error}</div>{/if}
+
+  {#if multi}
+    <div class="list multi-list">
+      {#each sections as s (s.root)}{@render rootSection(s)}{/each}
+    </div>
+  {:else if !status}
+    <div class="empty">{$isRemoteProject ? 'Git isn’t available for remote projects yet' : 'Not a git repository'}</div>
   {:else}
     <div class="commit-box">
       <input class="commit-input" placeholder="Commit message…" bind:value={message}
@@ -117,19 +226,22 @@
         <IconCheck size={13} /> Commit{staged.length ? ` (${staged.length})` : ''}
       </button>
     </div>
-    {#if error}<div class="err">{error}</div>{/if}
 
     <div class="list">
       {#if status.files.length === 0}
         <div class="empty">No changes</div>
       {:else}
+        {#if conflicted.length}
+          <div class="section conflict-section">Conflicts</div>
+          {#each conflicted as f (f.path)}{@render conflictRow(f, $projectRoot)}{/each}
+        {/if}
         {#if staged.length}
           <div class="section">Staged</div>
-          {#each staged as f (f.path)}{@render fileRow(f, 'unstage')}{/each}
+          {#each staged as f (f.path)}{@render fileRow(f, 'unstage', $projectRoot)}{/each}
         {/if}
         {#if unstaged.length}
           <div class="section">Changes</div>
-          {#each unstaged as f (f.path)}{@render fileRow(f, 'stage')}{/each}
+          {#each unstaged as f (f.path)}{@render fileRow(f, 'stage', $projectRoot)}{/each}
         {/if}
       {/if}
     </div>
@@ -201,6 +313,14 @@
   .err { color: var(--error); font-size: 11px; padding: 6px 12px; white-space: pre-wrap; }
 
   .list { overflow-y: auto; flex: 1; padding: 4px 0; user-select: none; }
+  .multi-list { padding: 0; }
+  .root-section { border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  .root-section:last-child { border-bottom: none; }
+  .root-header {
+    display: flex; align-items: center; gap: 6px; padding: 7px 10px 4px;
+    font-size: 11px; font-weight: 700; color: var(--foreground);
+  }
+  .root-name { flex-shrink: 0; }
   .section {
     font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
     color: var(--muted); padding: 6px 12px 3px;
@@ -226,4 +346,6 @@
   }
   .act-btn:hover:not(:disabled) { color: var(--foreground); background: var(--bg-selected); }
   .act-btn:disabled { opacity: 0.4; cursor: default; }
+  .conflict-section { color: var(--error); }
+  .conflict-row .name-btn { color: var(--error); }
 </style>

@@ -10,23 +10,33 @@ export {
   WritePTY, ResizePTY,
   GetGalleryImages, GetCurrentGalleryPath, IsVideo,
   GetTheme, GetConfig, SaveConfig,
+  ExportSettingsFile, ImportSettingsFile,
+  GetExtensions, SetExtensionEnabled,
   ReadFile, ReadFileChunk, WriteFile,
   OpenProject, CloseProject, GetProjectRoot, GetAllFiles, GetCWD, GetStartupFile,
+  OpenRemoteProject, IsRemoteProject,
   NewWindow, SaveNewFile,
   GetProjectCommands, GetRecentProjects, OpenRecentProject, DeleteProjectCommand, RunProjectCommand, AddProjectCommand, RenameProjectCommand,
+  GetTasks, RunTask,
+  AddWorkspaceRoot, RemoveWorkspaceRoot, GetWorkspaceRoots, GitStatusForRoots,
   GetProjectUI, SaveProjectUI,
   NewTerminal, CloseTerminal, WritePTYTab, ResizePTYTab,
+  StartLiveShare, StopLiveShare, IsLiveSharing, GetLiveShareGuests, SetLiveShareGuestPermission,
+  StartEditShare, StopEditShare, IsEditSharing, GetEditShareGuests, SetEditShareGuestPermission, EditShareBroadcast,
   SearchInFiles, ReplaceInFiles,
   GetProjectSymbols,
   LSPStart, LSPSend, LSPStop,
-  AssistantStart, AssistantSend, AssistantApprovePlan, AssistantStop, AssistantInterrupt, AssistantSwitchMode, AssistantPickFiles,
+  DebugStart, DebugSetBreakpoints, DebugContinue, DebugStepOver, DebugStepIn, DebugStepOut, DebugStop,
+  AssistantStart, AssistantSend, AssistantRespondPermission, AssistantStop, AssistantInterrupt, AssistantSwitchMode, AssistantPickFiles,
   OllamaListModels,
   CompletionSuggest,
   ReadFileBase64,
   RefreshTree, CollapseAllTree,
   GitBlame, GitStatus, GitDiff, GitDiffText,
   GitStage, GitUnstage, GitCommit, GitBranches, GitCheckout,
+  GitCommitForRoot, GitBranchesForRoot, GitCheckoutForRoot,
   FileOutline,
+  FileTests, GetGoTests, RunGoTest,
 } from '../../wailsjs/go/app/App'
 
 import { GetMediaBase } from '../../wailsjs/go/app/App'
@@ -51,6 +61,7 @@ export interface Process {
 }
 export interface SavedCommand { id: string; name: string; cwd: string; command: string }
 export interface ProjectCmd { id: string; name?: string; command: string; directory: string }
+export interface Task { id: string; name: string; command: string; cwd: string }
 export interface RecentEntry { path: string; name: string }
 export interface SearchResultDTO { file: string; line: number; col: number; text: string }
 export interface SymbolInfo { name: string; kind: string; file: string; importPath: string; pkg: string }
@@ -58,7 +69,14 @@ export interface BlameLine { sha: string; author: string; time: number; summary:
 export interface GitFileStatus { status: string; path: string }
 export interface DiffLine { line: number; type: 'added' | 'modified' | 'deleted' }
 export interface OutlineSym { name: string; kind: string; line: number; depth: number }
+export interface GoTest { name: string; file: string; line: number; pkg: string }
+export interface ExtContribution { id: string; title: string }
+export interface Extension {
+  name: string; main: string; dir: string; script: string; enabled: boolean
+  commands?: ExtContribution[]; panels?: ExtContribution[]
+}
 export interface GitStatusDTO { branch: string; files: GitFileStatus[] }
+export interface LiveShareGuest { id: string; canType: boolean }
 export interface TreeNode {
   name: string; path: string; isDir: boolean; depth: number
   expanded: boolean; selected: boolean

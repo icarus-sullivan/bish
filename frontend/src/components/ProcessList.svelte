@@ -2,7 +2,13 @@
   import { processes, focusedPane, selectedProcess, openLogsTab } from '../lib/stores'
   import ContextMenu from './ContextMenu.svelte'
   import { KillProcess, RestartProcess, StopProcess } from '../lib/wails'
-  import { IconPlayerPlayFilled, IconPlayerStopFilled, IconTrash } from '@tabler/icons-svelte'
+  import { BrowserOpenURL } from '../../wailsjs/runtime/runtime'
+  import { IconPlayerPlayFilled, IconPlayerStopFilled, IconTrash, IconExternalLink } from '@tabler/icons-svelte'
+
+  function openPort(e: MouseEvent, port: number) {
+    e.stopPropagation()
+    BrowserOpenURL(`http://localhost:${port}`)
+  }
 
   let menu: { x: number; y: number; id: string } | null = $state(null)
 
@@ -80,9 +86,11 @@
                                    class:stopped={p.status === 'stopped'}></span>
           <span class="proc-name" title={p.name || p.cmd}>{p.name}</span>
           <span class="meta">
-            {#if p.ports?.length}
-              <span class="badge port" title={p.name || p.cmd}>:{p.ports[0]}</span>
-            {/if}
+            {#each p.ports ?? [] as port (port)}
+              <button class="badge port" onclick={(e) => openPort(e, port)} title="Open http://localhost:{port} in browser">
+                <IconExternalLink size={9} />:{port}
+              </button>
+            {/each}
             {#if p.status === 'running' && p.cpu_pct > 0}
               <span class="badge cpu" style="color:{cpuColor(p.cpu_pct)}">{p.cpu_pct.toFixed(1)}%</span>
             {/if}
@@ -210,8 +218,14 @@
     border-radius: 3px;
     background: var(--bg-hover);
     color: var(--muted);
+    border: none;
   }
-  .badge.port { color: color-mix(in srgb, var(--accent) 80%, var(--foreground)); }
+  .badge.port {
+    display: flex; align-items: center; gap: 2px;
+    color: color-mix(in srgb, var(--accent) 80%, var(--foreground));
+    cursor: pointer; transition: background 0.1s;
+  }
+  .badge.port:hover { background: var(--bg-selected); }
   .badge.cpu  { background: transparent; padding-right: 0; }
 
 </style>

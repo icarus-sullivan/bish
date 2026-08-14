@@ -1,14 +1,16 @@
 import { waitForWails, on, GetProcesses, GetCommands, GetTreeNodes, GetTheme, GetGalleryImages, GetCWD,
-         GetProjectRoot, GetProjectCommands, GetProjectUI, SaveProjectUI, GetConfig, GitStatus, GetStartupFile, initMediaBase } from './wails'
+         GetProjectRoot, GetProjectCommands, GetTasks, IsRemoteProject, GetProjectUI, SaveProjectUI, GetConfig, GitStatus, GetStartupFile, initMediaBase } from './wails'
 import {
   processes, commands, treeNodes, cwd,
-  galleryMode, galleryImages, theme, projectRoot,
-  showPalette, projectCommands, openFileTab,
+  galleryMode, galleryImages, theme, projectRoot, isRemoteProject,
+  showPalette, projectCommands, projectTasks, openFileTab,
   showRight, rightWidth,
   tabs, activeTabId, isMediaPath, activeRightPanel, persistPrefs, formatOnSave, gitBranch
 } from './stores'
 import { get } from 'svelte/store'
 import { loadFeatures } from './features'
+import { setUserSnippets } from './snippets'
+import { loadExtensions } from './extensions'
 import { OnFileDrop } from '../../wailsjs/runtime/runtime'
 
 export async function initEvents() {
@@ -20,9 +22,10 @@ export async function initEvents() {
   if (cfg?.persist) persistPrefs.set(cfg.persist)
   formatOnSave.set(!!cfg?.format_on_save)
   loadFeatures(cfg?.features)
+  setUserSnippets(cfg?.snippets)
 
   // Load initial data
-  const [procs, cmds, nodes, t, initialCwd, root, pcmds, startupFile] = await Promise.all([
+  const [procs, cmds, nodes, t, initialCwd, root, pcmds, tasks, remote, startupFile] = await Promise.all([
     GetProcesses().catch(() => []),
     GetCommands().catch(() => []),
     GetTreeNodes().catch(() => []),
@@ -32,6 +35,8 @@ export async function initEvents() {
     // --project) before our event listeners exist, so the events alone can be missed
     GetProjectRoot().catch(() => ''),
     GetProjectCommands().catch(() => []),
+    GetTasks().catch(() => []),
+    IsRemoteProject().catch(() => false),
     GetStartupFile().catch(() => ''),
   ])
 
@@ -42,10 +47,14 @@ export async function initEvents() {
   if (initialCwd) cwd.set(initialCwd as string)
   if (root) {
     projectRoot.set(root as string)
+    isRemoteProject.set(!!remote)
     projectCommands.set((pcmds as any) ?? [])
+    projectTasks.set((tasks as any) ?? [])
     await loadProjectUI()
   }
   if (startupFile) openFileTab(startupFile as string)
+
+  loadExtensions() // fire-and-forget — extension commands register as they load
 
   // Single native file-drop router: OnFileDropOff() is global (one component's
   // cleanup would deregister everyone), so register once and hand the drop to
@@ -71,6 +80,8 @@ export async function initEvents() {
     refreshGitBranch()
   })
   on('project:commands', (cmds: any) => projectCommands.set(cmds ?? []))
+  on('project:tasks', (tasks: any) => projectTasks.set(tasks ?? []))
+  on('project:remote', (v: boolean) => isRemoteProject.set(!!v))
 
   const uiStores: { subscribe: (fn: (v: any) => void) => unknown }[] =
     [showRight, rightWidth, tabs, activeTabId, activeRightPanel]

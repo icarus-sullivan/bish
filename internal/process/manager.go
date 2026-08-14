@@ -236,11 +236,12 @@ func (m *Manager) Restart(id string) error {
 func (m *Manager) Refresh() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	children := processChildren() // one snapshot for every process this tick, not one per process
 	for _, p := range m.Processes {
 		if p.Status != StatusRunning {
 			continue
 		}
-		p.Ports = DetectPorts(p.PID)
+		p.Ports = detectPorts(p.PID, children)
 		p.CPUPct, p.MemMB = pidStats(p.PID)
 	}
 }

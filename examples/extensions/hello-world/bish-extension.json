@@ -1,0 +1,10 @@
+{
+  "name": "hello-world",
+  "main": "extension.js",
+  "commands": [
+    { "id": "sayHello", "title": "Hello World: Say Hello" }
+  ],
+  "panels": [
+    { "id": "greeting", "title": "Greeting" }
+  ]
+}

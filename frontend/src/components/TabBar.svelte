@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tabs, activeTabId, closeTab, addTerminalTab, setTabLabel,
            closeTabsToRight, closeTabsToLeft, closeOtherTabs, closeAllTabs,
-           reorderTabs, type Tab } from '../lib/stores'
+           reorderTabs, shareDialogTerminalId, shareDialogFilePath, type Tab } from '../lib/stores'
   import { NewTerminal, CloseTerminal } from '../lib/wails'
   import { IconTerminal2, IconFile, IconListDetails, IconPlus, IconX, IconSettings, IconFileDiff } from '@tabler/icons-svelte'
   import ContextMenu from './ContextMenu.svelte'
@@ -106,6 +106,14 @@
           closeTab(tab.id)
         },
       },
+      ...(tab.type === 'terminal' ? [{
+        label: 'Share Terminal…',
+        action: () => shareDialogTerminalId.set(tab.id),
+      }] : []),
+      ...(tab.type === 'file' && tab.path && tab.path !== '__new__' ? [{
+        label: 'Share for Co-Editing…',
+        action: () => shareDialogFilePath.set(tab.path!),
+      }] : []),
       {
         label: 'Close Others',
         action: () => withPtyCleanup(closeOtherTabs(tab.id)),

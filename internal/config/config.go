@@ -16,6 +16,52 @@ type Config struct {
 	Features   map[string]bool  `json:"features,omitempty"`
 	Assistant  AssistantConfig  `json:"assistant,omitempty"`
 	Completion CompletionConfig `json:"completion,omitempty"`
+	// per-extension enable state, keyed by extension name; missing key = enabled
+	Extensions map[string]bool `json:"extensions,omitempty"`
+	Telemetry  TelemetryConfig `json:"telemetry,omitempty"`
+	// nil = notify (frontend/backend both treat missing as true, same convention as Persist)
+	Notifications  *bool                  `json:"notifications,omitempty"`
+	Snippets       []Snippet              `json:"snippets,omitempty"`
+	CustomThemes   map[string]CustomTheme `json:"custom_themes,omitempty"`
+	OnboardingSeen bool                   `json:"onboarding_seen,omitempty"`
+}
+
+// NotificationsEnabled applies the nil-means-on convention.
+func (c Config) NotificationsEnabled() bool {
+	return c.Notifications == nil || *c.Notifications
+}
+
+// Snippet is a user-defined autocomplete snippet, additive to the built-in
+// set in frontend/src/lib/snippets.ts (keyed by the same IntelKind strings:
+// "js", "go", "py", ...).
+type Snippet struct {
+	Lang     string `json:"lang"`
+	Label    string `json:"label"`
+	Detail   string `json:"detail"`
+	Template string `json:"template"`
+}
+
+// CustomTheme mirrors app.ThemeDTO's field set — a user-tweaked copy of a
+// built-in theme, keyed by its own name in Config.CustomThemes.
+type CustomTheme struct {
+	Background    string `json:"background"`
+	Foreground    string `json:"foreground"`
+	Border        string `json:"border"`
+	BorderFocused string `json:"borderFocused"`
+	Accent        string `json:"accent"`
+	Muted         string `json:"muted"`
+	Success       string `json:"success"`
+	Error         string `json:"error"`
+	Warning       string `json:"warning"`
+}
+
+// TelemetryConfig is off by default and does nothing at all unless both
+// fields are set — Enabled alone isn't enough, so a user who flips the
+// toggle without pointing it at a real (e.g. self-hosted) collector never
+// has a stray request fire against a hardcoded default.
+type TelemetryConfig struct {
+	Enabled  bool   `json:"enabled"`
+	Endpoint string `json:"endpoint,omitempty"`
 }
 
 // AssistantConfig selects and configures the Assistant panel's backend.

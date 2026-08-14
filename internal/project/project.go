@@ -35,6 +35,9 @@ type Config struct {
 	Cmds          []*Cmd   `json:"cmds"`
 	ExpandedPaths []string `json:"expanded_paths,omitempty"`
 	UI            *UIState `json:"ui,omitempty"`
+	// ExtraRoots are additional folders attached to this workspace beyond
+	// CWD (multi-root — "Add Folder to Workspace"), in add-order.
+	ExtraRoots []string `json:"extra_roots,omitempty"`
 }
 
 func configDir() string {

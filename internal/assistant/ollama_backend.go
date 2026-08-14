@@ -165,11 +165,17 @@ func (b *ollamaBackend) Send(id, text string) error {
 	return nil
 }
 
-// ApprovePlan unblocks a session that paused on a plan card: it lets the
-// model know it may now use mutating tools, and resumes the loop. Mirrors
-// cliBackend.ApprovePlan's "swap to acceptEdits and proceed", but in-process
-// rather than by --resuming a new subprocess.
-func (b *ollamaBackend) ApprovePlan(id string) error {
+// RespondPermission unblocks a session that paused on a plan card: on
+// approval it lets the model know it may now use mutating tools and resumes
+// the loop, mirroring cliBackend's real control-protocol response but
+// in-process rather than over stdio. requestID is unused here — bish's own
+// tool loop has no real control_request ids to echo. Rejection is left to
+// the frontend (it just hides the card); there is no pending call on this
+// backend that needs unblocking the way the CLI's does.
+func (b *ollamaBackend) RespondPermission(id, requestID string, allow bool, message string) error {
+	if !allow {
+		return nil
+	}
 	s := b.session(id)
 	if s == nil {
 		return fmt.Errorf("assistant: no session %q", id)

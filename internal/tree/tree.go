@@ -15,10 +15,55 @@ type Node struct {
 	Children []*Node
 }
 
+// Entry is one directory listing result — the seam between Tree's walking
+// logic and where the bytes actually come from (local os.ReadDir, or SSH for
+// a remote project).
+type Entry struct {
+	Name  string
+	IsDir bool
+}
+
+// FS is implemented by whatever backs a Tree's filesystem. nil (the zero
+// value on Tree.FS) means local disk — see localFS below.
+type FS interface {
+	Stat(path string) (isDir bool, err error)
+	ReadDir(path string) ([]Entry, error)
+}
+
+type localFS struct{}
+
+func (localFS) Stat(path string) (bool, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false, err
+	}
+	return info.IsDir(), nil
+}
+
+func (localFS) ReadDir(path string) ([]Entry, error) {
+	des, err := os.ReadDir(path)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Entry, len(des))
+	for i, d := range des {
+		out[i] = Entry{Name: d.Name(), IsDir: d.IsDir()}
+	}
+	return out, nil
+}
+
 type Tree struct {
 	Root     *Node
 	Flat     []*Node // visible nodes in order
 	Selected int
+	FS       FS // nil = local disk; set to a remote.TreeFS for a remote project
+}
+
+func (t *Tree) fs() FS {
+	if t.FS != nil {
+		return t.FS
+	}
+	return localFS{}
 }
 
 // hiddenNames are the only entries the tree hides outright — dotfiles like
@@ -37,45 +82,45 @@ var SkipDirs = map[string]bool{
 }
 
 func (t *Tree) Load(root string) {
-	t.Root = loadNode(root, 0, 2)
+	t.Root = t.loadNode(root, 0, 2)
 	t.Root.Expanded = true
 	t.flatten()
 	t.Selected = 0
 }
 
-func loadNode(path string, depth, maxDepth int) *Node {
-	info, err := os.Stat(path)
+func (t *Tree) loadNode(path string, depth, maxDepth int) *Node {
+	isDir, err := t.fs().Stat(path)
 	if err != nil {
 		return &Node{Name: filepath.Base(path), Path: path}
 	}
 	n := &Node{
 		Name:  filepath.Base(path),
 		Path:  path,
-		IsDir: info.IsDir(),
+		IsDir: isDir,
 		Depth: depth,
 	}
-	if !info.IsDir() || depth >= maxDepth {
+	if !isDir || depth >= maxDepth {
 		return n
 	}
-	entries, err := os.ReadDir(path)
+	entries, err := t.fs().ReadDir(path)
 	if err != nil {
 		return n
 	}
 	sort.Slice(entries, func(i, j int) bool {
-		if entries[i].IsDir() != entries[j].IsDir() {
-			return entries[i].IsDir()
+		if entries[i].IsDir != entries[j].IsDir {
+			return entries[i].IsDir
 		}
-		return entries[i].Name() < entries[j].Name()
+		return entries[i].Name < entries[j].Name
 	})
 	for _, e := range entries {
-		if hiddenNames[e.Name()] {
+		if hiddenNames[e.Name] {
 			continue
 		}
 		md := maxDepth
-		if e.IsDir() && SkipDirs[e.Name()] {
+		if e.IsDir && SkipDirs[e.Name] {
 			md = depth + 1 // show collapsed; children load on expand
 		}
-		child := loadNode(filepath.Join(path, e.Name()), depth+1, md)
+		child := t.loadNode(filepath.Join(path, e.Name), depth+1, md)
 		n.Children = append(n.Children, child)
 	}
 	return n
@@ -132,7 +177,7 @@ func (t *Tree) expandPath(path string) {
 			if n.IsDir {
 				n.Expanded = true
 				if len(n.Children) == 0 {
-					loaded := loadNode(n.Path, n.Depth, n.Depth+2)
+					loaded := t.loadNode(n.Path, n.Depth, n.Depth+2)
 					n.Children = loaded.Children
 				}
 			}
@@ -201,9 +246,8 @@ func (t *Tree) Toggle() {
 	n.Expanded = !n.Expanded
 	if n.Expanded && len(n.Children) == 0 {
 		// load one more level
-		children := loadNode(n.Path, n.Depth, n.Depth+2)
+		children := t.loadNode(n.Path, n.Depth, n.Depth+2)
 		n.Children = children.Children
 	}
 	t.flatten()
 }
-
