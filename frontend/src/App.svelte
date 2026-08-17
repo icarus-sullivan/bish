@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { focusedPane, galleryMode, cwd, showRight, activeRightPanel,
-           rightWidth, currentThemeName,
+           rightWidth, currentThemeName, panelSide, floatingPanels,
            showPalette, showActionPalette, showGlobalSearch, searchScopeDir, tabs, activeTabId, closeTab, reopenMainTab,
            addTerminalTab, cycleTab, gitBranch, activeSelection, showOpenRemote, shareDialogTerminalId,
            shareDialogFilePath, showWelcomeTour, showShortcutsOverlay } from './lib/stores'
@@ -13,13 +13,16 @@
   import { applyCustomKeybinds } from './lib/keymap'
   import Terminal from './components/Terminal.svelte'
   import RightSidebar from './components/RightSidebar.svelte'
+  import FloatingWindow from './components/FloatingWindow.svelte'
+  import { panels } from './lib/panels'
   import FileViewer from './components/FileViewer.svelte'
   import MediaViewer from './components/MediaViewer.svelte'
   import Gallery from './components/Gallery.svelte'
   import TabBar from './components/TabBar.svelte'
   import { GetConfig, NewTerminal, CloseTerminal } from './lib/wails'
   import {
-    IconLayoutSidebarRight, IconLayoutSidebarRightFilled, IconGitBranch,
+    IconLayoutSidebarRight, IconLayoutSidebarRightFilled,
+    IconLayoutSidebar, IconLayoutSidebarFilled, IconGitBranch,
   } from '@tabler/icons-svelte'
   import CommandPalette from './components/CommandPalette.svelte'
   import ActionPalette from './components/ActionPalette.svelte'
@@ -169,11 +172,14 @@
     e.preventDefault()
     const startX = e.clientX
     const startRight = $rightWidth
+    // dragging the handle grows the sidebar toward the center-col — that's
+    // leftward motion when docked right, rightward motion when docked left
+    const sign = $panelSide === 'left' ? 1 : -1
 
     function onMove(ev: MouseEvent) {
       // 220 is the narrowest a Processes row (play/stop/dot/port badge/trash,
       // name already collapsed to 0) still lays out without clipping
-      rightWidth.set(Math.max(220, Math.min(500, startRight - (ev.clientX - startX))))
+      rightWidth.set(Math.max(220, Math.min(500, startRight + sign * (ev.clientX - startX))))
     }
     function onUp() {
       window.removeEventListener('mousemove', onMove)
@@ -194,12 +200,20 @@
 
       <div class="tb-fill" style="--wails-draggable:drag"></div>
 
-      <div class="panel-toggles">
+      <div class="panel-toggles" class:leftside={$panelSide === 'left'}>
         <button class="tb-btn" onclick={() => showRight.update(v => !v)} title="Toggle panel">
-          {#if $showRight}
-            <IconLayoutSidebarRightFilled size={14} />
+          {#if $panelSide === 'left'}
+            {#if $showRight}
+              <IconLayoutSidebarFilled size={14} />
+            {:else}
+              <IconLayoutSidebar size={14} />
+            {/if}
           {:else}
-            <IconLayoutSidebarRight size={14} />
+            {#if $showRight}
+              <IconLayoutSidebarRightFilled size={14} />
+            {:else}
+              <IconLayoutSidebarRight size={14} />
+            {/if}
           {/if}
         </button>
       </div>
@@ -209,6 +223,15 @@
 
   <!-- ─── workspace ─── -->
   <div class="workspace">
+
+    {#if $showRight && $panelSide === 'left'}
+    <div class="right-col" style="width:{$rightWidth}px">
+      <RightSidebar />
+    </div>
+    <div class="hsplit-handle"
+         onmousedown={startResize}
+         role="separator" tabindex="-1"></div>
+    {/if}
 
     <div class="center-col">
       {#if $galleryMode}
@@ -271,7 +294,7 @@
       {/if}
     </div>
 
-    {#if $showRight}
+    {#if $showRight && $panelSide === 'right'}
     <div class="hsplit-handle"
          onmousedown={startResize}
          role="separator" tabindex="-1"></div>
@@ -281,6 +304,13 @@
     {/if}
 
   </div>
+
+  {#each $floatingPanels as fp (fp.panelId)}
+    {@const p = panels.find(pp => pp.id === fp.panelId)}
+    {#if p}
+      <FloatingWindow panel={p} state={fp} />
+    {/if}
+  {/each}
 
   {#if $showPalette}
     <CommandPalette onClose={() => showPalette.set(false)} />
@@ -405,6 +435,7 @@
   .tb-btn.active { color: var(--foreground); background: var(--bg-hover); }
 
   .panel-toggles { display: flex; gap: 1px; }
+  .panel-toggles.leftside { order: -1; }
 
 
   /* ─── workspace ─── */

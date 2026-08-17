@@ -4,7 +4,7 @@ import {
   processes, commands, treeNodes, cwd,
   galleryMode, galleryImages, theme, projectRoot, isRemoteProject,
   showPalette, projectCommands, projectTasks, openFileTab,
-  showRight, rightWidth,
+  showRight, rightWidth, panelSide,
   tabs, activeTabId, isMediaPath, activeRightPanel, persistPrefs, formatOnSave, gitBranch
 } from './stores'
 import { get } from 'svelte/store'
@@ -21,6 +21,7 @@ export async function initEvents() {
   const cfg: any = await GetConfig().catch(() => null)
   if (cfg?.persist) persistPrefs.set(cfg.persist)
   formatOnSave.set(!!cfg?.format_on_save)
+  panelSide.set(cfg?.panel_side === 'left' ? 'left' : 'right')
   loadFeatures(cfg?.features)
   setUserSnippets(cfg?.snippets)
 

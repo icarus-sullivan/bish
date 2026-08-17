@@ -3,10 +3,25 @@
   import ContextMenu from './ContextMenu.svelte'
   import { ToggleTreeNode, CdToPath, FSNewFile, FSNewFolder, FSRename, FSDelete, FSDeletePaths, FSCopyPath, FSRevealInFinder, FSMove, FSDuplicate, CloseProject, CollapseAllTree, AddWorkspaceRoot, RemoveWorkspaceRoot } from '../lib/wails'
   import type { TreeNode } from '../lib/wails'
-  import { IconFilePlus, IconFolderPlus, IconLibraryMinus, IconChevronRight, IconChevronDown, IconServer, IconFolders } from '@tabler/icons-svelte'
+  import { IconFilePlus, IconFolderPlus, IconLibraryMinus, IconChevronRight, IconChevronDown, IconServer, IconDots } from '@tabler/icons-svelte'
   import { get } from 'svelte/store'
 
   let menu: { x: number; y: number; node: TreeNode } | null = $state(null)
+  let optionsMenu: { x: number; y: number } | null = $state(null)
+
+  function showOptionsMenu(e: MouseEvent) {
+    e.stopPropagation()
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    optionsMenu = { x: Math.max(4, rect.right - 170), y: rect.bottom + 4 }
+  }
+
+  function optionsMenuItems() {
+    return [
+      ...($projectRoot ? [{ label: 'Add Folder to Workspace…', action: addWorkspaceRoot }] : []),
+      { label: 'Open Remote Folder…', action: () => showOpenRemote.set(true) },
+      ...($projectRoot ? [{ label: 'Close Project', action: () => CloseProject(), danger: true }] : []),
+    ]
+  }
   let renaming: { path: string; value: string } | null = $state(null)
   let creating: { dirPath: string; isFolder: boolean; value: string } | null = $state(null)
   let activeDir = $state('')
@@ -242,13 +257,7 @@
       <button class="hdr-btn" onclick={() => promptNew(resolveDir(), false)} title="New File"><IconFilePlus size={13} /></button>
       <button class="hdr-btn" onclick={() => promptNew(resolveDir(), true)} title="New Folder"><IconFolderPlus size={13} /></button>
       <button class="hdr-btn" onclick={() => CollapseAllTree()} title="Collapse All"><IconLibraryMinus size={13} /></button>
-      {#if $projectRoot}
-        <button class="hdr-btn" onclick={addWorkspaceRoot} title="Add Folder to Workspace…"><IconFolders size={13} /></button>
-      {/if}
-      <button class="hdr-btn" onclick={() => showOpenRemote.set(true)} title="Open Remote Folder…"><IconServer size={13} /></button>
-      {#if $projectRoot}
-        <button class="close-project" onclick={() => CloseProject()} title="Close project">×</button>
-      {/if}
+      <button class="hdr-btn" onclick={showOptionsMenu} title="More options"><IconDots size={13} /></button>
     </div>
   </div>
   <div
@@ -326,6 +335,15 @@
   />
 {/if}
 
+{#if optionsMenu}
+  <ContextMenu
+    x={optionsMenu.x}
+    y={optionsMenu.y}
+    items={optionsMenuItems()}
+    onClose={() => optionsMenu = null}
+  />
+{/if}
+
 <style>
   .panel {
     display: flex;
@@ -380,18 +398,6 @@
     transition: color 0.1s, background 0.1s;
   }
   .hdr-btn:hover { color: var(--foreground); background: var(--bg-hover); }
-  .close-project {
-    background: none;
-    border: none;
-    color: var(--muted);
-    cursor: pointer;
-    font-size: 14px;
-    line-height: 1;
-    padding: 0 2px;
-    border-radius: 3px;
-    flex-shrink: 0;
-  }
-  .close-project:hover { color: var(--foreground); background: var(--bg-hover); }
 
   .list { overflow-y: auto; flex: 1; padding: 4px 0; position: relative; user-select: none; }
   .marquee {

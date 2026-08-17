@@ -425,6 +425,7 @@ export namespace config {
 	    theme: string;
 	    shell: string;
 	    format_on_save: boolean;
+	    panel_side?: string;
 	    persist?: PersistConfig;
 	    features?: Record<string, boolean>;
 	    assistant?: AssistantConfig;
@@ -445,6 +446,7 @@ export namespace config {
 	        this.theme = source["theme"];
 	        this.shell = source["shell"];
 	        this.format_on_save = source["format_on_save"];
+	        this.panel_side = source["panel_side"];
 	        this.persist = this.convertValues(source["persist"], PersistConfig);
 	        this.features = source["features"];
 	        this.assistant = this.convertValues(source["assistant"], AssistantConfig);

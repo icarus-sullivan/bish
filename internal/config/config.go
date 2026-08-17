@@ -10,6 +10,8 @@ type Config struct {
 	Theme        string `json:"theme"`
 	Shell        string `json:"shell"`
 	FormatOnSave bool   `json:"format_on_save"`
+	// PanelSide docks the sidebar left or right; empty/"right" = right (default)
+	PanelSide string `json:"panel_side,omitempty"`
 	// nil = persist everything (frontend treats missing as true)
 	Persist *PersistConfig `json:"persist,omitempty"`
 	// per-feature toggles; missing key = frontend registry default (features.ts)

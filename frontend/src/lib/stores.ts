@@ -88,6 +88,17 @@ export const showRight = writable<boolean>(true)
 // active panel in the right sidebar (ids from lib/panels.ts)
 export const activeRightPanel = writable<string>('files')
 
+// which edge the dockable sidebar lives on (config.json `panel_side`, global — not per-project)
+export const panelSide = writable<'left' | 'right'>('right')
+
+// panels popped out of the sidebar into their own floating window (ephemeral, not persisted)
+export interface FloatingPanel { panelId: string; x: number; y: number; width: number; height: number; z: number }
+export const floatingPanels = writable<FloatingPanel[]>([])
+
+// shared z-index counter so clicking a floating window brings it to front of the others
+let zTop = 1000
+export function nextZ(): number { return ++zTop }
+
 // which per-project UI state gets saved/restored (config.json `persist`,
 // missing = all true)
 export interface PersistPrefs {

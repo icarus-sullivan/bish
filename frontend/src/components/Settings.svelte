@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { GetConfig, SaveConfig, GetTheme, OllamaListModels, ExportSettingsFile, ImportSettingsFile, GetCommands, AddCommand } from '../lib/wails'
-  import { currentThemeName, persistPrefs, formatOnSave, showWelcomeTour } from '../lib/stores'
+  import { currentThemeName, persistPrefs, formatOnSave, showWelcomeTour, panelSide } from '../lib/stores'
   import { features, FEATURES } from '../lib/features'
   import { customKeybinds, applyCustomKeybinds } from '../lib/keymap'
   import { listCommands } from '../lib/commands'
@@ -63,6 +63,12 @@
     const name = (e.target as HTMLSelectElement).value
     currentThemeName.set(name)
     saveCfg({ theme: name })
+  }
+
+  function onPanelSide(e: Event) {
+    const side = (e.target as HTMLSelectElement).value as 'left' | 'right'
+    panelSide.set(side)
+    saveCfg({ panel_side: side })
   }
 
   // ─── Custom themes (duplicate a built-in, tweak its colors) ────────────
@@ -220,6 +226,19 @@
             {#each Object.keys(cfg?.custom_themes ?? {}) as name}
               <option value={name}>{name} (custom)</option>
             {/each}
+          </select>
+          <IconChevronDown size={13} class="select-chevron" />
+        </span>
+      </div>
+      <div class="row">
+        <div class="labels">
+          <span class="label">Panel position</span>
+          <span class="hint">Which edge the sidebar (Files, Processes, etc.) docks to</span>
+        </div>
+        <span class="select-wrap">
+          <select value={$panelSide} onchange={onPanelSide}>
+            <option value="right">Right</option>
+            <option value="left">Left</option>
           </select>
           <IconChevronDown size={13} class="select-chevron" />
         </span>
