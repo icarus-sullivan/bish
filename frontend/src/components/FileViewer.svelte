@@ -20,7 +20,7 @@
   import { go } from '@codemirror/lang-go'
   import { shell } from '@codemirror/legacy-modes/mode/shell'
   import { ReadFile, ReadFileChunk, WriteFile, SaveNewFile, mediaUrl } from '../lib/wails'
-  import { currentThemeName, cwd, projectRoot, updateTabPath, setTabModified, pendingGoto, pendingFocus, pendingExternalReload, activeSelection, tabs } from '../lib/stores'
+  import { currentThemeName, cwd, projectRoot, updateTabPath, setTabModified, pendingGoto, pendingFocus, pendingExternalReload, pendingFormatDocument, activeSelection, tabs } from '../lib/stores'
   import { codeIntel, intelKindFor } from '../lib/codeintel'
   import { snippets } from '../lib/snippets'
   import { qwenComplete } from '../lib/qwenComplete'
@@ -714,6 +714,15 @@
     pendingExternalReload.set(null)
     if (get(tabs).find(t => t.id === tabId)?.modified) return
     load(path, $currentThemeName)
+  })
+
+  // "Format Document" (built-in extension, or any future caller) — reuses
+  // the exact formatter format-on-save already runs, then saves so the
+  // formatted result isn't left as an unsaved edit.
+  $effect(() => {
+    if ($pendingFormatDocument !== path || !view) return
+    pendingFormatDocument.set(null)
+    lspFormat(view).then(() => save()).catch(() => {})
   })
 
   // Reload when path or theme changes. Guard against re-runs where neither

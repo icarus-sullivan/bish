@@ -71,6 +71,11 @@ export const pendingReveal = writable<string | null>(null)
 // tab picks up the change instead of showing stale content
 export const pendingExternalReload = writable<string | null>(null)
 
+// format request consumed by FileViewer when it's the active tab for path —
+// set by the "Format Document" command (built-in extension) so formatting
+// can be triggered without the extension worker ever touching the editor
+export const pendingFormatDocument = writable<string | null>(null)
+
 // always-current selection in the active editor (not consume-once like
 // pendingGoto — readers just check "what's selected right now")
 export interface EditorSelection {

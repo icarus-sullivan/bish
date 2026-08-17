@@ -26,6 +26,10 @@ type Config struct {
 	Snippets       []Snippet              `json:"snippets,omitempty"`
 	CustomThemes   map[string]CustomTheme `json:"custom_themes,omitempty"`
 	OnboardingSeen bool                   `json:"onboarding_seen,omitempty"`
+	// BuiltinExtensionsSeeded guards extensions.SeedBuiltins to a single
+	// write-once — once true, a user who uninstalls a bundled extension
+	// won't have it silently reappear on the next launch.
+	BuiltinExtensionsSeeded bool `json:"builtin_extensions_seeded,omitempty"`
 }
 
 // NotificationsEnabled applies the nil-means-on convention.

@@ -8,7 +8,9 @@
 package extensions
 
 import (
+	"embed"
 	"encoding/json"
+	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -16,6 +18,10 @@ import (
 type Contribution struct {
 	ID    string `json:"id"`
 	Title string `json:"title"`
+	// Key is an optional default keybind ("mod+shift+i") the host registers
+	// the moment the contributing extension's worker starts — no separate
+	// Settings step needed, unlike user-defined keybinds (keymap.ts).
+	Key string `json:"key,omitempty"`
 }
 
 type Manifest struct {
@@ -68,4 +74,44 @@ func Discover(root string) []Extension {
 		out = append(out, Extension{Manifest: m, Dir: dir, Script: string(script)})
 	}
 	return out
+}
+
+// builtinFS holds bish's own bundled extensions — shipped in the binary so
+// they show up under root without the user hand-copying files, same shape
+// as any other discovered extension once written out.
+//
+//go:embed builtin
+var builtinFS embed.FS
+
+// SeedBuiltins writes every builtin/<name>/ extension into root, skipping
+// any that's already there. Callers should only invoke this once ever (see
+// config.Config.BuiltinExtensionsSeeded) — re-running it on every launch
+// would resurrect an extension the user deliberately uninstalled.
+func SeedBuiltins(root string) error {
+	entries, err := builtinFS.ReadDir("builtin")
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		srcDir := "builtin/" + e.Name()
+		files, err := builtinFS.ReadDir(srcDir)
+		if err != nil {
+			continue
+		}
+		dstDir := filepath.Join(root, e.Name())
+		if err := os.MkdirAll(dstDir, 0o755); err != nil {
+			continue
+		}
+		for _, f := range files {
+			data, err := fs.ReadFile(builtinFS, srcDir+"/"+f.Name())
+			if err != nil {
+				continue
+			}
+			_ = os.WriteFile(filepath.Join(dstDir, f.Name()), data, 0o644)
+		}
+	}
+	return nil
 }

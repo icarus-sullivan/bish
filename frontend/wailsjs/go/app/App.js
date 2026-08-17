@@ -498,6 +498,10 @@ export function TriggerPalette() {
   return window['go']['app']['App']['TriggerPalette']();
 }
 
+export function UninstallExtension(arg1) {
+  return window['go']['app']['App']['UninstallExtension'](arg1);
+}
+
 export function WriteFile(arg1, arg2) {
   return window['go']['app']['App']['WriteFile'](arg1, arg2);
 }

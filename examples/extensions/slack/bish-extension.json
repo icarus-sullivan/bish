@@ -1,0 +1,10 @@
+{
+  "name": "slack",
+  "main": "extension.js",
+  "commands": [
+    { "id": "connect", "title": "Slack: Connect" }
+  ],
+  "panels": [
+    { "id": "chat", "title": "Slack" }
+  ]
+}

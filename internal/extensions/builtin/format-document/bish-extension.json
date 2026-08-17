@@ -1,0 +1,7 @@
+{
+  "name": "format-document",
+  "main": "extension.js",
+  "commands": [
+    { "id": "format", "title": "Format Document", "key": "mod+shift+i" }
+  ]
+}

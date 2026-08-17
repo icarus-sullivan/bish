@@ -256,6 +256,8 @@ export function TriggerNewFile():Promise<void>;
 
 export function TriggerPalette():Promise<void>;
 
+export function UninstallExtension(arg1:string):Promise<void>;
+
 export function WriteFile(arg1:string,arg2:string):Promise<void>;
 
 export function WritePTY(arg1:string):Promise<void>;

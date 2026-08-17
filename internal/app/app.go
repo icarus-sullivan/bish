@@ -140,6 +140,12 @@ func (a *App) Startup(ctx context.Context) {
 	a.telemetry.SetConfig(a.cfg.Telemetry.Enabled, a.cfg.Telemetry.Endpoint)
 	a.telemetry.StartLoop(ctx.Done())
 	a.prevProcStatus = map[string]process.Status{}
+	if !a.cfg.BuiltinExtensionsSeeded {
+		if extensions.SeedBuiltins(extensions.Dir()) == nil {
+			a.cfg.BuiltinExtensionsSeeded = true
+			_ = config.Save(a.cfg)
+		}
+	}
 	_ = runtime.InitializeNotifications(ctx) // no-op error on unsupported platforms, notifications just won't fire
 	go a.readPTYLoopFor("main", a.shell)
 	go a.pollCWDLoop()
@@ -1377,6 +1383,21 @@ func (a *App) SetExtensionEnabled(name string, enabled bool) error {
 		a.cfg.Extensions = map[string]bool{}
 	}
 	a.cfg.Extensions[name] = enabled
+	return config.Save(a.cfg)
+}
+
+// UninstallExtension deletes an extension's directory under ~/.bish/extensions
+// and drops its enable-state entry. name must be a bare directory name (no
+// separators) — it comes straight from the frontend, and extensions.Dir() is
+// the only root this is ever allowed to touch.
+func (a *App) UninstallExtension(name string) error {
+	if name == "" || strings.ContainsAny(name, "/\\") || name == "." || name == ".." {
+		return fmt.Errorf("invalid extension name %q", name)
+	}
+	if err := os.RemoveAll(filepath.Join(extensions.Dir(), name)); err != nil {
+		return err
+	}
+	delete(a.cfg.Extensions, name)
 	return config.Save(a.cfg)
 }
 

@@ -7,10 +7,11 @@
 // and show up in the Command Palette — before the worker even starts.
 import { writable, get } from 'svelte/store'
 import DOMPurify from 'dompurify'
-import { GetExtensions, SetExtensionEnabled } from './wails'
+import { GetExtensions, SetExtensionEnabled, UninstallExtension } from './wails'
 import type { Extension } from './wails'
 import { registerCommand } from './commands'
-import { tabs, activeTabId } from './stores'
+import { registerKeybind } from './keybinds'
+import { tabs, activeTabId, pendingFormatDocument } from './stores'
 
 export const loadedExtensions = writable<Extension[]>([])
 // `${extensionName}:${panelId}` -> sanitized HTML
@@ -22,6 +23,18 @@ const unregisterFns = new Map<string, (() => void)[]>()
 function activeFilePath(): string {
   const t = get(tabs).find(t => t.id === get(activeTabId))
   return t && t.type === 'file' && t.path && t.path !== '__new__' ? t.path : ''
+}
+
+// Namespaced localStorage key for a worker's persisted secret (tokens etc).
+// A worker has no storage of its own, so getSecret/setSecret relay through
+// here — this is browser-side storage, not bish's Go config/backend.
+function secretKey(extName: string, key: string): string {
+  return `bish.ext.${extName}.secret.${key}`
+}
+
+// Forwards a panel's submitted input to that extension's worker, if running.
+export function sendPanelInput(extName: string, panelId: string, value: string) {
+  workers.get(extName)?.postMessage({ type: 'input', panelId, value })
 }
 
 function startWorker(ext: Extension) {
@@ -46,16 +59,24 @@ function startWorker(ext: Extension) {
       })
     } else if (msg.type === 'getActiveFilePath' && msg.reqId != null) {
       worker.postMessage({ type: 'reply', reqId: msg.reqId, value: activeFilePath() })
+    } else if (msg.type === 'getSecret' && msg.reqId != null && typeof msg.key === 'string') {
+      worker.postMessage({ type: 'reply', reqId: msg.reqId, value: localStorage.getItem(secretKey(ext.name, msg.key)) })
+    } else if (msg.type === 'setSecret' && typeof msg.key === 'string') {
+      localStorage.setItem(secretKey(ext.name, msg.key), String(msg.value ?? ''))
+    } else if (msg.type === 'formatActiveDocument') {
+      const path = activeFilePath()
+      if (path) pendingFormatDocument.set(path)
     }
   }
 
   const offs = unregisterFns.get(ext.name) ?? []
   for (const c of ext.commands ?? []) {
-    offs.push(registerCommand({
-      id: `ext.${ext.name}.${c.id}`,
-      title: c.title,
-      run: () => worker.postMessage({ type: 'command', id: c.id }),
-    }))
+    const run = () => worker.postMessage({ type: 'command', id: c.id })
+    offs.push(registerCommand({ id: `ext.${ext.name}.${c.id}`, title: c.title, run }))
+    // manifest-declared default keybind — fires the moment the extension is
+    // enabled, no separate Settings > Keybindings step (contrast with
+    // user-defined keybinds in keymap.ts, which are opt-in per command)
+    if (c.key) offs.push(registerKeybind({ combo: c.key, handler: (e) => { e.preventDefault(); run() } }))
   }
   unregisterFns.set(ext.name, offs)
 }
@@ -87,4 +108,12 @@ export function setExtensionEnabled(name: string, enabled: boolean) {
   } else {
     stopWorker(name)
   }
+}
+
+// Deletes the extension's directory under ~/.bish/extensions and drops it
+// from the list — unlike disabling, this can't be undone from Settings.
+export async function uninstallExtension(name: string) {
+  stopWorker(name)
+  await UninstallExtension(name).catch(() => {})
+  loadedExtensions.update(list => list.filter(e => e.name !== name))
 }
