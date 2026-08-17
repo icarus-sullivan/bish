@@ -62,6 +62,10 @@ export function CompletionSuggest(arg1, arg2) {
   return window['go']['app']['App']['CompletionSuggest'](arg1, arg2);
 }
 
+export function ConfirmDiscardChanges(arg1) {
+  return window['go']['app']['App']['ConfirmDiscardChanges'](arg1);
+}
+
 export function DebugContinue() {
   return window['go']['app']['App']['DebugContinue']();
 }

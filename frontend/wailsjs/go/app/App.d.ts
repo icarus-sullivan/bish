@@ -38,6 +38,8 @@ export function CollapseAllTree():Promise<void>;
 
 export function CompletionSuggest(arg1:string,arg2:string):Promise<string>;
 
+export function ConfirmDiscardChanges(arg1:string):Promise<boolean>;
+
 export function DebugContinue():Promise<void>;
 
 export function DebugSetBreakpoints(arg1:string,arg2:Array<number>):Promise<void>;

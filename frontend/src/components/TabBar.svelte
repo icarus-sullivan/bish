@@ -137,17 +137,22 @@
 
 <div class="tabbar">
   {#each $tabs as tab (tab.id)}
-    <button
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <div
       class="tab"
       class:active={$activeTabId === tab.id}
       class:dragging={dragSrcId === tab.id}
       class:drop-before={dragSrcId !== null && dragSrcId !== tab.id && dropBeforeId === tab.id}
+      role="tab"
+      tabindex="0"
+      aria-selected={$activeTabId === tab.id}
       draggable="true"
       ondragstart={(e) => onDragStart(e, tab)}
       ondragover={(e) => onDragOver(e, tab)}
       ondrop={onDrop}
       ondragend={onDragEnd}
       onclick={() => activeTabId.set(tab.id)}
+      onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activeTabId.set(tab.id) } }}
       oncontextmenu={(e) => showTabMenu(e, tab)}
     >
       <svelte:component this={tabIcon(tab)} size={11} />
@@ -172,7 +177,7 @@
           <IconX size={10} />
         </button>
       {/if}
-    </button>
+    </div>
   {/each}
   <button
     class="new-terminal"

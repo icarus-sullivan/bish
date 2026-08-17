@@ -1,5 +1,6 @@
 import { writable, get } from 'svelte/store'
 import type { Process, SavedCommand, TreeNode, Theme, ProjectCmd, Task } from './wails'
+import { ConfirmDiscardChanges } from './wails'
 
 export type Pane = 'processes' | 'commands' | 'terminal' | 'tree'
 
@@ -252,13 +253,18 @@ export function setTabModified(id: string, modified: boolean) {
   tabs.update(ts => ts.map(t => t.id === id ? { ...t, modified } : t))
 }
 
-export function closeTab(id: string) {
+// async because a modified tab needs a native confirm round-trip — window.confirm()
+// isn't reliable inside the webview (no guaranteed JS-dialog wiring), see
+// ConfirmDiscardChanges in app.go. All call sites already fire-and-forget this.
+export async function closeTab(id: string) {
   const current = get(tabs)
   const idx = current.findIndex(t => t.id === id)
   if (idx === -1) return
-  if (current[idx].modified &&
-      !window.confirm(`Discard unsaved changes to ${current[idx].label}?`)) return
-  const newTabs = current.filter(t => t.id !== id)
+  if (current[idx].modified) {
+    const ok = await ConfirmDiscardChanges(current[idx].label).catch(() => false)
+    if (!ok) return
+  }
+  const newTabs = get(tabs).filter(t => t.id !== id)
   tabs.set(newTabs)
   if (get(activeTabId) === id) {
     const newIdx = Math.min(idx, newTabs.length - 1)

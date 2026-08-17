@@ -29,7 +29,7 @@ export {
   DebugStart, DebugSetBreakpoints, DebugContinue, DebugStepOver, DebugStepIn, DebugStepOut, DebugStop,
   AssistantStart, AssistantSend, AssistantRespondPermission, AssistantStop, AssistantInterrupt, AssistantSwitchMode, AssistantPickFiles,
   OllamaListModels,
-  CompletionSuggest,
+  CompletionSuggest, ConfirmDiscardChanges,
   ReadFileBase64,
   RefreshTree, CollapseAllTree,
   GitBlame, GitStatus, GitDiff, GitDiffText,

@@ -1048,6 +1048,24 @@ func (a *App) FSCopyPath(path string) string {
 	return path
 }
 
+// ConfirmDiscardChanges asks via a native OS dialog (same runtime.MessageDialog
+// FSDeletePaths uses) whether to close a tab with unsaved edits — closeTab in
+// stores.ts used window.confirm() for this, which is unreliable inside a
+// WKWebView (no guaranteed WKUIDelegate wiring for JS dialogs): it can return
+// immediately without ever prompting, so a modified tab's "×" looked like it
+// silently did nothing. A real native dialog doesn't have that failure mode.
+func (a *App) ConfirmDiscardChanges(label string) bool {
+	choice, err := runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
+		Type:          runtime.QuestionDialog,
+		Title:         "Unsaved Changes",
+		Message:       fmt.Sprintf("Discard unsaved changes to %s?", label),
+		Buttons:       []string{"Discard", "Cancel"},
+		DefaultButton: "Cancel",
+		CancelButton:  "Cancel",
+	})
+	return err == nil && choice == "Discard"
+}
+
 func (a *App) FSRevealInFinder(path string) error {
 	return exec.Command("open", "-R", path).Run()
 }
