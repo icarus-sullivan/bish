@@ -5,6 +5,9 @@ export interface Command {
   title: string
   run: () => void
   when?: () => boolean
+  // default keybind ("mod+shift+i") shown right-aligned in the palette —
+  // a user-set override in keymap.ts's customKeybinds takes precedence
+  key?: string
 }
 
 const registry = new Map<string, Command>()

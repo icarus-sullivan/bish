@@ -72,7 +72,7 @@ function startWorker(ext: Extension) {
   const offs = unregisterFns.get(ext.name) ?? []
   for (const c of ext.commands ?? []) {
     const run = () => worker.postMessage({ type: 'command', id: c.id })
-    offs.push(registerCommand({ id: `ext.${ext.name}.${c.id}`, title: c.title, run }))
+    offs.push(registerCommand({ id: `ext.${ext.name}.${c.id}`, title: c.title, key: c.key, run }))
     // manifest-declared default keybind — fires the moment the extension is
     // enabled, no separate Settings > Keybindings step (contrast with
     // user-defined keybinds in keymap.ts, which are opt-in per command)

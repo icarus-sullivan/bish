@@ -49,3 +49,11 @@ export function registerKeybind(kb: Keybind): () => void {
   registry.add(kb)
   return () => registry.delete(kb)
 }
+
+const SYMBOL: Record<string, string> = { mod: '⌘', shift: '⇧', alt: '⌥' }
+
+// "mod+shift+i" -> "⌘⇧I" — same glyph convention as the hardcoded native
+// shortcuts list in ShortcutsOverlay.svelte.
+export function formatCombo(combo: string): string {
+  return combo.split('+').map(p => SYMBOL[p] ?? p.toUpperCase()).join('')
+}

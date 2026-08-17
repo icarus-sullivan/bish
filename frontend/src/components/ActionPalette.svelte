@@ -2,6 +2,17 @@
   import { onMount } from 'svelte'
   import { listCommands, type Command } from '../lib/commands'
   import { fuzzyMatch } from '../lib/fuzzy'
+  import { customKeybinds } from '../lib/keymap'
+  import { formatCombo } from '../lib/keybinds'
+  import { featureOn } from '../lib/features'
+
+  // user override (Settings > Keybindings) wins over the command's own
+  // manifest-declared default, same precedence keymap.ts's applyCustomKeybinds uses
+  function comboFor(cmd: Command): string {
+    const custom = featureOn('customKeybinds') ? $customKeybinds[cmd.id] : undefined
+    const combo = custom || cmd.key
+    return combo ? formatCombo(combo) : ''
+  }
 
   let { onClose }: { onClose: () => void } = $props()
 
@@ -61,7 +72,10 @@
             role="option"
             aria-selected={i === selectedIdx}
             tabindex="-1"
-          >{r.title}</div>
+          >
+            <span class="cmd-title">{r.title}</span>
+            {#if comboFor(r)}<span class="cmd-combo">{comboFor(r)}</span>{/if}
+          </div>
         {/each}
       </div>
     {:else}
@@ -94,10 +108,16 @@
   .search-input::placeholder { color: var(--muted); }
   .results { overflow-y: auto; flex: 1; padding: 4px 0; }
   .result-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
     padding: 7px 14px; cursor: pointer; border-radius: 4px; margin: 0 4px;
     font-size: 13px; color: var(--foreground);
   }
   .result-row.active { background: var(--bg-selected); }
   .result-row:hover { background: var(--bg-hover); }
+  .cmd-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cmd-combo {
+    flex-shrink: 0; color: var(--muted); font-family: "SF Mono", Menlo, monospace;
+    font-size: 11px; letter-spacing: 0.02em;
+  }
   .empty { padding: 20px 14px; font-size: 13px; color: var(--muted); text-align: center; }
 </style>
