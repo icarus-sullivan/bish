@@ -189,10 +189,17 @@ func (a *App) restoreSession() {
 }
 
 func (a *App) Shutdown(ctx context.Context) {
+	a.projectMu.Lock()
+	root := a.projectRoot
+	a.projectMu.Unlock()
+	// unconditional: this pid is exiting either way, so it can no longer be
+	// the window Open Recent should focus for root — unlike session.json
+	// (which only drops root on an individual close, not a full quit, so it
+	// restores next cold start), there's no "keep this to restore later" case
+	if root != "" {
+		project.UnregisterWindow(root) //nolint
+	}
 	if !a.quitRequested.Load() {
-		a.projectMu.Lock()
-		root := a.projectRoot
-		a.projectMu.Unlock()
 		if root != "" {
 			project.RemoveFromSession(root) //nolint
 		}
@@ -1491,10 +1498,6 @@ func (a *App) NewWindow() error {
 	return launchNewInstance("--no-restore")
 }
 
-func (a *App) OpenRecentInNewWindow(path string) error {
-	return launchNewInstance("--project", path)
-}
-
 // OpenRecentFileInNewWindow opens a standalone file (no project) in a new
 // window — used by the Dock menu's "Recent Files" section. launchNewInstance
 // with just the path matches the CLI's own positional-arg-as-file handling
@@ -1575,10 +1578,18 @@ func (a *App) openProjectDir(dir string) error {
 		cfg = &project.Config{CWD: dir}
 	}
 	a.projectMu.Lock()
+	prevRoot := a.projectRoot
 	a.projectRoot = dir
 	a.projectCfg = cfg
 	a.remoteDest = ""
 	a.projectMu.Unlock()
+	// this window is switching roots — it no longer "has open" prevRoot, so a
+	// later Open Recent for prevRoot spawns a fresh window instead of trying
+	// to focus this one (which would show dir, not prevRoot)
+	if prevRoot != "" && prevRoot != dir {
+		project.UnregisterWindow(prevRoot) //nolint
+	}
+	project.RegisterWindow(dir, os.Getpid()) //nolint
 	a.treeMu.Lock()
 	a.extraRoots = append([]string{}, cfg.ExtraRoots...)
 	a.extraTrees = make(map[string]*tree.Tree, len(a.extraRoots))
@@ -1637,7 +1648,7 @@ func (a *App) OpenRemoteProject(dest, path string) error {
 	a.extraRoots = nil
 	a.extraTrees = make(map[string]*tree.Tree)
 	a.treeMu.Unlock()
-	runtime.WindowSetTitle(a.ctx, fmt.Sprintf("%s — %s", filepath.Base(path), dest))
+	runtime.WindowSetTitle(a.ctx, fmt.Sprintf("%s — %s", filepath.Base(path), remote.ShortDest(dest)))
 	a.reloadTree()
 	runtime.EventsEmit(a.ctx, "project:change", path)
 	runtime.EventsEmit(a.ctx, "project:remote", true)
@@ -1744,12 +1755,25 @@ func (a *App) OpenProject() (string, error) {
 	return dir, a.openProjectDir(dir)
 }
 
+// OpenRecentProject opens a recent project. It never replaces the current
+// window's project in place — if path is already open in some window (found
+// via the live registry in internal/project/windows.go), that window is
+// brought to front; otherwise a new window is spawned. This is the single
+// entry point for both the File > Open Recent menu (main.go) and the Dock
+// menu (dock_darwin.go) — they used to diverge (one replaced in place, the
+// other always spawned new), which made the behavior look random depending
+// on which menu was used.
 func (a *App) OpenRecentProject(path string) error {
 	info, err := os.Stat(path)
 	if err != nil || !info.IsDir() {
 		return fmt.Errorf("project path not found: %s", path)
 	}
-	return a.openProjectDir(path)
+	if pid, ok := project.FindWindowPID(path); ok {
+		if activateWindow(pid) {
+			return nil
+		}
+	}
+	return launchNewInstance("--project", path)
 }
 
 func (a *App) CloseProject() {
@@ -1764,6 +1788,7 @@ func (a *App) CloseProject() {
 	a.projectMu.Unlock()
 	if root != "" && !wasRemote {
 		project.RemoveFromSession(root) //nolint
+		project.UnregisterWindow(root)  //nolint
 	}
 	a.treeMu.Lock()
 	a.extraRoots = nil

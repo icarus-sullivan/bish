@@ -358,10 +358,6 @@ export function OpenRecentFileInNewWindow(arg1) {
   return window['go']['app']['App']['OpenRecentFileInNewWindow'](arg1);
 }
 
-export function OpenRecentInNewWindow(arg1) {
-  return window['go']['app']['App']['OpenRecentInNewWindow'](arg1);
-}
-
 export function OpenRecentProject(arg1) {
   return window['go']['app']['App']['OpenRecentProject'](arg1);
 }

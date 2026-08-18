@@ -8,10 +8,14 @@
   let path = $state('')
   let connecting = $state(false)
   let error = $state('')
+  // both modes write into the same `host` value — the backend (ParseDest in
+  // internal/remote/remote.go) already auto-detects a pasted `ssh ...` line
+  // vs a bare destination, so this toggle only changes labels/placeholder
+  let mode = $state<'host' | 'command'>('host')
 
   function close() {
     showOpenRemote.set(false)
-    host = ''; path = ''; error = ''
+    host = ''; path = ''; error = ''; mode = 'host'
   }
 
   async function connect() {
@@ -41,11 +45,17 @@
         <button class="close" onclick={close} aria-label="Close">✕</button>
       </div>
       <div class="body">
+        <div class="mode-toggle" role="tablist">
+          <button role="tab" aria-selected={mode === 'host'} class:active={mode === 'host'} onclick={() => mode = 'host'} disabled={connecting}>Host</button>
+          <button role="tab" aria-selected={mode === 'command'} class:active={mode === 'command'} onclick={() => mode = 'command'} disabled={connecting}>SSH Command</button>
+        </div>
         <label class="field">
-          <span class="label">Host</span>
+          <span class="label">{mode === 'host' ? 'Host' : 'SSH command'}</span>
           <input
             class="input" bind:value={host}
-            placeholder="user@host, or an SSH config alias"
+            placeholder={mode === 'host'
+              ? 'user@host, or an SSH config alias'
+              : 'ssh root@216.243.220.223 -p 16338 -i ~/.ssh/id_ed25519'}
             autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false"
             disabled={connecting}
             onkeydown={(e) => { if (e.key === 'Enter') connect() }}
@@ -61,7 +71,11 @@
             onkeydown={(e) => { if (e.key === 'Enter') connect() }}
           />
         </label>
-        <p class="hint">Uses your local <code>ssh</code> config, keys, and agent — same as running <code>ssh {host || 'host'}</code> in a terminal.</p>
+        {#if mode === 'host'}
+          <p class="hint">Uses your local <code>ssh</code> config, keys, and agent — same as running <code>ssh {host || 'host'}</code> in a terminal.</p>
+        {:else}
+          <p class="hint">Paste the full command from your host provider (RunPod, etc.) — port and identity file are parsed out automatically.</p>
+        {/if}
         {#if error}<div class="error">{error}</div>{/if}
       </div>
       <div class="footer">
@@ -98,6 +112,17 @@
   }
   .close:hover { color: var(--foreground); background: var(--bg-hover); }
   .body { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+  .mode-toggle {
+    display: inline-flex; align-self: flex-start; padding: 2px;
+    background: var(--background); border: 1px solid var(--border); border-radius: 6px;
+  }
+  .mode-toggle button {
+    background: none; border: none; color: var(--muted); font-size: 11px;
+    padding: 4px 10px; border-radius: 4px; cursor: pointer; transition: color 0.1s, background 0.1s;
+  }
+  .mode-toggle button:hover:not(:disabled) { color: var(--foreground); }
+  .mode-toggle button.active { background: var(--bg-raised); color: var(--foreground); }
+  .mode-toggle button:disabled { opacity: 0.6; cursor: default; }
   .field { display: flex; flex-direction: column; gap: 4px; }
   .label { font-size: 11px; color: var(--muted); }
   .input {

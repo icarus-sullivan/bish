@@ -16,20 +16,58 @@ import (
 	"github.com/csullivan/bish/internal/tree"
 )
 
+// ParseDest accepts either a plain ssh destination ("user@host", or a
+// ~/.ssh/config alias) or a full ssh command line pasted from a host
+// provider's dashboard (RunPod etc. show "ssh root@1.2.3.4 -p 12345 -i
+// ~/.ssh/id_ed25519") and splits it into the bare destination token plus any
+// extra flags to pass through — ssh has no way to embed -p/-i into the
+// destination argument itself, they must be separate argv entries appearing
+// before it.
+func ParseDest(raw string) (dest string, extraArgs []string) {
+	fields := strings.Fields(strings.TrimSpace(raw))
+	if len(fields) > 0 && fields[0] == "ssh" {
+		fields = fields[1:]
+	}
+	for i := 0; i < len(fields); i++ {
+		f := fields[i]
+		// single-letter flags that take a value (-p 2222, -i key, -l user,
+		// -o Foo=Bar, -J proxyhost, ...) — passed straight through to ssh
+		if len(f) == 2 && f[0] == '-' && i+1 < len(fields) {
+			extraArgs = append(extraArgs, f, fields[i+1])
+			i++
+			continue
+		}
+		if dest == "" && !strings.HasPrefix(f, "-") {
+			dest = f
+		}
+	}
+	return dest, extraArgs
+}
+
+// ShortDest returns just the destination token, stripped of ssh's "ssh "
+// prefix and any -p/-i/etc. flags — for display (window title, ...) so
+// pasting a full command line doesn't dump the whole thing into the UI.
+func ShortDest(raw string) string {
+	dest, _ := ParseDest(raw)
+	return dest
+}
+
 // muxArgs are appended to every invocation: BatchMode disables interactive
 // password prompts (key/agent auth only — a GUI app can't answer a TTY
 // prompt), and ControlMaster/ControlPath/ControlPersist make OpenSSH itself
 // multiplex all these one-shot commands over a single reused connection, so
 // browsing a file tree isn't a fresh TCP+auth handshake per directory.
-func muxArgs(dest string) []string {
-	return []string{
+func muxArgs(rawDest string) []string {
+	dest, extra := ParseDest(rawDest)
+	args := []string{
 		"-o", "BatchMode=yes",
 		"-o", "ConnectTimeout=8",
 		"-o", "ControlMaster=auto",
 		"-o", "ControlPath=~/.ssh/bish-ctrl-%r@%h:%p",
 		"-o", "ControlPersist=10m",
-		dest,
 	}
+	args = append(args, extra...)
+	return append(args, dest)
 }
 
 func run(dest, remoteCmd string) ([]byte, error) {
@@ -42,7 +80,7 @@ func run(dest, remoteCmd string) ([]byte, error) {
 		if msg == "" {
 			msg = err.Error()
 		}
-		return nil, fmt.Errorf("%s: %s", dest, msg)
+		return nil, fmt.Errorf("%s: %s", ShortDest(dest), msg)
 	}
 	return stdout.Bytes(), nil
 }
@@ -108,7 +146,7 @@ func WriteFile(dest, path, content string) error {
 		if msg == "" {
 			msg = err.Error()
 		}
-		return fmt.Errorf("%s: %s", dest, msg)
+		return fmt.Errorf("%s: %s", ShortDest(dest), msg)
 	}
 	return nil
 }

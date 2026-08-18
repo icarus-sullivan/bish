@@ -17,7 +17,10 @@ import (
 //export goOpenRecentDock
 func goOpenRecentDock(path *C.char) {
 	if globalApp != nil {
-		go globalApp.OpenRecentInNewWindow(C.GoString(path)) //nolint
+		// OpenRecentProject focuses the project's window if it's already
+		// open, otherwise spawns one — same entry point File > Open Recent
+		// uses (buildMenu in main.go), so the Dock menu can't diverge again.
+		go globalApp.OpenRecentProject(C.GoString(path)) //nolint
 	}
 }
 

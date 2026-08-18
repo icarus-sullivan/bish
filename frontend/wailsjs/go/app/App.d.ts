@@ -186,8 +186,6 @@ export function OpenProject():Promise<string>;
 
 export function OpenRecentFileInNewWindow(arg1:string):Promise<void>;
 
-export function OpenRecentInNewWindow(arg1:string):Promise<void>;
-
 export function OpenRecentProject(arg1:string):Promise<void>;
 
 export function OpenRemoteProject(arg1:string,arg2:string):Promise<void>;

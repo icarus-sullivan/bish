@@ -437,11 +437,11 @@ export namespace config {
 	    custom_themes?: Record<string, CustomTheme>;
 	    onboarding_seen?: boolean;
 	    builtin_extensions_seeded?: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.theme = source["theme"];
@@ -482,27 +482,6 @@ export namespace config {
 	
 	
 	
-
-}
-
-export namespace extensions {
-
-	export class Contribution {
-	    id: string;
-	    title: string;
-	    key?: string;
-
-	    static createFrom(source: any = {}) {
-	        return new Contribution(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.title = source["title"];
-	        this.key = source["key"];
-	    }
-	}
 
 }
 
