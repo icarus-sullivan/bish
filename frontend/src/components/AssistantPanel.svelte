@@ -15,6 +15,7 @@
   import { BrowserOpenURL } from '../../wailsjs/runtime/runtime'
   import { fuzzyMatch } from '../lib/fuzzy'
   import { SLASH_COMMANDS } from '../lib/slashCommands'
+  import SwitchModelDialog from './SwitchModelDialog.svelte'
 
   const PERMISSION_MODES = ['plan', 'acceptEdits', 'auto', 'bypassPermissions', 'manual', 'dontAsk']
   const MODE_LABELS: Record<string, string> = {
@@ -58,6 +59,11 @@
   let planPending = $state(false)
   // least-permissive by default every fresh session; only sticky if the user raised it
   let permissionMode = $state(localStorage.getItem(PERM_KEY) ?? 'plan')
+  let showModelDialog = $state(false)
+  // last alias picked via the dialog — the CLI never reports its active model
+  // back to us, so this is "what we last told it," not an authoritative read
+  const MODEL_KEY = 'bish.assistant.model'
+  let currentModel = $state(localStorage.getItem(MODEL_KEY) ?? 'default')
 
   let sessionId = $state<string | null>(null)
   let offMsg: (() => void) | null = null
@@ -130,7 +136,12 @@
 
   async function send() {
     const text = input.trim()
-    if (!text || busy) return
+    if (!text) return
+    if (text === '/model') {
+      input = ''
+      showModelDialog = true
+      return
+    }
     const cmd = SLASH_COMMANDS.find(c => c.terminalOnly && c.name === text.split(/\s+/)[0])
     turn += 1
     slashDismissed = false
@@ -290,9 +301,36 @@
   $effect(() => { slashResults; slashIdx = 0 })
 
   function applySlash(cmd: { name: string }) {
+    if (cmd.name === '/model') {
+      input = ''
+      slashDismissed = true
+      showModelDialog = true
+      return
+    }
     input = cmd.name + ' '
     slashDismissed = true
     textareaEl?.focus()
+  }
+
+  // sends "/model <alias>" the same way any other slash command is sent —
+  // the CLI resolves the alias to the right model for whatever provider
+  // it's actually configured against (direct API, Bedrock, Vertex), so the
+  // dialog never needs to know a provider-specific model ID
+  async function selectModel(alias: string) {
+    showModelDialog = false
+    currentModel = alias
+    localStorage.setItem(MODEL_KEY, alias)
+    const text = `/model ${alias}`
+    turn += 1
+    messages.push({ id: nextId(), turnId: turn, role: 'user', text })
+    busy = true
+    try {
+      const id = await ensureSession()
+      await AssistantSend(id, text)
+    } catch (e) {
+      messages.push({ id: nextId(), turnId: turn, role: 'error', text: `${e}` })
+      busy = false
+    }
   }
 
   function onComposerInput() {
@@ -494,13 +532,16 @@
         </button>
         {#if busy}
           <button class="icon-send stop" onclick={stopTurn} title="Stop"><IconPlayerStopFilled size={16} /></button>
-        {:else}
-          <button class="icon-send" disabled={!input.trim()} onclick={send} title="Send"><IconSendFilled size={16} /></button>
         {/if}
+        <button class="icon-send" disabled={!input.trim()} onclick={send} title={busy ? 'Send — injects without stopping the current turn' : 'Send'}><IconSendFilled size={16} /></button>
       </div>
     </div>
   </div>
 </div>
+
+{#if showModelDialog}
+  <SwitchModelDialog current={currentModel} onSelect={selectModel} onClose={() => showModelDialog = false} />
+{/if}
 
 <style>
   .panel { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
