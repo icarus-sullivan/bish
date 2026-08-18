@@ -85,7 +85,7 @@ jobs:
         if: matrix.platform == 'mac'
         with:
           name: bish-${{ inputs.version }}-mac
-          path: build/bin/bish.app
+          path: build/bin
 
       - uses: actions/upload-artifact@v4
         if: matrix.platform == 'linux'
