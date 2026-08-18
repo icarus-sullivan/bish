@@ -32,11 +32,7 @@ jobs:
             platform: mac
           - os: ubuntu-latest
             platform: linux
-          - os: windows-latest
-            platform: windows
     runs-on: ${{ matrix.os }}
-    # windows is best-effort; a failure there shouldn't block mac/linux artifacts
-    continue-on-error: ${{ matrix.platform == 'windows' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -85,11 +81,6 @@ jobs:
         # wails/go to build against that instead of the removed 4.0 headers
         run: make build TAGS=webkit2_41
 
-      - name: Build (Windows)
-        if: matrix.platform == 'windows'
-        shell: bash
-        run: make build
-
       - uses: actions/upload-artifact@v4
         if: matrix.platform == 'mac'
         with:
@@ -102,19 +93,6 @@ jobs:
           name: bish-${{ inputs.version }}-linux
           path: build/bin/bish
 
-      - uses: actions/upload-artifact@v4
-        if: matrix.platform == 'windows'
-        with:
-          name: bish-${{ inputs.version }}-windows
-          path: build/bin/bish.exe
-
-  # needs: build only proceeds once the matrix job as a whole succeeds — the
-  # windows leg's `continue-on-error` above already makes a windows failure
-  # count as success for this purpose, so this job runs whenever mac+linux
-  # (the two legs that actually block) come back clean. If windows failed
-  # partway through its build step, its upload-artifact step above never ran
-  # (steps abort on the first failure within a job), so there's simply no
-  # windows zip to attach below — the release still goes out with what built.
   release:
     needs: build
     runs-on: ubuntu-latest
@@ -129,9 +107,6 @@ jobs:
           (cd bish-${{ inputs.version }}-mac && zip -r ../bish-${{ inputs.version }}-mac.zip bish.app)
           chmod +x bish-${{ inputs.version }}-linux/bish
           (cd bish-${{ inputs.version }}-linux && tar czf ../bish-${{ inputs.version }}-linux.tar.gz bish)
-          if [ -d bish-${{ inputs.version }}-windows ]; then
-            (cd bish-${{ inputs.version }}-windows && zip ../bish-${{ inputs.version }}-windows.zip bish.exe)
-          fi
 
       - uses: softprops/action-gh-release@v2
         with:
