@@ -1,4 +1,9 @@
-WAILS := $(shell go env GOPATH)/bin/wails
+# `go env GOPATH` prints a backslash-separated path on Windows (e.g.
+# C:\Users\runneradmin\go); fed straight into a recipe line, the shell
+# (sh/bash under Git Bash) treats each backslash as an escape character and
+# eats it, mangling the path (C:Usersrunneradmingo/bin/wails -> not found).
+# Normalize to forward slashes so the same recipe works on every OS.
+WAILS := $(shell go env GOPATH | tr '\\' '/')/bin/wails
 UNAME_S := $(shell uname -s)
 TAGS   ?=
 
