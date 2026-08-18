@@ -160,7 +160,10 @@ func (a *App) Startup(ctx context.Context) {
 	if a.StartupProject != "" {
 		go a.openProjectDir(a.StartupProject) //nolint
 	} else {
-		go a.reloadTree()
+		// no project directory to show — leave a.fileTree empty (its zero value)
+		// rather than falling back to a.cwd, which used to leak whatever
+		// directory the process happened to launch from (often the install
+		// dir) into the tree/sidebar on a truly blank launch
 		if a.StartupFile != "" {
 			project.AddRecentFile(a.StartupFile) //nolint
 		}
@@ -1460,18 +1463,21 @@ func (a *App) reloadTree() {
 	root := a.projectRoot
 	dest := a.remoteDest
 	a.projectMu.Unlock()
-	if root == "" {
-		root = a.cwd
-	}
 	a.treeMu.Lock()
-	if dest != "" {
-		a.fileTree.FS = remote.TreeFS{Dest: dest}
+	if root == "" {
+		// no project open — empty state, not a fallback listing of a.cwd
+		// (which is often wherever the binary happens to launch from)
+		a.fileTree = &tree.Tree{}
 	} else {
-		a.fileTree.FS = nil
+		if dest != "" {
+			a.fileTree.FS = remote.TreeFS{Dest: dest}
+		} else {
+			a.fileTree.FS = nil
+		}
+		expanded := a.fileTree.ExpandedPaths()
+		a.fileTree.Load(root)
+		a.fileTree.RestoreExpanded(expanded)
 	}
-	expanded := a.fileTree.ExpandedPaths()
-	a.fileTree.Load(root)
-	a.fileTree.RestoreExpanded(expanded)
 
 	for _, r := range a.extraRoots {
 		t := a.extraTrees[r]

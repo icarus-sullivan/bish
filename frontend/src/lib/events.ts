@@ -52,6 +52,12 @@ export async function initEvents() {
     projectCommands.set((pcmds as any) ?? [])
     projectTasks.set((tasks as any) ?? [])
     await loadProjectUI()
+  } else {
+    // no known project/session to restore — empty state: a file tree
+    // makes no sense with nothing open, so keep the sidebar out of the way
+    // until a project actually loads (loadProjectUI's show_right takes over
+    // once 'project:change' fires, e.g. mid-flight session restore)
+    showRight.set(false)
   }
   if (startupFile) openFileTab(startupFile as string)
 
