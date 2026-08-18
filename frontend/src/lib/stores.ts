@@ -130,6 +130,7 @@ export interface Tab {
   type: 'terminal' | 'file' | 'logs' | 'media' | 'settings' | 'diff' | 'conflict'
   label: string
   baseLabel?: string  // terminal tabs: original label, restored when title clears
+  renamed?: boolean   // terminal tabs: user double-click-renamed — OSC titles (cwd/running command) no longer override label
   path?: string       // file + media tabs
   processId?: string  // logs tabs
   modified?: boolean  // file tabs: unsaved changes
@@ -241,7 +242,7 @@ export function cycleTab(dir: 1 | -1) {
 export function setTabLabel(id: string, label: string) {
   const l = label.trim()
   if (!l) return
-  tabs.update(ts => ts.map(t => t.id === id ? { ...t, label: l, baseLabel: l } : t))
+  tabs.update(ts => ts.map(t => t.id === id ? { ...t, label: l, baseLabel: l, renamed: true } : t))
 }
 
 export function setTabModified(id: string, modified: boolean) {
@@ -344,11 +345,14 @@ export function reorderTabs(fromId: string, beforeId: string | null) {
   })
 }
 
-// terminal title from OSC escape (xterm onTitleChange) — running command shows
-// as the tab label; empty title (shell back at prompt) restores the original
+// terminal title from OSC escape (xterm onTitleChange): the shell init sends
+// cwd at the prompt and the running command while one is executing, so idle
+// tabs read as their cwd and busy tabs read as what they're doing. Skipped
+// once the user double-click-renamed the tab (renamed=true) — a manual name
+// always wins over the automatic one.
 export function setTerminalTitle(id: string, title: string) {
   tabs.update(ts => ts.map(t => {
-    if (t.id !== id || t.type !== 'terminal') return t
+    if (t.id !== id || t.type !== 'terminal' || t.renamed) return t
     const base = t.baseLabel ?? t.label
     return { ...t, baseLabel: base, label: title.trim() || base }
   }))

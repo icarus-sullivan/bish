@@ -170,7 +170,7 @@
           }}
         />
       {:else}
-        <span class="tab-label" ondblclick={(e) => { e.stopPropagation(); startRename(tab) }} role="presentation">{tab.label}</span>
+        <span class="tab-label" title={tab.label} ondblclick={(e) => { e.stopPropagation(); startRename(tab) }} role="presentation">{tab.label}</span>
       {/if}
       {#if tab.type !== 'terminal' || $tabs.filter(t => t.type === 'terminal').length > 1}
         <button class="tab-close" onclick={(e) => handleClose(e, tab)} title="Close">

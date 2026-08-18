@@ -80,7 +80,9 @@ precmd() {
   local __bish_ec=$? # must be captured before anything else touches it
   printf '\033]133;D;%d\007' "$__bish_ec" # end the previous command's block, if any
   [[ -n "$BISH_CWD_FILE" ]] && printf '%s' "$PWD" > "$BISH_CWD_FILE"
-  printf '\033]0;\007' # clear title -> tab label falls back to default
+  local __bish_dir="$PWD"
+  [[ "$__bish_dir" == "$HOME"* ]] && __bish_dir="~${__bish_dir#$HOME}"
+  printf '\033]0;%s\007' "$__bish_dir" # idle title -> cwd, so tabs stay identifiable at rest
   printf '\033]133;A\007\033]133;B\007' # prompt start/end (FTCS semantic marks)
 }
 preexec() {
@@ -116,7 +118,9 @@ __bish_precmd() {
   printf '\033]133;D;%d\007' "$__bish_ec" # end the previous command's block, if any
   __bish_preexec_done=                    # reset the DEBUG-trap-fires-per-pipeline-stage guard
   [[ -n "$BISH_CWD_FILE" ]] && printf '%s' "$PWD" > "$BISH_CWD_FILE"
-  printf '\033]0;\007' # clear title -> tab label falls back to default
+  local __bish_dir="$PWD"
+  [[ "$__bish_dir" == "$HOME"* ]] && __bish_dir="~${__bish_dir#$HOME}"
+  printf '\033]0;%s\007' "$__bish_dir" # idle title -> cwd, so tabs stay identifiable at rest
   printf '\033]133;A\007\033]133;B\007' # prompt start/end (FTCS semantic marks)
 }
 __bish_preexec() {
