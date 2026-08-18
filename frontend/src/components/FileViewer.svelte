@@ -29,7 +29,7 @@
   import { gitGutter, refreshDiff } from '../lib/gitgutter'
   import { breakpointGutter } from '../lib/breakpointGutter'
   import { testGutter, refreshTests } from '../lib/testGutter'
-  import { lspFormat } from '../lib/lsp'
+  import { lspFormat, serverStatus, installServer } from '../lib/lsp'
   import { registerKeybind } from '../lib/keybinds'
   import { formatOnSave } from '../lib/stores'
   import { featureOn } from '../lib/features'
@@ -159,6 +159,11 @@
   let saveError = $state('')
   let loadError = $state('')
   let formatError = $state('')
+
+  // "no language server for this file" prompt (see lib/lsp.ts serverStatus) —
+  // derived off the store so it updates live as an install runs/finishes.
+  let intelKind = $derived(intelKindFor(path))
+  let install = $derived(intelKind ? $serverStatus[intelKind] : undefined)
 
   // ─── Cmd+K inline AI edit ───────────────────────────────────────────────
   let inlineEditPopover = $state<{ x: number; y: number; from: number; to: number; text: string } | null>(null)
@@ -803,6 +808,22 @@
       {/if}
     </div>
   {/if}
+  {#if install}
+    <div class="status-bar lsp-install-bar">
+      {#if install.status === 'missing'}
+        <span class="status muted">No {intelKind} language server found.</span>
+        <button class="raw-btn" onclick={() => intelKind && installServer(intelKind)}>Install</button>
+      {:else if install.status === 'installing'}
+        <span class="status muted">Installing {intelKind} language server…</span>
+        {#if install.output.length}
+          <pre class="install-output">{install.output[install.output.length - 1]}</pre>
+        {/if}
+      {:else if install.status === 'error'}
+        <span class="status err" title={install.message}>Install failed: {install.message}</span>
+        <button class="raw-btn" onclick={() => intelKind && installServer(intelKind)}>Retry</button>
+      {/if}
+    </div>
+  {/if}
   {#if loadError}
     <div class="load-error">{loadError}</div>
   {:else if rawMode}
@@ -860,6 +881,19 @@
   .status { font-size: 11px; }
   .status.muted { color: var(--muted); }
   .status.err   { color: var(--error); cursor: help; }
+
+  .lsp-install-bar { gap: 8px; }
+  .install-output {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--muted);
+  }
 
   .spacer { flex: 1; }
 

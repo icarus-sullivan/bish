@@ -1192,6 +1192,19 @@ func (a *App) LSPStart(lang, root string) bool {
 	return a.lsp.Start(lang, root)
 }
 
+// LSPInstalled reports whether lang's server binary is already on PATH, with
+// no side effects — the frontend uses this after a failed LSPStart to decide
+// whether to offer an install prompt.
+func (a *App) LSPInstalled(lang string) bool {
+	return a.lsp.Installed(lang)
+}
+
+// LSPInstall runs lang's installer (go install / pnpm add -g), streaming
+// progress as lsp:install-output:<lang> events, and blocks until it exits.
+func (a *App) LSPInstall(lang string) error {
+	return a.lsp.Install(lang)
+}
+
 // LSPSend forwards one JSON-RPC message (headerless) to the lang's server.
 func (a *App) LSPSend(lang, msg string) error {
 	return a.lsp.Send(lang, msg)

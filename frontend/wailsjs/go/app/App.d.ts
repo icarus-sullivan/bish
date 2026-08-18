@@ -170,6 +170,10 @@ export function IsVideo(arg1:string):Promise<boolean>;
 
 export function KillProcess(arg1:string):Promise<void>;
 
+export function LSPInstall(arg1:string):Promise<void>;
+
+export function LSPInstalled(arg1:string):Promise<boolean>;
+
 export function LSPSend(arg1:string,arg2:string):Promise<void>;
 
 export function LSPStart(arg1:string,arg2:string):Promise<boolean>;

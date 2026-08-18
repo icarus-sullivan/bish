@@ -326,6 +326,14 @@ export function KillProcess(arg1) {
   return window['go']['app']['App']['KillProcess'](arg1);
 }
 
+export function LSPInstall(arg1) {
+  return window['go']['app']['App']['LSPInstall'](arg1);
+}
+
+export function LSPInstalled(arg1) {
+  return window['go']['app']['App']['LSPInstalled'](arg1);
+}
+
 export function LSPSend(arg1, arg2) {
   return window['go']['app']['App']['LSPSend'](arg1, arg2);
 }

@@ -31,6 +31,15 @@ var serverCmds = map[string][][]string{
 	"svelte": {{"svelteserver", "--stdio"}},
 }
 
+// installCmds maps lang → the command that installs its first serverCmds
+// candidate. JS-family servers go through pnpm, never npm.
+var installCmds = map[string][]string{
+	"go":     {"go", "install", "golang.org/x/tools/gopls@latest"},
+	"js":     {"pnpm", "add", "-g", "typescript-language-server", "typescript"},
+	"py":     {"pnpm", "add", "-g", "pyright"},
+	"svelte": {"pnpm", "add", "-g", "svelte-language-server"},
+}
+
 type server struct {
 	cmd      *exec.Cmd
 	stdin    io.WriteCloser
@@ -109,6 +118,51 @@ func (m *Manager) Start(lang, root string) bool {
 	m.servers[lang] = s
 	go m.readLoop(lang, s, stdout)
 	return true
+}
+
+// Installed reports whether a server binary for lang is already on PATH,
+// without spawning anything — lets the frontend tell "not installed" apart
+// from other Start failures (e.g. crash backoff) before offering to install.
+func (m *Manager) Installed(lang string) bool {
+	for _, c := range serverCmds[lang] {
+		if _, err := exec.LookPath(c[0]); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// Install runs the package-manager command that installs lang's server,
+// streaming each output line as an lsp:install-output:<lang> event so the
+// frontend can show progress. The installer itself (go/pnpm) must already be
+// on PATH.
+func (m *Manager) Install(lang string) error {
+	argv, ok := installCmds[lang]
+	if !ok {
+		return fmt.Errorf("lsp: no installer for %s", lang)
+	}
+	if _, err := exec.LookPath(argv[0]); err != nil {
+		return fmt.Errorf("%s not found on PATH", argv[0])
+	}
+	cmd := exec.Command(argv[0], argv[1:]...)
+	pr, pw := io.Pipe()
+	cmd.Stdout = pw
+	cmd.Stderr = pw
+	if err := cmd.Start(); err != nil {
+		pw.Close()
+		return err
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+		pw.Close()
+	}()
+	sc := bufio.NewScanner(pr)
+	sc.Buffer(make([]byte, 4<<10), 1<<20)
+	for sc.Scan() {
+		m.emit("lsp:install-output:"+lang, sc.Text())
+	}
+	return <-done
 }
 
 // Send frames msg with a Content-Length header and writes it to the server.

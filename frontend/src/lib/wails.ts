@@ -25,7 +25,7 @@ export {
   StartEditShare, StopEditShare, IsEditSharing, GetEditShareGuests, SetEditShareGuestPermission, EditShareBroadcast,
   SearchInFiles, ReplaceInFiles,
   GetProjectSymbols,
-  LSPStart, LSPSend, LSPStop,
+  LSPStart, LSPSend, LSPStop, LSPInstalled, LSPInstall,
   DebugStart, DebugSetBreakpoints, DebugContinue, DebugStepOver, DebugStepIn, DebugStepOut, DebugStop,
   AssistantStart, AssistantSend, AssistantRespondPermission, AssistantStop, AssistantInterrupt, AssistantSwitchMode, AssistantPickFiles,
   OllamaListModels,
