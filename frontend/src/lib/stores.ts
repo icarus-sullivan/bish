@@ -144,7 +144,7 @@ export function isMediaPath(path: string): boolean {
   return MEDIA_EXTS.has(ext)
 }
 
-export const tabs = writable<Tab[]>([{ id: 'main', type: 'terminal', label: 'Terminal' }])
+export const tabs = writable<Tab[]>([])
 export const activeTabId = writable<string>('main')
 
 export function openFileTab(path: string, forceText = false) {

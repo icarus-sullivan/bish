@@ -5,7 +5,7 @@
 import { Compartment, type Extension } from '@codemirror/state'
 import { ViewPlugin, EditorView } from '@codemirror/view'
 import {
-  LSPClient, LSPPlugin, languageServerSupport, serverDiagnostics, type Transport,
+  LSPClient, LSPPlugin, jumpToDefinition, languageServerSupport, serverDiagnostics, type Transport,
 } from '@codemirror/lsp-client'
 import { getIndentUnit, indentUnit } from '@codemirror/language'
 import { LSPStart, LSPSend, LSPStop, on } from './wails'
@@ -178,6 +178,22 @@ export async function lspFormat(view: EditorView): Promise<void> {
   })
 }
 
+// Cmd/Ctrl+click jumps to the definition of the symbol under the pointer
+// (imports resolve to the target file). Single event handler, no hover
+// tracking, so it costs nothing until a modifier-click actually happens.
+// No-ops silently when the LSP isn't attached yet (fallback mode).
+const modClickToDefinition = EditorView.domEventHandlers({
+  mousedown(event, view) {
+    if (!(event.metaKey || event.ctrlKey) || event.button !== 0) return false
+    const pos = view.posAtCoords({ x: event.clientX, y: event.clientY })
+    if (pos == null) return false
+    event.preventDefault()
+    view.dispatch({ selection: { anchor: pos } })
+    jumpToDefinition(view)
+    return true
+  },
+})
+
 // Returns an extension that starts as `fallback` (v1 autoimport) and swaps
 // itself for full LSP support once the server for `lang` is connected.
 export function lspOrFallback(path: string, root: string, kind: IntelKind, fallback: Extension): Extension {
@@ -206,5 +222,5 @@ export function lspOrFallback(path: string, root: string, kind: IntelKind, fallb
       },
     }
   })
-  return [comp.of(fallback), attach]
+  return [comp.of(fallback), attach, modClickToDefinition]
 }
