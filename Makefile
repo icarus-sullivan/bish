@@ -1,5 +1,6 @@
 WAILS := $(shell go env GOPATH)/bin/wails
 UNAME_S := $(shell uname -s)
+TAGS   ?=
 
 VERSION  := $(shell scripts/read-config.sh version)
 APP_NAME := $(shell scripts/read-config.sh app.name)
@@ -32,13 +33,13 @@ ifeq ($(UNAME_S),Darwin)
 else
 	cp icons/bish_icon.png build/appicon.png
 endif
-	$(WAILS) build -ldflags "-X main.version=$(VERSION) -X main.appName=$(APP_NAME) -X main.cliName=$(CLI_NAME) -X 'main.cliDescription=$(CLI_DESC)'"
+	$(WAILS) build -tags "$(TAGS)" -ldflags "-X main.version=$(VERSION) -X main.appName=$(APP_NAME) -X main.cliName=$(CLI_NAME) -X 'main.cliDescription=$(CLI_DESC)'"
 
 darwin: sync-config
 	rm -rf build
 	mkdir build
 	sips -z 1024 1024 icons/bish_icon.png --out build/appicon.png
-	$(WAILS) build -platform darwin/universal -ldflags "-X main.version=$(VERSION) -X main.appName=$(APP_NAME) -X main.cliName=$(CLI_NAME) -X 'main.cliDescription=$(CLI_DESC)'"
+	$(WAILS) build -platform darwin/universal -tags "$(TAGS)" -ldflags "-X main.version=$(VERSION) -X main.appName=$(APP_NAME) -X main.cliName=$(CLI_NAME) -X 'main.cliDescription=$(CLI_DESC)'"
 
 install: build
 ifeq ($(UNAME_S),Darwin)
