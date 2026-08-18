@@ -158,6 +158,7 @@
   let saving = $state(false)
   let saveError = $state('')
   let loadError = $state('')
+  let formatError = $state('')
 
   // ─── Cmd+K inline AI edit ───────────────────────────────────────────────
   let inlineEditPopover = $state<{ x: number; y: number; from: number; to: number; text: string } | null>(null)
@@ -581,6 +582,7 @@
     setModified(false)
     saveError = ''
     loadError = ''
+    formatError = ''
     rawMode = false
     rawForceText = false
     preview = false
@@ -722,7 +724,8 @@
   $effect(() => {
     if ($pendingFormatDocument !== path || !view) return
     pendingFormatDocument.set(null)
-    lspFormat(view).then(() => save()).catch(() => {})
+    formatError = ''
+    lspFormat(view).then(() => save()).catch(e => { formatError = String(e?.message ?? e) })
   })
 
   // Reload when path or theme changes. Guard against re-runs where neither
@@ -741,6 +744,7 @@
     if (!view || saving || loadError) return
     saving = true
     saveError = ''
+    formatError = ''
     try {
       if (path === UNTITLED) {
         const dir = get(projectRoot) || get(cwd)
@@ -750,7 +754,7 @@
           setModified(false)
         }
       } else {
-        if (get(formatOnSave)) await lspFormat(view).catch(() => {})
+        if (get(formatOnSave)) await lspFormat(view).catch(e => { formatError = String(e?.message ?? e) })
         await WriteFile(path, view.state.doc.toString())
         setModified(false)
         refreshBlame(view)
@@ -788,12 +792,14 @@
 </script>
 
 <div class="viewer-wrap">
-  {#if saving || saveError}
+  {#if saving || saveError || formatError}
     <div class="status-bar">
       {#if saving}
         <span class="status muted">Saving…</span>
-      {:else}
+      {:else if saveError}
         <span class="status err" title={saveError}>Error saving: {saveError}</span>
+      {:else}
+        <span class="status err" title={formatError}>Format failed: {formatError}</span>
       {/if}
     </div>
   {/if}

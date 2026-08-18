@@ -156,18 +156,25 @@ function release(lang: IntelKind, entry: Entry) {
 
 // Awaitable document formatting. The lib's formatDocument command applies
 // edits async with no completion signal, which would race format-then-write
-// on save. No LSP attached → resolves immediately (no formatter, no-op).
+// on save. No LSP attached (server not installed, or still connecting) →
+// throws rather than silently no-opping, so callers can surface *why*
+// nothing happened instead of leaving the user staring at an unformatted file.
 export async function lspFormat(view: EditorView): Promise<void> {
   const plugin = LSPPlugin.get(view)
-  if (!plugin) return
+  if (!plugin) throw new Error('No language server attached for this file')
   plugin.client.sync()
-  const edits: any[] | null = await (plugin.client as any).request('textDocument/formatting', {
-    textDocument: { uri: plugin.uri },
-    options: {
-      tabSize: getIndentUnit(view.state),
-      insertSpaces: view.state.facet(indentUnit).indexOf('\t') < 0,
-    },
-  }).catch(() => null)
+  let edits: any[] | null
+  try {
+    edits = await (plugin.client as any).request('textDocument/formatting', {
+      textDocument: { uri: plugin.uri },
+      options: {
+        tabSize: getIndentUnit(view.state),
+        insertSpaces: view.state.facet(indentUnit).indexOf('\t') < 0,
+      },
+    })
+  } catch (err: any) {
+    throw new Error(`Format request failed: ${err?.message ?? err}`)
+  }
   if (!edits?.length) return
   view.dispatch({
     changes: edits.map(e => ({
