@@ -22,7 +22,7 @@
   import { GetConfig, NewTerminal, CloseTerminal } from './lib/wails'
   import {
     IconLayoutSidebarRight, IconLayoutSidebarRightFilled,
-    IconLayoutSidebar, IconLayoutSidebarFilled, IconGitBranch,
+    IconLayoutSidebar, IconLayoutSidebarFilled, IconGitBranch, IconFolder,
   } from '@tabler/icons-svelte'
   import CommandPalette from './components/CommandPalette.svelte'
   import ActionPalette from './components/ActionPalette.svelte'
@@ -36,7 +36,7 @@
   import EditShareDialog from './components/EditShareDialog.svelte'
   import WelcomeTour from './components/WelcomeTour.svelte'
   import ShortcutsOverlay from './components/ShortcutsOverlay.svelte'
-  import { OpenProject } from './lib/wails'
+  import { OpenProject, GetRecentProjects, OpenRecentProject, type RecentEntry } from './lib/wails'
   import { projectRoot } from './lib/stores'
   import lightModeIcon from './assets/light_mode.svg'
   import darkModeIcon from './assets/dark_mode.svg'
@@ -61,6 +61,8 @@
   }
   const activeTab = $derived($tabs.find(t => t.id === $activeTabId))
 
+  let recentProjects: RecentEntry[] = $state([])
+
   onMount(() => {
     (async () => {
       await initEvents()
@@ -70,6 +72,8 @@
         if (!cfg?.onboarding_seen && get(tabs).length === 0) showWelcomeTour.set(true)
       } catch {}
     })()
+
+    GetRecentProjects().then(r => { recentProjects = r ?? [] }).catch(() => {})
 
     registerBuiltinCommands()
     applyCustomKeybinds()
@@ -168,6 +172,10 @@
     await OpenProject().catch(() => {})
   }
 
+  async function openRecent(path: string) {
+    await OpenRecentProject(path).catch(() => {})
+  }
+
   function startResize(e: MouseEvent) {
     e.preventDefault()
     const startX = e.clientX
@@ -244,26 +252,40 @@
               <img class="welcome-mark"
                    src={$currentThemeName === 'light' ? lightModeIcon : darkModeIcon}
                    alt="bish" draggable="false" />
-              <div class="welcome-rows">
-                <button class="welcome-row" onclick={openProject}>
-                  <span>Open Project</span>
-                  <span class="keys"><kbd>⌘</kbd><kbd>O</kbd></span>
-                </button>
-                <button class="welcome-row" onclick={() => showPalette.set(true)}>
-                  <span>Go to File</span>
-                  <span class="keys"><kbd>⌘</kbd><kbd>P</kbd></span>
-                </button>
-                <button class="welcome-row" onclick={() => { searchScopeDir.set(null); showGlobalSearch.set(true) }}>
-                  <span>Search in Files</span>
-                  <span class="keys"><kbd>⇧</kbd><kbd>⌘</kbd><kbd>F</kbd></span>
-                </button>
-                <button class="welcome-row" onclick={reopenMainTab}>
-                  <span>Open Terminal</span>
-                  <span class="keys"><kbd>⏎</kbd></span>
-                </button>
-                <button class="welcome-row" onclick={() => showOpenRemote.set(true)}>
-                  <span>Open Remote Folder…</span>
-                </button>
+              <div class="welcome-panels">
+                <div class="welcome-rows">
+                  <button class="welcome-row" onclick={openProject}>
+                    <span>Open Project</span>
+                    <span class="keys"><kbd>⌘</kbd><kbd>O</kbd></span>
+                  </button>
+                  <button class="welcome-row" onclick={() => showPalette.set(true)}>
+                    <span>Go to File</span>
+                    <span class="keys"><kbd>⌘</kbd><kbd>P</kbd></span>
+                  </button>
+                  <button class="welcome-row" onclick={() => { searchScopeDir.set(null); showGlobalSearch.set(true) }}>
+                    <span>Search in Files</span>
+                    <span class="keys"><kbd>⇧</kbd><kbd>⌘</kbd><kbd>F</kbd></span>
+                  </button>
+                  <button class="welcome-row" onclick={reopenMainTab}>
+                    <span>Open Terminal</span>
+                    <span class="keys"><kbd>⏎</kbd></span>
+                  </button>
+                  <button class="welcome-row" onclick={() => showOpenRemote.set(true)}>
+                    <span>Open Remote Folder…</span>
+                  </button>
+                </div>
+                {#if recentProjects.length}
+                  <div class="welcome-divider"></div>
+                  <div class="welcome-recents">
+                    <div class="welcome-recents-title">Recent</div>
+                    {#each recentProjects.slice(0, 5) as entry (entry.path)}
+                      <button class="welcome-row welcome-recent" onclick={() => openRecent(entry.path)} title={entry.path}>
+                        <IconFolder size={13} />
+                        <span class="recent-name">{entry.name}</span>
+                      </button>
+                    {/each}
+                  </div>
+                {/if}
               </div>
             </div>
           {/if}
@@ -496,6 +518,11 @@
     height: 160px;
     opacity: 0.9;
   }
+  .welcome-panels {
+    display: flex;
+    align-items: flex-start;
+    gap: 24px;
+  }
   .welcome-rows {
     display: flex;
     flex-direction: column;
@@ -527,6 +554,36 @@
     background: var(--bg-hover);
     border: 1px solid var(--border);
     color: var(--muted);
+  }
+  .welcome-divider {
+    align-self: stretch;
+    width: 1px;
+    background: var(--border);
+  }
+  .welcome-recents {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 200px;
+    max-width: 260px;
+  }
+  .welcome-recents-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    padding: 4px 8px;
+    opacity: 0.7;
+  }
+  .welcome-recent {
+    justify-content: flex-start;
+    gap: 8px;
+  }
+  .welcome-recent :global(svg) { flex-shrink: 0; opacity: 0.7; }
+  .welcome-recent .recent-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .right-col {
     display: flex;

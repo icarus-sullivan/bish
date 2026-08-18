@@ -8,6 +8,9 @@ on:
         required: true
         type: string
 
+permissions:
+  contents: write
+
 jobs:
   validate:
     runs-on: ubuntu-latest
@@ -104,3 +107,36 @@ jobs:
         with:
           name: bish-${{ inputs.version }}-windows
           path: build/bin/bish.exe
+
+  # needs: build only proceeds once the matrix job as a whole succeeds — the
+  # windows leg's `continue-on-error` above already makes a windows failure
+  # count as success for this purpose, so this job runs whenever mac+linux
+  # (the two legs that actually block) come back clean. If windows failed
+  # partway through its build step, its upload-artifact step above never ran
+  # (steps abort on the first failure within a job), so there's simply no
+  # windows zip to attach below — the release still goes out with what built.
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Package artifacts
+        run: |
+          cd dist
+          (cd bish-${{ inputs.version }}-mac && zip -r ../bish-${{ inputs.version }}-mac.zip bish.app)
+          chmod +x bish-${{ inputs.version }}-linux/bish
+          (cd bish-${{ inputs.version }}-linux && tar czf ../bish-${{ inputs.version }}-linux.tar.gz bish)
+          if [ -d bish-${{ inputs.version }}-windows ]; then
+            (cd bish-${{ inputs.version }}-windows && zip ../bish-${{ inputs.version }}-windows.zip bish.exe)
+          fi
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.version }}
+          name: v${{ inputs.version }}
+          files: |
+            dist/*.zip
+            dist/*.tar.gz

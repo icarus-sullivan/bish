@@ -207,6 +207,7 @@ func run(themeName, shellPath, projectPath, openFilePath string, noRestore, chil
 	a.StartupFile = openFilePath
 	a.MediaBase = startMediaServer()
 	a.NoRestore = noRestore
+	a.ChildWindow.Store(childWindow)
 	globalApp = a
 	a.DockMenuUpdater = func() {
 		projects, _ := project.LoadRecent()
@@ -214,6 +215,8 @@ func run(themeName, shellPath, projectPath, openFilePath string, noRestore, chil
 		setBishDockMenuFromRecents(projects, files)
 	}
 	a.QuitInterceptInstaller = installQuitIntercept
+	a.PromoteInstance = sendPromoteSignal
+	installPromoteHandler(a)
 
 	return wails.Run(&options.App{
 		Menu:   buildMenu(a),

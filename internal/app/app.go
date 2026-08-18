@@ -90,11 +90,20 @@ type App struct {
 	ctx                    context.Context
 	DockMenuUpdater        func()
 	QuitInterceptInstaller func()
-	StartupProject         string
-	StartupFile            string
-	MediaBase              string
-	NoRestore              bool
-	quitRequested          atomic.Bool
+	// PromoteInstance signals another live bish window (by pid) to take
+	// over Dock-icon/menu-bar representation — see Shutdown and
+	// promote_darwin.go.
+	PromoteInstance func(pid int)
+	StartupProject  string
+	StartupFile     string
+	MediaBase       string
+	NoRestore       bool
+	quitRequested   atomic.Bool
+	// ChildWindow is true when this window launched without its own Dock
+	// icon (collapsed under another window's — see launchNewInstance). Flips
+	// to false in place if this window is later promoted to take over Dock
+	// representation, so a *second* handoff still finds the right owner.
+	ChildWindow atomic.Bool
 }
 
 // SetQuitRequested marks that the user chose Quit (vs. closing this window
@@ -147,6 +156,7 @@ func (a *App) Startup(ctx context.Context) {
 		}
 	}
 	_ = runtime.InitializeNotifications(ctx) // no-op error on unsupported platforms, notifications just won't fire
+	project.RegisterInstance(os.Getpid())    //nolint
 	go a.readPTYLoopFor("main", a.shell)
 	go a.pollCWDLoop()
 	go a.pollWLoop()
@@ -192,6 +202,18 @@ func (a *App) restoreSession() {
 }
 
 func (a *App) Shutdown(ctx context.Context) {
+	pid := os.Getpid()
+	project.UnregisterInstance(pid) //nolint
+	// This window owns the Dock icon/menu bar — closing it with other bish
+	// windows still open would otherwise leave the app with no Dock
+	// representation at all (accessory windows never had their own) and no
+	// window able to reliably grab the menu bar. Hand off to another live
+	// window before exiting instead.
+	if !a.ChildWindow.Load() && a.PromoteInstance != nil {
+		if target, ok := project.PickPromotionTarget(pid); ok {
+			a.PromoteInstance(target)
+		}
+	}
 	a.projectMu.Lock()
 	root := a.projectRoot
 	a.projectMu.Unlock()
