@@ -16,7 +16,11 @@ import AssistantPanel from '../components/AssistantPanel.svelte'
 export interface Panel {
   id: string
   title: string
-  icon: Component<any>
+  // @tabler/icons-svelte@3.x ships Svelte 4 class components (SvelteComponentTyped).
+  // Svelte 5 renders them fine via its legacy-compat layer, but they don't
+  // structurally satisfy Svelte 5's function-shaped Component<Props> type —
+  // left untyped rather than fighting the two component shapes.
+  icon: any
   component: Component<any>
   feature?: string  // when set, panel only shows if featureOn(feature)
 }

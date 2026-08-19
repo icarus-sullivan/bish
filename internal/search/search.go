@@ -20,6 +20,33 @@ const maxFileSize = 2 * 1024 * 1024
 
 var skipDirs = tree.SkipDirs
 
+// DefaultMaxWalkDepth is MaxWalkDepth's value until Settings overrides it.
+const DefaultMaxWalkDepth = 40
+
+// MaxWalkDepth bounds recursion in Search/Replace/AllFiles (mainly against
+// symlink cycles now that dirIsDir follows symlinks). A package var rather
+// than a parameter on every call — Settings UI and the assistant's
+// list_files/search_files tools (internal/assistant/tools.go) share the one
+// knob rather than threading it through every signature. Exported so
+// internal/app can apply config.Config.SearchMaxDepth to it on startup and
+// on every SaveConfig.
+var MaxWalkDepth = DefaultMaxWalkDepth
+
+// dirIsDir reports whether entry e (at fullPath) should be walked as a
+// directory. os.DirEntry.IsDir() reflects the dirent's own type and is false
+// for a symlink even when it points at a directory, which silently dropped
+// symlinked dirs from search (opened as a "file", then Scan() failed with
+// EISDIR and produced zero matches) while they still showed up fine in the
+// file tree, whose loadNode re-os.Stats every child. Resolve explicitly so
+// both walkers agree.
+func dirIsDir(e os.DirEntry, fullPath string) bool {
+	if e.Type()&os.ModeSymlink == 0 {
+		return e.IsDir()
+	}
+	info, err := os.Stat(fullPath)
+	return err == nil && info.IsDir()
+}
+
 type Result struct {
 	File string
 	Line int
@@ -117,7 +144,7 @@ func Search(dir, query string, caseSensitive, wholeWord, useRegex bool, include,
 	var results []Result
 	var walk func(d string, depth int)
 	walk = func(d string, depth int) {
-		if depth > 10 || len(results) >= 500 {
+		if depth > MaxWalkDepth || len(results) >= 500 {
 			return
 		}
 		entries, err := os.ReadDir(d)
@@ -131,7 +158,7 @@ func Search(dir, query string, caseSensitive, wholeWord, useRegex bool, include,
 			}
 			fullPath := filepath.Join(d, name)
 			rel := filepath.ToSlash(strings.TrimPrefix(strings.TrimPrefix(fullPath, dir), "/"))
-			if e.IsDir() {
+			if dirIsDir(e, fullPath) {
 				if skipDirs[name] || matchesAny(excludeRe, rel) {
 					continue
 				}
@@ -205,7 +232,7 @@ func Replace(dir, query, replacement string, caseSensitive, wholeWord, useRegex 
 	changed := 0
 	var walk func(d string, depth int) error
 	walk = func(d string, depth int) error {
-		if depth > 10 {
+		if depth > MaxWalkDepth {
 			return nil
 		}
 		entries, err := os.ReadDir(d)
@@ -219,7 +246,7 @@ func Replace(dir, query, replacement string, caseSensitive, wholeWord, useRegex 
 			}
 			fullPath := filepath.Join(d, name)
 			rel := filepath.ToSlash(strings.TrimPrefix(strings.TrimPrefix(fullPath, dir), "/"))
-			if e.IsDir() {
+			if dirIsDir(e, fullPath) {
 				if skipDirs[name] || matchesAny(excludeRe, rel) {
 					continue
 				}
@@ -284,7 +311,7 @@ func AllFiles(root string) []string {
 	var files []string
 	var walk func(dir string, depth int)
 	walk = func(dir string, depth int) {
-		if depth > 10 {
+		if depth > MaxWalkDepth {
 			return
 		}
 		entries, err := os.ReadDir(dir)
@@ -297,7 +324,7 @@ func AllFiles(root string) []string {
 				continue
 			}
 			fullPath := filepath.Join(dir, name)
-			if e.IsDir() {
+			if dirIsDir(e, fullPath) {
 				if skipDirs[name] {
 					continue
 				}

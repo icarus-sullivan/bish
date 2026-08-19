@@ -5,6 +5,7 @@ package main
 // Forward declarations only — definitions live in dock_impl_darwin.go
 void setBishDockMenuC(char** projPaths, char** projNames, int projN,
                        char** filePaths, char** fileNames, int fileN);
+void noteBishRecentDocumentsC(char** paths, int n);
 */
 import "C"
 
@@ -68,6 +69,15 @@ func setBishDockMenuFromRecents(projects []*project.RecentEntry, files []*projec
 	}
 	// setBishDockMenuC converts to NSStrings before dispatch_async, so freeing here is safe.
 	C.setBishDockMenuC(pP, pN, C.int(pn), fP, fN, C.int(fn))
+
+	// Also push into NSDocumentController's recent-documents store so the Dock
+	// icon shows recents even when bish isn't running (see noteBishRecentDocumentsC).
+	notePaths := make([]*C.char, 0, pn+fn)
+	notePaths = append(notePaths, projPaths[:pn]...)
+	notePaths = append(notePaths, filePaths[:fn]...)
+	if len(notePaths) > 0 {
+		C.noteBishRecentDocumentsC((**C.char)(unsafe.Pointer(&notePaths[0])), C.int(len(notePaths)))
+	}
 
 	for i := 0; i < pn; i++ {
 		C.free(unsafe.Pointer(projPaths[i]))

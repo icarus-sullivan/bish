@@ -53,6 +53,7 @@
   aria-label={panel.title}
   tabindex="-1"
 >
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="float-header" onmousedown={startDrag}>
     <panel.icon size={14} />
     <span class="float-title">{panel.title}</span>

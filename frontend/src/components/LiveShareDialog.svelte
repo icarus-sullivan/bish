@@ -17,11 +17,14 @@
       .catch((e: any) => { error = String(e?.message ?? e); loading = false })
   })
 
-  const state = $derived($liveShares.get(terminalId))
+  // named `share`, not `state` — a local var literally named `state` collides
+  // with the `$state` rune (svelte-check misreads `$state(...)` above as
+  // store-auto-subscription of a `state` variable and errors)
+  const share = $derived($liveShares.get(terminalId))
 
   function copyLink() {
-    if (!state) return
-    navigator.clipboard.writeText(state.url)
+    if (!share) return
+    navigator.clipboard.writeText(share.url)
     copied = true
     setTimeout(() => { copied = false }, 1500)
   }
@@ -46,11 +49,11 @@
         <p class="hint">Starting…</p>
       {:else if error}
         <div class="error">{error}</div>
-      {:else if state}
+      {:else if share}
         <label class="field">
           <span class="label">Link — anyone on your local network can open this</span>
           <div class="link-row">
-            <input class="link-input" readonly value={state.url} onclick={(e) => (e.target as HTMLInputElement).select()} />
+            <input class="link-input" readonly value={share.url} onclick={(e) => (e.target as HTMLInputElement).select()} />
             <button class="copy-btn" onclick={copyLink} title="Copy link">
               {#if copied}<IconCheck size={13} />{:else}<IconCopy size={13} />{/if}
             </button>
@@ -58,11 +61,11 @@
         </label>
 
         <div class="guests">
-          <div class="guests-label"><IconUsers size={12} /> Guests ({state.guests.length})</div>
-          {#if state.guests.length === 0}
+          <div class="guests-label"><IconUsers size={12} /> Guests ({share.guests.length})</div>
+          {#if share.guests.length === 0}
             <p class="hint">Nobody's connected yet.</p>
           {:else}
-            {#each state.guests as g (g.id)}
+            {#each share.guests as g (g.id)}
               <div class="guest-row">
                 <span class="guest-name">Guest {g.id}</span>
                 <label class="toggle">

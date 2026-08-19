@@ -31,8 +31,8 @@
 
 <div class="viewer">
   {#if isVideo}
+    <!-- svelte-ignore a11y_media_has_caption -- arbitrary local file, no caption track exists to attach -->
     <video src={videoUrl} controls class="media"></video>
-    <!-- ponytail: no captions for local video -->
   {:else if src}
     <img {src} alt={filename} class="media" />
   {:else}

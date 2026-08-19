@@ -147,6 +147,7 @@ func (a *App) Startup(ctx context.Context) {
 	a.completion.SetConfig(a.cfg.Completion)
 	a.telemetry = telemetry.NewManager()
 	a.telemetry.SetConfig(a.cfg.Telemetry.Enabled, a.cfg.Telemetry.Endpoint)
+	applySearchConfig(a.cfg)
 	a.telemetry.StartLoop(ctx.Done())
 	a.prevProcStatus = map[string]process.Status{}
 	if !a.cfg.BuiltinExtensionsSeeded {
@@ -1376,7 +1377,20 @@ func (a *App) SaveConfig(cfg config.Config) error {
 	a.assistant.SetConfig(cfg.Assistant)
 	a.completion.SetConfig(cfg.Completion)
 	a.telemetry.SetConfig(cfg.Telemetry.Enabled, cfg.Telemetry.Endpoint)
+	applySearchConfig(cfg)
 	return config.Save(cfg)
+}
+
+// applySearchConfig pushes cfg.SearchMaxDepth into the search package's
+// process-wide MaxWalkDepth — shared by the Files panel search, the
+// assistant's list_files/search_files tools, and Replace All, none of which
+// otherwise have a route to per-request config.
+func applySearchConfig(cfg config.Config) {
+	if cfg.SearchMaxDepth > 0 {
+		search.MaxWalkDepth = cfg.SearchMaxDepth
+	} else {
+		search.MaxWalkDepth = search.DefaultMaxWalkDepth
+	}
 }
 
 // ExportSettingsFile writes content (a JSON bundle the frontend builds

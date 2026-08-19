@@ -44,6 +44,10 @@
 
   let { path, tabId }: { path: string; tabId: string } = $props()
 
+  // svelte-ignore non_reactive_update -- only ever read imperatively (plain
+  // functions, bind:this), never inside $derived/$effect, so no reactive
+  // tracking is needed; wrapping in $state() would turn it optional and break
+  // narrowing across the MutationObserver closure in load() below
   let container: HTMLDivElement
   let view: EditorView | null = null
   let panelObserver: MutationObserver | undefined

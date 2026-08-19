@@ -137,6 +137,7 @@
 
 <div class="tabbar">
   {#each $tabs as tab (tab.id)}
+    {@const TabIcon = tabIcon(tab)}
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <div
       class="tab"
@@ -155,7 +156,7 @@
       onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activeTabId.set(tab.id) } }}
       oncontextmenu={(e) => showTabMenu(e, tab)}
     >
-      <svelte:component this={tabIcon(tab)} size={11} />
+      <TabIcon size={11} />
       {#if editingId === tab.id}
         <!-- svelte-ignore a11y_autofocus -->
         <input

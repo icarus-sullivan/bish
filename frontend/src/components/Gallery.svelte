@@ -83,13 +83,13 @@
 
     <div class="viewer">
       {#if isVideo(current)}
+        <!-- svelte-ignore a11y_media_has_caption -- arbitrary local file, no caption track exists to attach -->
         <video src={mediaUrl(current)} autoplay controls class="media"></video>
       {:else if imageSrc}
         <img src={imageSrc} alt={filename} class="media" />
       {:else}
         <div class="loading">Loading…</div>
       {/if}
-      <!-- ponytail: no captions for local video; add track when serving subtitles -->
 
     </div>
 

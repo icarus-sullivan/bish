@@ -236,6 +236,7 @@
     <div class="right-col" style="width:{$rightWidth}px">
       <RightSidebar />
     </div>
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <div class="hsplit-handle"
          onmousedown={startResize}
          role="separator" tabindex="-1"></div>
@@ -317,6 +318,7 @@
     </div>
 
     {#if $showRight && $panelSide === 'right'}
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <div class="hsplit-handle"
          onmousedown={startResize}
          role="separator" tabindex="-1"></div>
@@ -439,7 +441,6 @@
     padding-right: 10px;
   }
   .tb-fill { flex: 1; align-self: stretch; cursor: default; }
-  .ml-auto { margin-left: auto; }
 
   .tb-btn {
     display: flex;
@@ -454,7 +455,6 @@
     transition: color 0.12s, background 0.12s;
   }
   .tb-btn:hover { color: var(--foreground); background: var(--bg-hover); }
-  .tb-btn.active { color: var(--foreground); background: var(--bg-hover); }
 
   .panel-toggles { display: flex; gap: 1px; }
   .panel-toggles.leftside { order: -1; }

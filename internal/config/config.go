@@ -12,6 +12,9 @@ type Config struct {
 	FormatOnSave bool   `json:"format_on_save"`
 	// PanelSide docks the sidebar left or right; empty/"right" = right (default)
 	PanelSide string `json:"panel_side,omitempty"`
+	// SearchMaxDepth caps recursion depth for global search/replace/list-files
+	// (internal/search). 0/unset = search.DefaultMaxWalkDepth.
+	SearchMaxDepth int `json:"search_max_depth,omitempty"`
 	// nil = persist everything (frontend treats missing as true)
 	Persist *PersistConfig `json:"persist,omitempty"`
 	// per-feature toggles; missing key = frontend registry default (features.ts)
