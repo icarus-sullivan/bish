@@ -29,7 +29,7 @@
   import { gitGutter, refreshDiff } from '../lib/gitgutter'
   import { breakpointGutter } from '../lib/breakpointGutter'
   import { testGutter, refreshTests } from '../lib/testGutter'
-  import { lspFormat } from '../lib/lsp'
+  import { formatDocument } from '../lib/formatters'
   import { toast } from '../lib/toast'
   import { registerKeybind } from '../lib/keybinds'
   import { formatOnSave } from '../lib/stores'
@@ -725,7 +725,7 @@
   $effect(() => {
     if ($pendingFormatDocument !== path || !view) return
     pendingFormatDocument.set(null)
-    lspFormat(view).then(() => save()).catch(e =>
+    formatDocument(view, path).then(() => save()).catch(e =>
       toast.error('Format failed', { description: String(e?.message ?? e) }))
   })
 
@@ -753,7 +753,7 @@
           setModified(false)
         }
       } else {
-        if (get(formatOnSave)) await lspFormat(view).catch(e =>
+        if (get(formatOnSave)) await formatDocument(view, path).catch(e =>
           toast.error('Format failed', { description: String(e?.message ?? e) }))
         await WriteFile(path, view.state.doc.toString())
         setModified(false)

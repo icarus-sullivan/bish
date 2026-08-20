@@ -79,25 +79,5 @@ void setBishDockMenuC(char** projPaths, char** projNames, int projN,
         }
     });
 }
-
-// noteBishRecentDocumentsC feeds NSDocumentController's recent-documents
-// store, the OS-persisted list (separate from gDockMenu above) that macOS
-// reads to build the Dock icon's context menu when bish isn't running —
-// gDockMenu only exists in-process, so without this the right-click menu on
-// a quit bish is empty. Called in reverse order so paths[0] (most recent)
-// ends up on top.
-void noteBishRecentDocumentsC(char** paths, int n) {
-    NSMutableArray* pathArr = [NSMutableArray arrayWithCapacity:n];
-    for (int i = 0; i < n; i++) {
-        [pathArr addObject:[NSString stringWithUTF8String:paths[i]]];
-    }
-    dispatch_async(dispatch_get_main_queue(), ^{
-        NSDocumentController* dc = [NSDocumentController sharedDocumentController];
-        for (NSInteger i = (NSInteger)pathArr.count - 1; i >= 0; i--) {
-            NSURL* url = [NSURL fileURLWithPath:pathArr[i]];
-            [dc noteNewRecentDocumentURL:url];
-        }
-    });
-}
 */
 import "C"

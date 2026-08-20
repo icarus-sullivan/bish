@@ -263,6 +263,13 @@ function release(lang: IntelKind, entry: Entry) {
 export async function lspFormat(view: EditorView): Promise<void> {
   const plugin = LSPPlugin.get(view)
   if (!plugin) throw new Error('No language server attached for this file')
+  // Not every server implements formatting (pyright notably doesn't — it's a
+  // type checker, not a formatter). Asking anyway gets back a generic JSON-RPC
+  // "Unhandled method" error; check the advertised capability first so the
+  // failure at least says why.
+  if (!plugin.client.serverCapabilities?.documentFormattingProvider) {
+    throw new Error('This language server does not support formatting')
+  }
   plugin.client.sync()
   let edits: any[] | null
   try {

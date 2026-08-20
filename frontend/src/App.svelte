@@ -36,7 +36,7 @@
   import EditShareDialog from './components/EditShareDialog.svelte'
   import WelcomeTour from './components/WelcomeTour.svelte'
   import ShortcutsOverlay from './components/ShortcutsOverlay.svelte'
-  import { Toaster } from 'svelte-sonner'
+  import Toaster from './components/Toaster.svelte'
   import { OpenProject, GetRecentProjects, OpenRecentProject, type RecentEntry } from './lib/wails'
   import { projectRoot } from './lib/stores'
   import lightModeIcon from './assets/light_mode.svg'
@@ -382,7 +382,7 @@
 
 </div>
 
-<Toaster position="bottom-center" gap={8} closeButton />
+<Toaster />
 
 <style>
   /* ─── design tokens derived from theme vars ─── */
@@ -632,97 +632,4 @@
     font-size: 11px;
     white-space: nowrap;
   }
-
-  /* ─── toasts (svelte-sonner is headless — this is the entire visual layer) ─── */
-  :global([data-sonner-toaster]) {
-    position: fixed;
-    z-index: 9999;
-    display: flex;
-    flex-direction: column-reverse;
-    align-items: center;
-    gap: var(--gap, 8px);
-    width: var(--width, 356px);
-    max-width: calc(100vw - 32px);
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    outline: none;
-    pointer-events: none;
-  }
-  :global([data-sonner-toaster][data-x-position="center"]) { left: 50%; transform: translateX(-50%); }
-  :global([data-sonner-toaster][data-x-position="right"])  { right: var(--offset-right, 24px); }
-  :global([data-sonner-toaster][data-x-position="left"])   { left: var(--offset-left, 24px); }
-  :global([data-sonner-toaster][data-y-position="bottom"]) { bottom: var(--offset-bottom, 24px); }
-  :global([data-sonner-toaster][data-y-position="top"])    { top: var(--offset-top, 24px); }
-
-  :global([data-sonner-toast]) {
-    pointer-events: auto;
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
-    width: 100%;
-    box-sizing: border-box;
-    padding: 10px 12px;
-    border-radius: 8px;
-    background: var(--bg-raised);
-    border: 1px solid var(--border);
-    border-left: 3px solid var(--border);
-    box-shadow: 0 4px 16px var(--shadow-color);
-    color: var(--foreground);
-    font-size: 12.5px;
-    line-height: 1.4;
-    opacity: 0;
-    transform: translateY(8px) scale(0.98);
-    transition: transform 0.15s ease, opacity 0.15s ease;
-  }
-  :global([data-sonner-toast][data-mounted="true"]) { opacity: 1; transform: translateY(0) scale(1); }
-  :global([data-sonner-toast][data-removed="true"])  { opacity: 0; transform: translateY(8px) scale(0.98); }
-
-  :global([data-sonner-toast][data-type="error"])   { border-left-color: var(--error); }
-  :global([data-sonner-toast][data-type="success"]) { border-left-color: var(--success); }
-  :global([data-sonner-toast][data-type="warning"]) { border-left-color: var(--warning); }
-  :global([data-sonner-toast][data-type="loading"]) { border-left-color: var(--accent); }
-
-  :global([data-sonner-toast] [data-content])     { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-  :global([data-sonner-toast] [data-title])       { font-weight: 600; }
-  :global([data-sonner-toast] [data-title]:empty) { display: none; }
-  :global([data-sonner-toast] [data-description]) {
-    color: var(--muted);
-    font-size: 11.5px;
-    white-space: pre-line;
-    word-break: break-word;
-  }
-
-  :global([data-sonner-toast] [data-button]) {
-    align-self: center;
-    flex-shrink: 0;
-    background: none;
-    border: 1px solid var(--border);
-    color: var(--foreground);
-    font-size: 11px;
-    padding: 4px 8px;
-    border-radius: 5px;
-    cursor: pointer;
-    transition: background 0.1s, border-color 0.1s;
-  }
-  :global([data-sonner-toast] [data-button]:hover) { background: var(--bg-hover); border-color: var(--accent); }
-
-  :global([data-sonner-toast] [data-close-button]) {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    align-self: flex-start;
-    flex-shrink: 0;
-    background: none;
-    border: none;
-    color: var(--muted);
-    cursor: pointer;
-    padding: 3px 4px;
-    border-radius: 3px;
-    font-size: 14px;
-    line-height: 1;
-    transition: color 0.1s, background 0.1s;
-  }
-  :global([data-sonner-toast] [data-close-button]:hover) { color: var(--foreground); background: var(--bg-hover); }
-  :global([data-sonner-toast] [data-close-button])::before { content: "\00d7"; }
 </style>
