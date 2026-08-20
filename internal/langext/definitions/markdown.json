@@ -1,0 +1,1 @@
+{ "id": "markdown", "name": "Markdown", "extensions": [".md", ".markdown"], "builtinFormatter": true }

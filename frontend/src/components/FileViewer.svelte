@@ -6,7 +6,7 @@
   import { defaultKeymap, historyKeymap, indentMore, indentLess } from '@codemirror/commands'
   import { search, searchKeymap, getSearchQuery } from '@codemirror/search'
   import { completionKeymap, acceptCompletion } from '@codemirror/autocomplete'
-  import { syntaxHighlighting, HighlightStyle, StreamLanguage } from '@codemirror/language'
+  import { syntaxHighlighting, HighlightStyle, StreamLanguage, LanguageSupport } from '@codemirror/language'
   import { Prec } from '@codemirror/state'
   import { basicSetup } from 'codemirror'
   import { tags as t } from '@lezer/highlight'
@@ -22,6 +22,7 @@
   import { ReadFile, ReadFileChunk, WriteFile, SaveNewFile, mediaUrl } from '../lib/wails'
   import { currentThemeName, cwd, projectRoot, updateTabPath, setTabModified, pendingGoto, pendingFocus, pendingExternalReload, pendingFormatDocument, activeSelection, tabs } from '../lib/stores'
   import { codeIntel, intelKindFor } from '../lib/codeintel'
+  import { defFor, loadLanguage } from '../lib/languageExtensions'
   import { snippets } from '../lib/snippets'
   import { qwenComplete } from '../lib/qwenComplete'
   import { invalidateSymbols } from '../lib/autoimport'
@@ -57,6 +58,19 @@
   // load()'s reactive effects are already fragile (see the guard on
   // lastLoaded below), this must not add another trigger into that path.
   const collabCompartment = new Compartment()
+
+  // langFor() above is the pre-existing statically-bundled grammar set
+  // (js/ts/tsx/jsx/py/css/svelte/html/vue/json/md/yaml/go/sh) — left as-is,
+  // it's already paid for in the bundle. For a langext-registered language
+  // with no entry there (rust/xml/toml/csv today), this Compartment starts
+  // empty and upgrades to the real grammar once its languages/<id>.ts
+  // module resolves, instead of statically importing every CodeMirror
+  // grammar package up front. Note: this only covers syntax highlighting —
+  // codeIntel/snippets/qwenComplete below still key off the *static* `lang`
+  // at mount, so a genuinely new grammar doesn't get live LSP attachment
+  // this same way yet (bash and other already-in-langFor languages are
+  // unaffected — they see the real LanguageSupport immediately).
+  const extLangCompartment = new Compartment()
 
   // keep the tab store in sync so closeTab can guard against losing edits
   function setModified(m: boolean) {
@@ -288,7 +302,11 @@
     if (['md','markdown'].includes(ext))        return markdown()
     if (['yaml','yml'].includes(ext))           return yaml()
     if (ext === 'go')                           return go()
-    if (['sh','bash','zsh','fish'].includes(ext)) return StreamLanguage.define(shell)
+    // wrapped in LanguageSupport (not the bare StreamLanguage) so it passes
+    // codeIntel/snippets/qwenComplete's `instanceof LanguageSupport` gate —
+    // bash now has a registered langext server (bash-language-server), so
+    // this needs to actually reach codeIntel, not just get highlighted.
+    if (['sh','bash','zsh','fish'].includes(ext)) return new LanguageSupport(StreamLanguage.define(shell))
     return []
   }
 
@@ -626,6 +644,7 @@
           highlightFor(themeName),
           indentUnit.of(indent),
           lang,
+          extLangCompartment.of([]),
           ...(featureOn('lsp') ? codeIntel(p, get(projectRoot) || get(cwd), lang, intelKindFor(p)) : []),
           ...(featureOn('snippets') ? snippets(lang, intelKindFor(p)) : []),
           ...(featureOn('qwenComplete') ? qwenComplete(lang, intelKindFor(p)) : []),
@@ -658,6 +677,21 @@
       parent: container,
     })
     reportSelection(view.state)
+
+    // net-new language (not in the static langFor set above): upgrade the
+    // empty extLangCompartment once its grammar module resolves. capturedView
+    // guards against a second load() (path/tab switch) racing this promise.
+    if (Array.isArray(lang) && lang.length === 0) {
+      const def = defFor(p)
+      const capturedView = view
+      if (def) {
+        loadLanguage(def.id).then(mod => {
+          if (mod.grammar && view === capturedView) {
+            view.dispatch({ effects: extLangCompartment.reconfigure(new LanguageSupport(mod.grammar())) })
+          }
+        })
+      }
+    }
 
     panelObserver?.disconnect()
     panelObserver = new MutationObserver(() => { if (!panelPatching) patchSearchPanel(container) })

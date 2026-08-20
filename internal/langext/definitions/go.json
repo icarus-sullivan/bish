@@ -1,0 +1,9 @@
+{
+  "id": "go",
+  "name": "Go",
+  "extensions": [".go"],
+  "server": {
+    "candidates": [["gopls"]],
+    "install": ["go", "install", "golang.org/x/tools/gopls@latest"]
+  }
+}

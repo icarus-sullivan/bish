@@ -1,0 +1,13 @@
+{
+  "id": "svelte",
+  "name": "Svelte",
+  "extensions": [".svelte"],
+  "server": {
+    "candidates": [["svelteserver", "--stdio"]],
+    "install": ["pnpm", "add", "-g", "svelte-language-server"]
+  },
+  "formatter": {
+    "candidates": [["prettier", "--plugin", "prettier-plugin-svelte", "--stdin-filepath", "{path}"]],
+    "install": ["pnpm", "add", "-g", "prettier", "prettier-plugin-svelte"]
+  }
+}

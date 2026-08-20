@@ -152,6 +152,54 @@ export namespace app {
 	        this.pkg = source["pkg"];
 	    }
 	}
+	export class LanguageExtensionDTO {
+	    id: string;
+	    name: string;
+	    extensions: string[];
+	    languageIds?: Record<string, string>;
+	    server?: langext.ProcessDef;
+	    formatter?: langext.ProcessDef;
+	    builtinFormatter?: boolean;
+	    serverInstalled: boolean;
+	    formatterInstalled: boolean;
+	    override: config.LanguageOverride;
+
+	    static createFrom(source: any = {}) {
+	        return new LanguageExtensionDTO(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.extensions = source["extensions"];
+	        this.languageIds = source["languageIds"];
+	        this.server = this.convertValues(source["server"], langext.ProcessDef);
+	        this.formatter = this.convertValues(source["formatter"], langext.ProcessDef);
+	        this.builtinFormatter = source["builtinFormatter"];
+	        this.serverInstalled = source["serverInstalled"];
+	        this.formatterInstalled = source["formatterInstalled"];
+	        this.override = this.convertValues(source["override"], config.LanguageOverride);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class OutlineSym {
 	    name: string;
 	    kind: string;
@@ -371,6 +419,34 @@ export namespace config {
 	        this.warning = source["warning"];
 	    }
 	}
+	export class LanguageOverride {
+	    server_path?: string;
+	    server_args?: string[];
+	    disable_server?: boolean;
+	    formatter_path?: string;
+	    formatter_args?: string[];
+	    disable_formatter?: boolean;
+	    format_on_save?: boolean;
+	    indent_size?: number;
+	    indent_style?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new LanguageOverride(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.server_path = source["server_path"];
+	        this.server_args = source["server_args"];
+	        this.disable_server = source["disable_server"];
+	        this.formatter_path = source["formatter_path"];
+	        this.formatter_args = source["formatter_args"];
+	        this.disable_formatter = source["disable_formatter"];
+	        this.format_on_save = source["format_on_save"];
+	        this.indent_size = source["indent_size"];
+	        this.indent_style = source["indent_style"];
+	    }
+	}
 	export class Snippet {
 	    lang: string;
 	    label: string;
@@ -438,7 +514,8 @@ export namespace config {
 	    custom_themes?: Record<string, CustomTheme>;
 	    onboarding_seen?: boolean;
 	    builtin_extensions_seeded?: boolean;
-	
+	    languages?: Record<string, LanguageOverride>;
+
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
 	    }
@@ -461,6 +538,7 @@ export namespace config {
 	        this.custom_themes = this.convertValues(source["custom_themes"], CustomTheme, true);
 	        this.onboarding_seen = source["onboarding_seen"];
 	        this.builtin_extensions_seeded = source["builtin_extensions_seeded"];
+	        this.languages = this.convertValues(source["languages"], LanguageOverride, true);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -487,8 +565,29 @@ export namespace config {
 
 }
 
+export namespace langext {
+
+	export class ProcessDef {
+	    candidates: string[][];
+	    install?: string[];
+	    installHint?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ProcessDef(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.candidates = source["candidates"];
+	        this.install = source["install"];
+	        this.installHint = source["installHint"];
+	    }
+	}
+
+}
+
 export namespace liveshare {
-	
+
 	export class GuestInfo {
 	    id: string;
 	    canType: boolean;

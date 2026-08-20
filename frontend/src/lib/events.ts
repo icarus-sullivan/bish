@@ -11,6 +11,7 @@ import { get } from 'svelte/store'
 import { loadFeatures } from './features'
 import { setUserSnippets } from './snippets'
 import { loadExtensions } from './extensions'
+import { loadLanguageExtensions } from './languageExtensions'
 import { OnFileDrop } from '../../wailsjs/runtime/runtime'
 
 export async function initEvents() {
@@ -24,6 +25,9 @@ export async function initEvents() {
   panelSide.set(cfg?.panel_side === 'left' ? 'left' : 'right')
   loadFeatures(cfg?.features)
   setUserSnippets(cfg?.snippets)
+  // awaited: FileViewer's langFor/formatDocument/codeIntel all depend on
+  // this registry being populated before the first editor mounts
+  await loadLanguageExtensions()
 
   // Load initial data
   const [procs, cmds, nodes, t, initialCwd, root, pcmds, tasks, remote, startupFile] = await Promise.all([

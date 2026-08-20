@@ -84,6 +84,12 @@ export function FileOutline(arg1:string):Promise<Array<app.OutlineSym>>;
 
 export function FileTests(arg1:string):Promise<Array<app.GoTest>>;
 
+export function FormatWithExtension(arg1:string,arg2:string,arg3:string):Promise<string>;
+
+export function FormatterInstall(arg1:string):Promise<void>;
+
+export function FormatterInstalled(arg1:string):Promise<boolean>;
+
 export function GetAllFiles(arg1:string):Promise<Array<string>>;
 
 export function GetCWD():Promise<string>;
@@ -101,6 +107,8 @@ export function GetExtensions():Promise<Array<app.ExtensionDTO>>;
 export function GetGalleryImages(arg1:string):Promise<Array<string>>;
 
 export function GetGoTests(arg1:string):Promise<Array<app.GoTest>>;
+
+export function GetLanguageOverride(arg1:string):Promise<config.LanguageOverride>;
 
 export function GetLiveShareGuests(arg1:string):Promise<Array<liveshare.GuestInfo>>;
 
@@ -170,6 +178,8 @@ export function IsVideo(arg1:string):Promise<boolean>;
 
 export function KillProcess(arg1:string):Promise<void>;
 
+export function ListLanguageExtensions():Promise<Array<app.LanguageExtensionDTO>>;
+
 export function LSPInstall(arg1:string):Promise<void>;
 
 export function LSPInstalled(arg1:string):Promise<boolean>;
@@ -237,6 +247,8 @@ export function SearchInFiles(arg1:string,arg2:string,arg3:boolean,arg4:boolean,
 export function SetEditShareGuestPermission(arg1:string,arg2:string,arg3:boolean):Promise<void>;
 
 export function SetExtensionEnabled(arg1:string,arg2:boolean):Promise<void>;
+
+export function SetLanguageOverride(arg1:string,arg2:config.LanguageOverride):Promise<void>;
 
 export function SetLiveShareGuestPermission(arg1:string,arg2:string,arg3:boolean):Promise<void>;
 

@@ -2,16 +2,20 @@ import type { Extension } from '@codemirror/state'
 import { LanguageSupport } from '@codemirror/language'
 import { autoImportSource } from './autoimport'
 import { lspOrFallback } from './lsp'
+import { defFor } from './languageExtensions'
 
-export type IntelKind = 'go' | 'js' | 'py' | 'svelte'
+// Was a 4-value union (go/js/py/svelte); widened to string now that
+// languages are a registry (internal/langext) rather than a hardcoded list.
+// Callers that switch on specific literals (snippets.ts, autoimport.ts) are
+// Record-lookup based already, so this loosening is source-compatible.
+export type IntelKind = string
 
+// A language only has an IntelKind (i.e. gets an LSP attachment) if its
+// Definition declares a server — data/markup-only languages (json, xml, ...)
+// return null here same as an unrecognized extension.
 export function intelKindFor(path: string): IntelKind | null {
-  const ext = path.split('.').pop()?.toLowerCase() ?? ''
-  if (ext === 'go') return 'go'
-  if (['js', 'mjs', 'cjs', 'ts', 'tsx', 'jsx'].includes(ext)) return 'js'
-  if (ext === 'py') return 'py'
-  if (ext === 'svelte') return 'svelte' // own kind: the js server must not didOpen .svelte
-  return null
+  const def = defFor(path)
+  return def?.server ? def.id : null
 }
 
 // Single seam for editor intelligence. Editors mount with the heuristic

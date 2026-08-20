@@ -33,6 +33,26 @@ type Config struct {
 	// write-once — once true, a user who uninstalls a bundled extension
 	// won't have it silently reappear on the next launch.
 	BuiltinExtensionsSeeded bool `json:"builtin_extensions_seeded,omitempty"`
+	// per-language overrides, keyed by internal/langext Definition.ID;
+	// missing key = defaults from that language's own manifest.
+	Languages map[string]LanguageOverride `json:"languages,omitempty"`
+}
+
+// LanguageOverride is a user's per-language customization of a langext
+// Definition — a custom binary path/args, disabling the server or formatter
+// outright, or overriding format-on-save/indent for just this language.
+// Missing/zero fields mean "use the language's own defaults."
+type LanguageOverride struct {
+	ServerPath       string   `json:"server_path,omitempty"`
+	ServerArgs       []string `json:"server_args,omitempty"`
+	DisableServer    bool     `json:"disable_server,omitempty"`
+	FormatterPath    string   `json:"formatter_path,omitempty"`
+	FormatterArgs    []string `json:"formatter_args,omitempty"`
+	DisableFormatter bool     `json:"disable_formatter,omitempty"`
+	// nil = use the global cfg.FormatOnSave
+	FormatOnSave *bool  `json:"format_on_save,omitempty"`
+	IndentSize   int    `json:"indent_size,omitempty"`
+	IndentStyle  string `json:"indent_style,omitempty"` // "" | "tab" | "spaces"
 }
 
 // NotificationsEnabled applies the nil-means-on convention.

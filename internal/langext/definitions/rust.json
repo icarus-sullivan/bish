@@ -1,0 +1,13 @@
+{
+  "id": "rust",
+  "name": "Rust",
+  "extensions": [".rs"],
+  "server": {
+    "candidates": [["rust-analyzer"]],
+    "install": ["rustup", "component", "add", "rust-analyzer"]
+  },
+  "formatter": {
+    "candidates": [["rustfmt", "--emit", "stdout"]],
+    "install": ["rustup", "component", "add", "rustfmt"]
+  }
+}

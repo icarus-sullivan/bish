@@ -9,11 +9,13 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/csullivan/bish/internal/config"
+	"github.com/csullivan/bish/internal/langext"
 )
 
 // maxMessage caps a single Content-Length body; a server sending more is
@@ -23,75 +25,6 @@ const maxMessage = 16 << 20
 // maxServers caps concurrent language servers. ponytail: LRU-evict the
 // least-recently-used server past 2; raise if trilingual projects hurt.
 const maxServers = 2
-
-// serverCmds maps lang → candidate commands, first found on PATH wins.
-var serverCmds = map[string][][]string{
-	"go":     {{"gopls"}},
-	"js":     {{"typescript-language-server", "--stdio"}},
-	"py":     {{"pyright-langserver", "--stdio"}, {"pylsp"}},
-	"svelte": {{"svelteserver", "--stdio"}},
-}
-
-// installCmds maps lang → the command that installs its first serverCmds
-// candidate. JS-family servers go through pnpm, never npm.
-var installCmds = map[string][]string{
-	"go":     {"go", "install", "golang.org/x/tools/gopls@latest"},
-	"js":     {"pnpm", "add", "-g", "typescript-language-server", "typescript"},
-	"py":     {"pnpm", "add", "-g", "pyright"},
-	"svelte": {"pnpm", "add", "-g", "svelte-language-server"},
-}
-
-var fixPathOnce sync.Once
-
-// fixPath augments the process PATH with the user's login-shell PATH. A GUI-
-// launched app (double-clicked .app, no parent terminal) inherits launchd's
-// bare PATH; nvm/pnpm/goenv shims that only land on PATH once .zshrc/.zprofile
-// run are otherwise invisible to exec.LookPath and to every spawned command
-// (server binaries and their installers alike). Best-effort and cached for
-// the process lifetime; any failure just leaves the inherited PATH in place.
-func fixPath() {
-	fixPathOnce.Do(func() {
-		if runtime.GOOS == "windows" {
-			return
-		}
-		shell := os.Getenv("SHELL")
-		if shell == "" {
-			shell = "/bin/zsh"
-		}
-		const startMarker, endMarker = "__BISH_PATH_START__", "__BISH_PATH_END__"
-		cmd := exec.Command(shell, "-ilc", "echo "+startMarker+"$PATH"+endMarker)
-		out, err := cmd.Output()
-		if err != nil {
-			return
-		}
-		s := string(out)
-		start := strings.Index(s, startMarker)
-		end := strings.Index(s, endMarker)
-		if start == -1 || end == -1 || end < start {
-			return
-		}
-		shellPath := strings.TrimSpace(s[start+len(startMarker) : end])
-		if shellPath == "" {
-			return
-		}
-		os.Setenv("PATH", mergePath(os.Getenv("PATH"), shellPath))
-	})
-}
-
-// mergePath unions two PATH strings, preserving first-seen order and
-// dropping duplicates (current PATH wins ties over the shell-derived one).
-func mergePath(current, extra string) string {
-	seen := make(map[string]bool)
-	var parts []string
-	for _, p := range append(strings.Split(current, ":"), strings.Split(extra, ":")...) {
-		if p == "" || seen[p] {
-			continue
-		}
-		seen[p] = true
-		parts = append(parts, p)
-	}
-	return strings.Join(parts, ":")
-}
 
 type server struct {
 	cmd      *exec.Cmd
@@ -103,11 +36,12 @@ type server struct {
 }
 
 type Manager struct {
-	mu       sync.Mutex
-	servers  map[string]*server
-	fails    map[string]int
-	lastFail map[string]time.Time
-	emit     func(event string, data ...interface{})
+	mu        sync.Mutex
+	servers   map[string]*server
+	fails     map[string]int
+	lastFail  map[string]time.Time
+	emit      func(event string, data ...interface{})
+	overrides map[string]config.LanguageOverride
 }
 
 func NewManager(emit func(string, ...interface{})) *Manager {
@@ -119,6 +53,34 @@ func NewManager(emit func(string, ...interface{})) *Manager {
 	}
 }
 
+// SetOverrides installs the user's per-language customizations (custom
+// binary path/args, or disabling a server outright) — see
+// internal/config.LanguageOverride. Called from App.Startup/SaveConfig,
+// same pattern as completion.Manager.SetConfig.
+func (m *Manager) SetOverrides(o map[string]config.LanguageOverride) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.overrides = o
+}
+
+// candidatesLocked returns the argv's to try for lang's server, honoring a
+// user override (custom path wins outright, disable yields none).
+func (m *Manager) candidatesLocked(lang string) [][]string {
+	if ov, ok := m.overrides[lang]; ok {
+		if ov.DisableServer {
+			return nil
+		}
+		if ov.ServerPath != "" {
+			return [][]string{append([]string{ov.ServerPath}, ov.ServerArgs...)}
+		}
+	}
+	def, ok := langext.Get(lang)
+	if !ok || def.Server == nil {
+		return nil
+	}
+	return def.Server.Candidates
+}
+
 // Start lazily spawns the server for lang rooted at root. Returns false when
 // no server is installed, LSP is disabled, or the lang is in crash backoff.
 // Idempotent per (lang, root); a different root kills and respawns.
@@ -126,7 +88,7 @@ func (m *Manager) Start(lang, root string) bool {
 	if os.Getenv("BISH_NO_LSP") != "" {
 		return false
 	}
-	fixPath()
+	langext.FixPath()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if s := m.servers[lang]; s != nil {
@@ -142,7 +104,7 @@ func (m *Manager) Start(lang, root string) bool {
 		m.fails[lang] = 0
 	}
 	var argv []string
-	for _, c := range serverCmds[lang] {
+	for _, c := range m.candidatesLocked(lang) {
 		if _, err := exec.LookPath(c[0]); err == nil {
 			argv = c
 			break
@@ -178,8 +140,11 @@ func (m *Manager) Start(lang, root string) bool {
 // without spawning anything — lets the frontend tell "not installed" apart
 // from other Start failures (e.g. crash backoff) before offering to install.
 func (m *Manager) Installed(lang string) bool {
-	fixPath()
-	for _, c := range serverCmds[lang] {
+	langext.FixPath()
+	m.mu.Lock()
+	candidates := m.candidatesLocked(lang)
+	m.mu.Unlock()
+	for _, c := range candidates {
 		if _, err := exec.LookPath(c[0]); err == nil {
 			return true
 		}
@@ -192,47 +157,14 @@ func (m *Manager) Installed(lang string) bool {
 // frontend can show progress. The installer itself (go/pnpm) must already be
 // on PATH.
 func (m *Manager) Install(lang string) error {
-	argv, ok := installCmds[lang]
-	if !ok {
+	def, ok := langext.Get(lang)
+	if !ok || def.Server == nil || len(def.Server.Install) == 0 {
 		return fmt.Errorf("lsp: no installer for %s", lang)
 	}
-	fixPath()
-	if _, err := exec.LookPath(argv[0]); err != nil {
-		return fmt.Errorf("%s not found on PATH", argv[0])
-	}
-	cmd := exec.Command(argv[0], argv[1:]...)
-	pr, pw := io.Pipe()
-	cmd.Stdout = pw
-	cmd.Stderr = pw
-	if err := cmd.Start(); err != nil {
-		pw.Close()
-		return err
-	}
-	done := make(chan error, 1)
-	go func() {
-		done <- cmd.Wait()
-		pw.Close()
-	}()
-	sc := bufio.NewScanner(pr)
-	sc.Buffer(make([]byte, 4<<10), 1<<20)
-	var lastLine string
-	for sc.Scan() {
-		line := sc.Text()
-		if strings.TrimSpace(line) != "" {
-			lastLine = line
-		}
+	langext.FixPath()
+	return langext.RunInstaller(def.Server.Install, func(line string) {
 		m.emit("lsp:install-output:"+lang, line)
-	}
-	// cmd.Wait()'s error is just "exit status 1" — the actual reason (e.g.
-	// pnpm's ERR_PNPM_NO_GLOBAL_BIN_DIR) only exists in the output stream
-	// above, so fold the last non-blank line into it for the caller.
-	if err := <-done; err != nil {
-		if lastLine != "" {
-			return fmt.Errorf("%s: %s", lastLine, err)
-		}
-		return err
-	}
-	return nil
+	})
 }
 
 // Send frames msg with a Content-Length header and writes it to the server.

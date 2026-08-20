@@ -154,6 +154,18 @@ export function FileTests(arg1) {
   return window['go']['app']['App']['FileTests'](arg1);
 }
 
+export function FormatWithExtension(arg1, arg2, arg3) {
+  return window['go']['app']['App']['FormatWithExtension'](arg1, arg2, arg3);
+}
+
+export function FormatterInstall(arg1) {
+  return window['go']['app']['App']['FormatterInstall'](arg1);
+}
+
+export function FormatterInstalled(arg1) {
+  return window['go']['app']['App']['FormatterInstalled'](arg1);
+}
+
 export function GetAllFiles(arg1) {
   return window['go']['app']['App']['GetAllFiles'](arg1);
 }
@@ -188,6 +200,10 @@ export function GetGalleryImages(arg1) {
 
 export function GetGoTests(arg1) {
   return window['go']['app']['App']['GetGoTests'](arg1);
+}
+
+export function GetLanguageOverride(arg1) {
+  return window['go']['app']['App']['GetLanguageOverride'](arg1);
 }
 
 export function GetLiveShareGuests(arg1) {
@@ -326,6 +342,10 @@ export function KillProcess(arg1) {
   return window['go']['app']['App']['KillProcess'](arg1);
 }
 
+export function ListLanguageExtensions() {
+  return window['go']['app']['App']['ListLanguageExtensions']();
+}
+
 export function LSPInstall(arg1) {
   return window['go']['app']['App']['LSPInstall'](arg1);
 }
@@ -460,6 +480,10 @@ export function SetEditShareGuestPermission(arg1, arg2, arg3) {
 
 export function SetExtensionEnabled(arg1, arg2) {
   return window['go']['app']['App']['SetExtensionEnabled'](arg1, arg2);
+}
+
+export function SetLanguageOverride(arg1, arg2) {
+  return window['go']['app']['App']['SetLanguageOverride'](arg1, arg2);
 }
 
 export function SetLiveShareGuestPermission(arg1, arg2, arg3) {

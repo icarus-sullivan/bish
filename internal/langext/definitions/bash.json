@@ -1,0 +1,14 @@
+{
+  "id": "bash",
+  "name": "Shell",
+  "extensions": [".sh", ".bash"],
+  "languageIds": { ".sh": "shellscript", ".bash": "shellscript" },
+  "server": {
+    "candidates": [["bash-language-server", "start"]],
+    "install": ["pnpm", "add", "-g", "bash-language-server"]
+  },
+  "formatter": {
+    "candidates": [["shfmt"]],
+    "install": ["go", "install", "mvdan.cc/sh/v3/cmd/shfmt@latest"]
+  }
+}

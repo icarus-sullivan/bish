@@ -25,6 +25,7 @@ import (
 	"github.com/csullivan/bish/internal/config"
 	"github.com/csullivan/bish/internal/dap"
 	"github.com/csullivan/bish/internal/extensions"
+	"github.com/csullivan/bish/internal/langext"
 	"github.com/csullivan/bish/internal/liveshare"
 	"github.com/csullivan/bish/internal/lsp"
 	"github.com/csullivan/bish/internal/process"
@@ -80,6 +81,7 @@ type App struct {
 	projectMu              sync.Mutex
 	remoteDest             string // "" = local project; else an SSH destination ("user@host")
 	lsp                    *lsp.Manager
+	langextFormatter       *langext.FormatterManager
 	dap                    *dap.Manager
 	liveShare              *liveshare.Manager
 	assistant              *assistant.Manager
@@ -134,6 +136,11 @@ func (a *App) Startup(ctx context.Context) {
 	a.lsp = lsp.NewManager(func(event string, data ...interface{}) {
 		runtime.EventsEmit(a.ctx, event, data...)
 	})
+	a.lsp.SetOverrides(a.cfg.Languages)
+	a.langextFormatter = langext.NewFormatterManager(func(event string, data ...interface{}) {
+		runtime.EventsEmit(a.ctx, event, data...)
+	})
+	a.langextFormatter.SetOverrides(a.cfg.Languages)
 	a.dap = dap.NewManager(func(event string, data ...interface{}) {
 		runtime.EventsEmit(a.ctx, event, data...)
 	})
@@ -1215,6 +1222,70 @@ func (a *App) LSPStop(lang string) {
 	a.lsp.Stop(lang)
 }
 
+// -- Language extensions (internal/langext) --
+
+// LanguageExtensionDTO adds install status + the user's saved override to a
+// langext.Definition, for the Languages panel.
+type LanguageExtensionDTO struct {
+	langext.Definition
+	ServerInstalled    bool                    `json:"serverInstalled"`
+	FormatterInstalled bool                    `json:"formatterInstalled"`
+	Override           config.LanguageOverride `json:"override"`
+}
+
+// ListLanguageExtensions returns every registered language with its current
+// install status and saved override — the single source the frontend fetches
+// once at startup instead of hardcoding per-language maps of its own.
+func (a *App) ListLanguageExtensions() []LanguageExtensionDTO {
+	defs := langext.All()
+	out := make([]LanguageExtensionDTO, len(defs))
+	for i, d := range defs {
+		out[i] = LanguageExtensionDTO{
+			Definition:         d,
+			ServerInstalled:    d.Server != nil && a.lsp.Installed(d.ID),
+			FormatterInstalled: d.Formatter != nil && a.langextFormatter.Installed(d.ID),
+			Override:           a.cfg.Languages[d.ID],
+		}
+	}
+	return out
+}
+
+// FormatterInstalled reports whether id's dedicated formatter binary is on
+// PATH, with no side effects.
+func (a *App) FormatterInstalled(id string) bool {
+	return a.langextFormatter.Installed(id)
+}
+
+// FormatterInstall runs id's formatter installer, streaming progress as
+// langext:formatter-install-output:<id> events.
+func (a *App) FormatterInstall(id string) error {
+	return a.langextFormatter.Install(id)
+}
+
+// FormatWithExtension runs id's dedicated formatter (a one-shot
+// stdin→stdout subprocess, not the LSP server) over content and returns the
+// formatted result.
+func (a *App) FormatWithExtension(id, path, content string) (string, error) {
+	return a.langextFormatter.Format(id, path, content)
+}
+
+// GetLanguageOverride returns id's saved override (zero value = defaults).
+func (a *App) GetLanguageOverride(id string) config.LanguageOverride {
+	return a.cfg.Languages[id]
+}
+
+// SetLanguageOverride persists id's override and immediately propagates it
+// to the server/formatter managers via the same path SaveConfig already
+// uses for every other per-feature config.
+func (a *App) SetLanguageOverride(id string, ov config.LanguageOverride) error {
+	cfg := a.cfg
+	if cfg.Languages == nil {
+		cfg.Languages = map[string]config.LanguageOverride{}
+	}
+	cfg.Languages[id] = ov
+	return a.SaveConfig(cfg)
+}
+
 // -- Debugger (DAP) methods --
 
 // DebugStart spawns `dlv dap` rooted at root and runs the launch handshake,
@@ -1376,6 +1447,8 @@ func (a *App) SaveConfig(cfg config.Config) error {
 	runtime.EventsEmit(a.ctx, "theme:update", th)
 	a.assistant.SetConfig(cfg.Assistant)
 	a.completion.SetConfig(cfg.Completion)
+	a.lsp.SetOverrides(cfg.Languages)
+	a.langextFormatter.SetOverrides(cfg.Languages)
 	a.telemetry.SetConfig(cfg.Telemetry.Enabled, cfg.Telemetry.Endpoint)
 	applySearchConfig(cfg)
 	return config.Save(cfg)

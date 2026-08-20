@@ -1,0 +1,1 @@
+{ "id": "toml", "name": "TOML", "extensions": [".toml"], "builtinFormatter": true }

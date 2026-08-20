@@ -1,6 +1,6 @@
 import type { Component } from 'svelte'
 import { IconFolder, IconGitBranch, IconActivity, IconBookmark } from '@tabler/icons-svelte'
-import { IconListSearch, IconSparkles, IconAlertTriangle, IconBug, IconFlask, IconPuzzle } from '@tabler/icons-svelte'
+import { IconListSearch, IconSparkles, IconAlertTriangle, IconBug, IconFlask, IconPuzzle, IconCode } from '@tabler/icons-svelte'
 import FileTree from '../components/FileTree.svelte'
 import GitPanel from '../components/GitPanel.svelte'
 import ProcessList from '../components/ProcessList.svelte'
@@ -10,6 +10,7 @@ import Problems from '../components/Problems.svelte'
 import DebugPanel from '../components/DebugPanel.svelte'
 import Tests from '../components/Tests.svelte'
 import ExtensionsPanel from '../components/ExtensionsPanel.svelte'
+import LanguagesPanel from '../components/LanguagesPanel.svelte'
 import AssistantPanel from '../components/AssistantPanel.svelte'
 
 // The built-in "plugin" registry: a future plugin API pushes onto this array.
@@ -37,6 +38,7 @@ export const panels: Panel[] = [
   // to become a store RightSidebar reacts to, deferred until there's real
   // extension usage to justify it
   { id: 'extensions', title: 'Extensions', icon: IconPuzzle, component: ExtensionsPanel, feature: 'extensions' },
+  { id: 'languages', title: 'Languages', icon: IconCode, component: LanguagesPanel, feature: 'languageExtensions' },
   { id: 'assistant', title: 'Assistant', icon: IconSparkles, component: AssistantPanel, feature: 'assistant' },
   // panels stay mounted (display:none) when inactive, and processes run in the
   // Go backend anyway — switching/hiding never kills a running process

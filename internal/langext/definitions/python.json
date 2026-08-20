@@ -1,0 +1,14 @@
+{
+  "id": "py",
+  "name": "Python",
+  "extensions": [".py", ".pyi"],
+  "languageIds": { ".py": "python", ".pyi": "python" },
+  "server": {
+    "candidates": [["pyright-langserver", "--stdio"], ["pylsp"]],
+    "install": ["pnpm", "add", "-g", "pyright"]
+  },
+  "formatter": {
+    "candidates": [["ruff", "format", "--stdin-filename", "{path}", "-"], ["black", "-q", "-"]],
+    "install": ["pipx", "install", "ruff"]
+  }
+}

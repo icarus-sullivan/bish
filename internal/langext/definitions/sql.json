@@ -1,0 +1,1 @@
+{ "id": "sql", "name": "SQL", "extensions": [".sql"], "builtinFormatter": true }

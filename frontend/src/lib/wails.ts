@@ -26,6 +26,8 @@ export {
   SearchInFiles, ReplaceInFiles,
   GetProjectSymbols,
   LSPStart, LSPSend, LSPStop, LSPInstalled, LSPInstall,
+  ListLanguageExtensions, FormatterInstalled, FormatterInstall, FormatWithExtension,
+  GetLanguageOverride, SetLanguageOverride,
   DebugStart, DebugSetBreakpoints, DebugContinue, DebugStepOver, DebugStepIn, DebugStepOut, DebugStop,
   AssistantStart, AssistantSend, AssistantRespondPermission, AssistantStop, AssistantInterrupt, AssistantSwitchMode, AssistantPickFiles,
   OllamaListModels,
@@ -76,6 +78,19 @@ export interface Extension {
   commands?: ExtContribution[]; panels?: ExtContribution[]
 }
 export interface GitStatusDTO { branch: string; files: GitFileStatus[] }
+export interface ProcessDef { candidates: string[][]; install?: string[]; installHint?: string }
+export interface LanguageOverride {
+  server_path?: string; server_args?: string[]; disable_server?: boolean
+  formatter_path?: string; formatter_args?: string[]; disable_formatter?: boolean
+  format_on_save?: boolean; indent_size?: number; indent_style?: string
+}
+export interface LanguageExtensionDTO {
+  id: string; name: string; extensions: string[]
+  languageIds?: Record<string, string>
+  server?: ProcessDef; formatter?: ProcessDef; builtinFormatter?: boolean
+  serverInstalled: boolean; formatterInstalled: boolean
+  override: LanguageOverride
+}
 export interface LiveShareGuest { id: string; canType: boolean }
 export interface TreeNode {
   name: string; path: string; isDir: boolean; depth: number

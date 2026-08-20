@@ -12,23 +12,11 @@ import { writable, get } from 'svelte/store'
 import { LSPStart, LSPSend, LSPStop, LSPInstalled, LSPInstall, on } from './wails'
 import { openFileTab } from './stores'
 import type { IntelKind } from './codeintel'
+import { languageIdFor, loadLanguageExtensions } from './languageExtensions'
 import { recordDiagnostics, clearDiagnostics } from './diagnostics'
 import { toast } from './toast'
 
 const IDLE_SHUTDOWN_MS = 5 * 60_000
-
-function languageIdFor(path: string): string {
-  const ext = path.split('.').pop()?.toLowerCase() ?? ''
-  switch (ext) {
-    case 'go': return 'go'
-    case 'py': return 'python'
-    case 'ts': return 'typescript'
-    case 'tsx': return 'typescriptreact'
-    case 'jsx': return 'javascriptreact'
-    case 'svelte': return 'svelte'
-    default: return 'javascript'
-  }
-}
 
 function wailsTransport(lang: IntelKind): Transport {
   const handlers = new Set<(v: string) => void>()
@@ -167,6 +155,7 @@ export async function installServer(kind: IntelKind) {
     })
     toast.success(`${kind} language server installed`, { id, description: undefined, duration: 3000 })
     retryAttach(kind)
+    loadLanguageExtensions() // refresh the Languages panel's install-status pill
   } catch (err: any) {
     off()
     const message = String(err?.message ?? err)
@@ -178,16 +167,24 @@ export async function installServer(kind: IntelKind) {
   }
 }
 
-for (const lang of ['go', 'js', 'py', 'svelte'] as IntelKind[]) {
-  on('lsp:down:' + lang, () => dropClient(lang))
-}
 on('project:change', () => {
   // backend already killed the servers; drop stale protocol state
   for (const lang of [...clients.keys()]) dropClient(lang)
   clearDiagnostics()
 })
 
+// lsp:down:<lang> listeners used to be wired for a hardcoded 4-language
+// list at module load; languages are a runtime-fetched registry now, so
+// each is wired lazily, once, the first time ensureClient actually needs it.
+const downWired = new Set<string>()
+function wireDown(lang: IntelKind) {
+  if (downWired.has(lang)) return
+  downWired.add(lang)
+  on('lsp:down:' + lang, () => dropClient(lang))
+}
+
 async function ensureClient(lang: IntelKind, root: string): Promise<Entry | null> {
+  wireDown(lang)
   const existing = clients.get(lang)
   if (existing && existing.root === root) return existing
   if (existing) dropClient(lang)

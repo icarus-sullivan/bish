@@ -1,0 +1,1 @@
+{ "id": "yaml", "name": "YAML", "extensions": [".yaml", ".yml"], "builtinFormatter": true }

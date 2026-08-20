@@ -1,0 +1,17 @@
+{
+  "id": "js",
+  "name": "JavaScript/TypeScript",
+  "extensions": [".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx"],
+  "languageIds": {
+    ".js": "javascript", ".mjs": "javascript", ".cjs": "javascript",
+    ".ts": "typescript", ".tsx": "typescriptreact", ".jsx": "javascriptreact"
+  },
+  "server": {
+    "candidates": [["typescript-language-server", "--stdio"]],
+    "install": ["pnpm", "add", "-g", "typescript-language-server", "typescript"]
+  },
+  "formatter": {
+    "candidates": [["prettier", "--stdin-filepath", "{path}"]],
+    "install": ["pnpm", "add", "-g", "prettier"]
+  }
+}

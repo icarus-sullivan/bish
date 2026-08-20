@@ -1,0 +1,1 @@
+{ "id": "html", "name": "HTML", "extensions": [".html", ".htm"], "builtinFormatter": true }
