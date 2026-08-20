@@ -13,6 +13,7 @@ import { LSPStart, LSPSend, LSPStop, LSPInstalled, LSPInstall, on } from './wail
 import { openFileTab } from './stores'
 import type { IntelKind } from './codeintel'
 import { recordDiagnostics, clearDiagnostics } from './diagnostics'
+import { toast } from './toast'
 
 const IDLE_SHUTDOWN_MS = 5 * 60_000
 
@@ -140,14 +141,21 @@ export function retryAttach(kind: IntelKind) {
 // Ask the backend to install `kind`'s language server (go install / pnpm add
 // -g, see internal/lsp), streaming its output into serverStatus for the UI,
 // then upgrades any editors that were waiting on it.
+function installToastId(kind: IntelKind) {
+  return `lsp-install-${kind}`
+}
+
 export async function installServer(kind: IntelKind) {
+  const id = installToastId(kind)
   serverStatus.update(s => ({ ...s, [kind]: { status: 'installing', output: [] } }))
+  toast.loading(`Installing ${kind} language server…`, { id, duration: Infinity })
   const off = on('lsp:install-output:' + kind, (line: string) => {
     serverStatus.update(s => {
       const cur = s[kind]
       if (!cur || cur.status !== 'installing') return s
       return { ...s, [kind]: { status: 'installing', output: [...cur.output, line] } }
     })
+    toast.loading(`Installing ${kind} language server…`, { id, description: line, duration: Infinity })
   })
   try {
     await LSPInstall(kind)
@@ -157,10 +165,16 @@ export async function installServer(kind: IntelKind) {
       delete next[kind]
       return next
     })
+    toast.success(`${kind} language server installed`, { id, description: undefined, duration: 3000 })
     retryAttach(kind)
   } catch (err: any) {
     off()
-    serverStatus.update(s => ({ ...s, [kind]: { status: 'error', message: String(err?.message ?? err) } }))
+    const message = String(err?.message ?? err)
+    serverStatus.update(s => ({ ...s, [kind]: { status: 'error', message } }))
+    toast.error(`Install failed`, {
+      id, description: message, duration: Infinity,
+      action: { label: 'Retry', onClick: () => installServer(kind) },
+    })
   }
 }
 
@@ -182,10 +196,17 @@ async function ensureClient(lang: IntelKind, root: string): Promise<Entry | null
     // don't clobber an install in progress (or its result) with 'missing'
     if (get(serverStatus)[lang]?.status !== 'installing') {
       const installed = await LSPInstalled(lang).catch(() => true)
-      if (!installed) serverStatus.update(s => ({ ...s, [lang]: { status: 'missing' } }))
+      if (!installed && get(serverStatus)[lang]?.status !== 'missing') {
+        serverStatus.update(s => ({ ...s, [lang]: { status: 'missing' } }))
+        toast(`No ${lang} language server found`, {
+          id: installToastId(lang), duration: Infinity,
+          action: { label: 'Install', onClick: () => installServer(lang) },
+        })
+      }
     }
     return null
   }
+  toast.dismiss(installToastId(lang))
   serverStatus.update(s => {
     if (!(lang in s)) return s
     const next = { ...s }

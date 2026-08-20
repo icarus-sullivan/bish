@@ -29,7 +29,8 @@
   import { gitGutter, refreshDiff } from '../lib/gitgutter'
   import { breakpointGutter } from '../lib/breakpointGutter'
   import { testGutter, refreshTests } from '../lib/testGutter'
-  import { lspFormat, serverStatus, installServer } from '../lib/lsp'
+  import { lspFormat } from '../lib/lsp'
+  import { toast } from '../lib/toast'
   import { registerKeybind } from '../lib/keybinds'
   import { formatOnSave } from '../lib/stores'
   import { featureOn } from '../lib/features'
@@ -160,14 +161,7 @@
     }
   }
   let saving = $state(false)
-  let saveError = $state('')
   let loadError = $state('')
-  let formatError = $state('')
-
-  // "no language server for this file" prompt (see lib/lsp.ts serverStatus) —
-  // derived off the store so it updates live as an install runs/finishes.
-  let intelKind = $derived(intelKindFor(path))
-  let install = $derived(intelKind ? $serverStatus[intelKind] : undefined)
 
   // ─── Cmd+K inline AI edit ───────────────────────────────────────────────
   let inlineEditPopover = $state<{ x: number; y: number; from: number; to: number; text: string } | null>(null)
@@ -589,9 +583,7 @@
     view?.destroy()
     view = null
     setModified(false)
-    saveError = ''
     loadError = ''
-    formatError = ''
     rawMode = false
     rawForceText = false
     preview = false
@@ -733,8 +725,8 @@
   $effect(() => {
     if ($pendingFormatDocument !== path || !view) return
     pendingFormatDocument.set(null)
-    formatError = ''
-    lspFormat(view).then(() => save()).catch(e => { formatError = String(e?.message ?? e) })
+    lspFormat(view).then(() => save()).catch(e =>
+      toast.error('Format failed', { description: String(e?.message ?? e) }))
   })
 
   // Reload when path or theme changes. Guard against re-runs where neither
@@ -752,8 +744,6 @@
   async function save() {
     if (!view || saving || loadError) return
     saving = true
-    saveError = ''
-    formatError = ''
     try {
       if (path === UNTITLED) {
         const dir = get(projectRoot) || get(cwd)
@@ -763,7 +753,8 @@
           setModified(false)
         }
       } else {
-        if (get(formatOnSave)) await lspFormat(view).catch(e => { formatError = String(e?.message ?? e) })
+        if (get(formatOnSave)) await lspFormat(view).catch(e =>
+          toast.error('Format failed', { description: String(e?.message ?? e) }))
         await WriteFile(path, view.state.doc.toString())
         setModified(false)
         refreshBlame(view)
@@ -772,7 +763,7 @@
       }
       invalidateSymbols()
     } catch (e: any) {
-      saveError = String(e)
+      toast.error('Error saving file', { description: String(e) })
     } finally {
       saving = false
     }
@@ -801,31 +792,9 @@
 </script>
 
 <div class="viewer-wrap">
-  {#if saving || saveError || formatError}
+  {#if saving}
     <div class="status-bar">
-      {#if saving}
-        <span class="status muted">Saving…</span>
-      {:else if saveError}
-        <span class="status err" title={saveError}>Error saving: {saveError}</span>
-      {:else}
-        <span class="status err" title={formatError}>Format failed: {formatError}</span>
-      {/if}
-    </div>
-  {/if}
-  {#if install}
-    <div class="status-bar lsp-install-bar">
-      {#if install.status === 'missing'}
-        <span class="status muted">No {intelKind} language server found.</span>
-        <button class="raw-btn" onclick={() => intelKind && installServer(intelKind)}>Install</button>
-      {:else if install.status === 'installing'}
-        <span class="status muted">Installing {intelKind} language server…</span>
-        {#if install.output.length}
-          <pre class="install-output">{install.output[install.output.length - 1]}</pre>
-        {/if}
-      {:else if install.status === 'error'}
-        <span class="status err" title={install.message}>Install failed: {install.message}</span>
-        <button class="raw-btn" onclick={() => intelKind && installServer(intelKind)}>Retry</button>
-      {/if}
+      <span class="status muted">Saving…</span>
     </div>
   {/if}
   {#if loadError}
@@ -884,20 +853,6 @@
   }
   .status { font-size: 11px; }
   .status.muted { color: var(--muted); }
-  .status.err   { color: var(--error); cursor: help; }
-
-  .lsp-install-bar { gap: 8px; }
-  .install-output {
-    flex: 1;
-    min-width: 0;
-    margin: 0;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    font-family: ui-monospace, monospace;
-    font-size: 11px;
-    color: var(--muted);
-  }
 
   .spacer { flex: 1; }
 

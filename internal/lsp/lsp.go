@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -38,6 +39,58 @@ var installCmds = map[string][]string{
 	"js":     {"pnpm", "add", "-g", "typescript-language-server", "typescript"},
 	"py":     {"pnpm", "add", "-g", "pyright"},
 	"svelte": {"pnpm", "add", "-g", "svelte-language-server"},
+}
+
+var fixPathOnce sync.Once
+
+// fixPath augments the process PATH with the user's login-shell PATH. A GUI-
+// launched app (double-clicked .app, no parent terminal) inherits launchd's
+// bare PATH; nvm/pnpm/goenv shims that only land on PATH once .zshrc/.zprofile
+// run are otherwise invisible to exec.LookPath and to every spawned command
+// (server binaries and their installers alike). Best-effort and cached for
+// the process lifetime; any failure just leaves the inherited PATH in place.
+func fixPath() {
+	fixPathOnce.Do(func() {
+		if runtime.GOOS == "windows" {
+			return
+		}
+		shell := os.Getenv("SHELL")
+		if shell == "" {
+			shell = "/bin/zsh"
+		}
+		const startMarker, endMarker = "__BISH_PATH_START__", "__BISH_PATH_END__"
+		cmd := exec.Command(shell, "-ilc", "echo "+startMarker+"$PATH"+endMarker)
+		out, err := cmd.Output()
+		if err != nil {
+			return
+		}
+		s := string(out)
+		start := strings.Index(s, startMarker)
+		end := strings.Index(s, endMarker)
+		if start == -1 || end == -1 || end < start {
+			return
+		}
+		shellPath := strings.TrimSpace(s[start+len(startMarker) : end])
+		if shellPath == "" {
+			return
+		}
+		os.Setenv("PATH", mergePath(os.Getenv("PATH"), shellPath))
+	})
+}
+
+// mergePath unions two PATH strings, preserving first-seen order and
+// dropping duplicates (current PATH wins ties over the shell-derived one).
+func mergePath(current, extra string) string {
+	seen := make(map[string]bool)
+	var parts []string
+	for _, p := range append(strings.Split(current, ":"), strings.Split(extra, ":")...) {
+		if p == "" || seen[p] {
+			continue
+		}
+		seen[p] = true
+		parts = append(parts, p)
+	}
+	return strings.Join(parts, ":")
 }
 
 type server struct {
@@ -73,6 +126,7 @@ func (m *Manager) Start(lang, root string) bool {
 	if os.Getenv("BISH_NO_LSP") != "" {
 		return false
 	}
+	fixPath()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if s := m.servers[lang]; s != nil {
@@ -124,6 +178,7 @@ func (m *Manager) Start(lang, root string) bool {
 // without spawning anything — lets the frontend tell "not installed" apart
 // from other Start failures (e.g. crash backoff) before offering to install.
 func (m *Manager) Installed(lang string) bool {
+	fixPath()
 	for _, c := range serverCmds[lang] {
 		if _, err := exec.LookPath(c[0]); err == nil {
 			return true
@@ -141,6 +196,7 @@ func (m *Manager) Install(lang string) error {
 	if !ok {
 		return fmt.Errorf("lsp: no installer for %s", lang)
 	}
+	fixPath()
 	if _, err := exec.LookPath(argv[0]); err != nil {
 		return fmt.Errorf("%s not found on PATH", argv[0])
 	}
@@ -159,10 +215,24 @@ func (m *Manager) Install(lang string) error {
 	}()
 	sc := bufio.NewScanner(pr)
 	sc.Buffer(make([]byte, 4<<10), 1<<20)
+	var lastLine string
 	for sc.Scan() {
-		m.emit("lsp:install-output:"+lang, sc.Text())
+		line := sc.Text()
+		if strings.TrimSpace(line) != "" {
+			lastLine = line
+		}
+		m.emit("lsp:install-output:"+lang, line)
 	}
-	return <-done
+	// cmd.Wait()'s error is just "exit status 1" — the actual reason (e.g.
+	// pnpm's ERR_PNPM_NO_GLOBAL_BIN_DIR) only exists in the output stream
+	// above, so fold the last non-blank line into it for the caller.
+	if err := <-done; err != nil {
+		if lastLine != "" {
+			return fmt.Errorf("%s: %s", lastLine, err)
+		}
+		return err
+	}
+	return nil
 }
 
 // Send frames msg with a Content-Length header and writes it to the server.
