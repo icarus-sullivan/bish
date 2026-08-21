@@ -331,7 +331,7 @@
   </div>
 
   {#each $floatingPanels as fp (fp.panelId)}
-    {@const p = panels.find(pp => pp.id === fp.panelId)}
+    {@const p = $panels.find(pp => pp.id === fp.panelId)}
     {#if p}
       <FloatingWindow panel={p} state={fp} />
     {/if}

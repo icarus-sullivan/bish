@@ -67,7 +67,7 @@
     </button>
   </div>
   <div class="float-body">
-    <panel.component />
+    <panel.component {...(panel.props ?? {})} />
   </div>
 </div>
 

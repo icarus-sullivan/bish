@@ -35,3 +35,4 @@ guard, OFF = zero cost). See `.claude/plans/` for the full gap analysis.
 ## Cross-cutting / strategic
 - [x] AI layer (native Assistant panel: claude subprocess, plan-mode preview, editor context) — inline completions / terminal command suggestions still pending
 - [ ] Non-macOS support (heavy `_darwin.go` / `open`/`dscl`/`ps` reliance)
+- [x] Per-extension sidebar panel icons (each contributed panel gets its own gutter icon, not just the aggregate Extensions panel)

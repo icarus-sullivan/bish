@@ -157,31 +157,33 @@ export namespace app {
 	    name: string;
 	    extensions: string[];
 	    languageIds?: Record<string, string>;
-	    server?: langext.ProcessDef;
-	    formatter?: langext.ProcessDef;
+	    // Go type: langext
+	    server?: any;
+	    // Go type: langext
+	    formatter?: any;
 	    builtinFormatter?: boolean;
 	    serverInstalled: boolean;
 	    formatterInstalled: boolean;
 	    override: config.LanguageOverride;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new LanguageExtensionDTO(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.name = source["name"];
 	        this.extensions = source["extensions"];
 	        this.languageIds = source["languageIds"];
-	        this.server = this.convertValues(source["server"], langext.ProcessDef);
-	        this.formatter = this.convertValues(source["formatter"], langext.ProcessDef);
+	        this.server = this.convertValues(source["server"], null);
+	        this.formatter = this.convertValues(source["formatter"], null);
 	        this.builtinFormatter = source["builtinFormatter"];
 	        this.serverInstalled = source["serverInstalled"];
 	        this.formatterInstalled = source["formatterInstalled"];
 	        this.override = this.convertValues(source["override"], config.LanguageOverride);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -391,6 +393,34 @@ export namespace config {
 	        this.server_path = source["server_path"];
 	    }
 	}
+	export class LanguageOverride {
+	    server_path?: string;
+	    server_args?: string[];
+	    disable_server?: boolean;
+	    formatter_path?: string;
+	    formatter_args?: string[];
+	    disable_formatter?: boolean;
+	    format_on_save?: boolean;
+	    indent_size?: number;
+	    indent_style?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new LanguageOverride(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.server_path = source["server_path"];
+	        this.server_args = source["server_args"];
+	        this.disable_server = source["disable_server"];
+	        this.formatter_path = source["formatter_path"];
+	        this.formatter_args = source["formatter_args"];
+	        this.disable_formatter = source["disable_formatter"];
+	        this.format_on_save = source["format_on_save"];
+	        this.indent_size = source["indent_size"];
+	        this.indent_style = source["indent_style"];
+	    }
+	}
 	export class CustomTheme {
 	    background: string;
 	    foreground: string;
@@ -417,34 +447,6 @@ export namespace config {
 	        this.success = source["success"];
 	        this.error = source["error"];
 	        this.warning = source["warning"];
-	    }
-	}
-	export class LanguageOverride {
-	    server_path?: string;
-	    server_args?: string[];
-	    disable_server?: boolean;
-	    formatter_path?: string;
-	    formatter_args?: string[];
-	    disable_formatter?: boolean;
-	    format_on_save?: boolean;
-	    indent_size?: number;
-	    indent_style?: string;
-
-	    static createFrom(source: any = {}) {
-	        return new LanguageOverride(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.server_path = source["server_path"];
-	        this.server_args = source["server_args"];
-	        this.disable_server = source["disable_server"];
-	        this.formatter_path = source["formatter_path"];
-	        this.formatter_args = source["formatter_args"];
-	        this.disable_formatter = source["disable_formatter"];
-	        this.format_on_save = source["format_on_save"];
-	        this.indent_size = source["indent_size"];
-	        this.indent_style = source["indent_style"];
 	    }
 	}
 	export class Snippet {
@@ -515,7 +517,7 @@ export namespace config {
 	    onboarding_seen?: boolean;
 	    builtin_extensions_seeded?: boolean;
 	    languages?: Record<string, LanguageOverride>;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
 	    }
@@ -562,32 +564,12 @@ export namespace config {
 	
 	
 	
-
-}
-
-export namespace langext {
-
-	export class ProcessDef {
-	    candidates: string[][];
-	    install?: string[];
-	    installHint?: string;
-
-	    static createFrom(source: any = {}) {
-	        return new ProcessDef(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.candidates = source["candidates"];
-	        this.install = source["install"];
-	        this.installHint = source["installHint"];
-	    }
-	}
+	
 
 }
 
 export namespace liveshare {
-
+	
 	export class GuestInfo {
 	    id: string;
 	    canType: boolean;

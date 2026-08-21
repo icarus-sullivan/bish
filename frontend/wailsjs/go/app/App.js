@@ -342,10 +342,6 @@ export function KillProcess(arg1) {
   return window['go']['app']['App']['KillProcess'](arg1);
 }
 
-export function ListLanguageExtensions() {
-  return window['go']['app']['App']['ListLanguageExtensions']();
-}
-
 export function LSPInstall(arg1) {
   return window['go']['app']['App']['LSPInstall'](arg1);
 }
@@ -364,6 +360,10 @@ export function LSPStart(arg1, arg2) {
 
 export function LSPStop(arg1) {
   return window['go']['app']['App']['LSPStop'](arg1);
+}
+
+export function ListLanguageExtensions() {
+  return window['go']['app']['App']['ListLanguageExtensions']();
 }
 
 export function NewTerminal() {

@@ -11,7 +11,7 @@
   // re-evaluate gating when toggles change ($features touched for reactivity)
   const visible = $derived.by(() => {
     void $features
-    return panels.filter(p => !p.feature || featureOn(p.feature))
+    return $panels.filter(p => !p.feature || featureOn(p.feature))
   })
 
   const floatingIds = $derived(new Set($floatingPanels.map(f => f.panelId)))
@@ -72,7 +72,7 @@
          survives tab switches — same trick App.svelte uses for terminals -->
     {#each docked as p (p.id)}
       <div class="panel-host" style="display:{$activeRightPanel === p.id ? 'flex' : 'none'}">
-        <p.component />
+        <p.component {...(p.props ?? {})} />
       </div>
     {/each}
   </div>

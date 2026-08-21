@@ -1,0 +1,11 @@
+{
+  "name": "linear",
+  "main": "extension.js",
+  "commands": [
+    { "id": "connect", "title": "Linear: Connect" },
+    { "id": "refresh", "title": "Linear: Refresh Issues" }
+  ],
+  "panels": [
+    { "id": "issues", "title": "Linear", "icon": "IconTimeline" }
+  ]
+}

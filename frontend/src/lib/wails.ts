@@ -72,7 +72,7 @@ export interface GitFileStatus { status: string; path: string }
 export interface DiffLine { line: number; type: 'added' | 'modified' | 'deleted' }
 export interface OutlineSym { name: string; kind: string; line: number; depth: number }
 export interface GoTest { name: string; file: string; line: number; pkg: string }
-export interface ExtContribution { id: string; title: string; key?: string }
+export interface ExtContribution { id: string; title: string; key?: string; icon?: string }
 export interface Extension {
   name: string; main: string; dir: string; script: string; enabled: boolean
   commands?: ExtContribution[]; panels?: ExtContribution[]

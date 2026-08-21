@@ -22,6 +22,10 @@ type Contribution struct {
 	// the moment the contributing extension's worker starts — no separate
 	// Settings step needed, unlike user-defined keybinds (keymap.ts).
 	Key string `json:"key,omitempty"`
+	// Icon names a @tabler/icons-svelte icon (e.g. "IconTimeline") for this
+	// panel's own sidebar entry. Only meaningful on panel contributions —
+	// unknown/empty falls back to a generic icon on the frontend.
+	Icon string `json:"icon,omitempty"`
 }
 
 type Manifest struct {

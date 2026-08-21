@@ -1,4 +1,5 @@
 import type { Component } from 'svelte'
+import { derived } from 'svelte/store'
 import { IconFolder, IconGitBranch, IconActivity, IconBookmark } from '@tabler/icons-svelte'
 import { IconListSearch, IconSparkles, IconAlertTriangle, IconBug, IconFlask, IconPuzzle, IconCode } from '@tabler/icons-svelte'
 import FileTree from '../components/FileTree.svelte'
@@ -10,8 +11,11 @@ import Problems from '../components/Problems.svelte'
 import DebugPanel from '../components/DebugPanel.svelte'
 import Tests from '../components/Tests.svelte'
 import ExtensionsPanel from '../components/ExtensionsPanel.svelte'
+import ExtensionPanelHost from '../components/ExtensionPanelHost.svelte'
 import LanguagesPanel from '../components/LanguagesPanel.svelte'
 import AssistantPanel from '../components/AssistantPanel.svelte'
+import { loadedExtensions } from './extensions'
+import { resolveExtensionIcon } from './extensionIcons'
 
 // The built-in "plugin" registry: a future plugin API pushes onto this array.
 export interface Panel {
@@ -24,19 +28,18 @@ export interface Panel {
   icon: any
   component: Component<any>
   feature?: string  // when set, panel only shows if featureOn(feature)
+  props?: Record<string, any>  // extra props spread onto `component`
 }
 
-export const panels: Panel[] = [
+export const builtinPanels: Panel[] = [
   { id: 'files', title: 'Files', icon: IconFolder, component: FileTree },
   { id: 'git', title: 'Git', icon: IconGitBranch, component: GitPanel },
   { id: 'outline', title: 'Outline', icon: IconListSearch, component: Outline, feature: 'outline' },
   { id: 'problems', title: 'Problems', icon: IconAlertTriangle, component: Problems, feature: 'problems' },
   { id: 'debug', title: 'Debug', icon: IconBug, component: DebugPanel, feature: 'debugger' },
   { id: 'tests', title: 'Tests', icon: IconFlask, component: Tests, feature: 'tests' },
-  // v1: one aggregating panel for every extension's contributed panels —
-  // pushing a distinct entry per extension onto this array needs `panels`
-  // to become a store RightSidebar reacts to, deferred until there's real
-  // extension usage to justify it
+  // aggregate install/enable/disable/uninstall manager — each extension's own
+  // contributed panels additionally get their own sidebar entry, below
   { id: 'extensions', title: 'Extensions', icon: IconPuzzle, component: ExtensionsPanel, feature: 'extensions' },
   { id: 'languages', title: 'Languages', icon: IconCode, component: LanguagesPanel, feature: 'languageExtensions' },
   { id: 'assistant', title: 'Assistant', icon: IconSparkles, component: AssistantPanel, feature: 'assistant' },
@@ -45,3 +48,17 @@ export const panels: Panel[] = [
   { id: 'processes', title: 'Processes', icon: IconActivity, component: ProcessList },
   { id: 'commands', title: 'Saved Commands', icon: IconBookmark, component: CommandList },
 ]
+
+// Reactive: built-ins plus one sidebar entry per enabled extension's
+// contributed panel, so each extension can own its own icon instead of
+// being lumped into the single "Extensions" aggregate panel above.
+export const panels = derived(loadedExtensions, (exts) => [
+  ...builtinPanels,
+  ...exts.filter(e => e.enabled).flatMap(e => (e.panels ?? []).map(p => ({
+    id: `ext:${e.name}:${p.id}`,
+    title: p.title,
+    icon: resolveExtensionIcon(p.icon),
+    component: ExtensionPanelHost,
+    props: { extName: e.name, panelId: p.id },
+  } satisfies Panel))),
+])
