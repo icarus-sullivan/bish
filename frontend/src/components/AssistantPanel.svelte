@@ -40,6 +40,7 @@
     html?: string
     toolName?: string
     toolPath?: string
+    toolCmd?: string
     planDone?: 'approved' | 'rejected'
     // set on a 'plan' card as soon as its ExitPlanMode tool_use block
     // arrives, before the CLI's matching can_use_tool ask shows up
@@ -182,7 +183,8 @@
           busy = false
         } else if (block.type === 'tool_use') {
           const path = block.input?.file_path ?? block.input?.path ?? ''
-          messages.push({ id: nextId(), turnId: turn, role: 'tool', toolName: block.name, toolPath: path })
+          const cmd = block.input?.command ?? block.input?.pattern ?? block.input?.query ?? ''
+          messages.push({ id: nextId(), turnId: turn, role: 'tool', toolName: block.name, toolPath: path, toolCmd: cmd })
           if (path && FILE_WRITE_TOOLS.has(block.name)) {
             // small settle delay — the CLI backend's tool_use announcement
             // isn't guaranteed to strictly follow the actual disk write
@@ -415,10 +417,13 @@
     {:else if m.role === 'assistant'}
       <div class="bubble assistant">{@html m.html}</div>
     {:else if m.role === 'tool'}
-      <button class="tool-pill" disabled={!m.toolPath} onclick={() => jumpTo(m.toolPath!)}>
-        <span class="tool-name">{m.toolName}</span>
-        {#if m.toolPath}<span class="tool-path">{m.toolPath}</span>{/if}
-      </button>
+      <div class="tool-block">
+        <button class="tool-pill" disabled={!m.toolPath} onclick={() => jumpTo(m.toolPath!)}>
+          <span class="tool-name">{m.toolName}</span>
+          {#if m.toolPath}<span class="tool-path">{m.toolPath}</span>{/if}
+        </button>
+        {#if m.toolCmd}<pre class="tool-cmd"><code>{m.toolCmd}</code></pre>{/if}
+      </div>
     {:else if m.role === 'plan'}
       <div class="plan-card">
         <div class="plan-label">Plan</div>
@@ -610,15 +615,26 @@
   .bubble.assistant :global(a), .plan-body :global(a) { color: var(--accent); }
   .bubble.assistant :global(img), .plan-body :global(img) { max-width: 100%; }
 
+  .tool-block { display: flex; flex-direction: column; gap: 4px; align-self: stretch; max-width: 100%; }
   .tool-pill {
     display: flex; align-items: center; gap: 6px; align-self: flex-start;
     background: var(--bg-raised); border: 1px solid var(--border); border-radius: 12px;
     padding: 2px 8px; font-size: 11px; color: var(--muted); cursor: pointer;
+    max-width: 100%;
   }
   .tool-pill:disabled { cursor: default; }
   .tool-pill:not(:disabled):hover { color: var(--foreground); border-color: var(--accent); }
-  .tool-name { font-weight: 600; }
-  .tool-path { color: var(--muted); font-family: "SF Mono", Menlo, monospace; }
+  .tool-name { font-weight: 600; flex-shrink: 0; }
+  .tool-path {
+    color: var(--muted); font-family: "SF Mono", Menlo, monospace;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .tool-cmd {
+    background: var(--background); border: 1px solid var(--border); border-radius: 4px;
+    padding: 6px 8px; margin: 0; font-size: 11px; font-family: "SF Mono", Menlo, monospace;
+    color: var(--foreground); white-space: pre-wrap; word-break: break-word;
+    overflow-x: auto; max-width: 100%; box-sizing: border-box;
+  }
 
   .plan-card { border: 1px solid var(--accent); border-radius: 6px; overflow: hidden; }
   .plan-label {

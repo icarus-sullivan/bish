@@ -415,6 +415,9 @@
     overflow: hidden;
     height: 100vh;
     margin: 0;
+    /* main.go sets DragAndDrop.CSSDropProperty to this — without it set
+       somewhere in the DOM, the webview rejects every native file drop */
+    --wails-drop-target: drop;
   }
 
   .root {
