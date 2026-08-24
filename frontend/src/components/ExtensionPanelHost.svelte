@@ -1,5 +1,6 @@
 <script lang="ts">
   import { loadedExtensions, extensionPanelHTML, sendPanelInput } from '../lib/extensions'
+  import { BrowserOpenURL } from '../../wailsjs/runtime/runtime'
 
   let { extName, panelId }: { extName: string; panelId: string } = $props()
 
@@ -15,13 +16,22 @@
     sendPanelInput(extName, panelId, value)
     input = ''
   }
+
+  function onBodyClick(e: MouseEvent) {
+    const a = (e.target as HTMLElement).closest('a')
+    if (!a) return
+    const href = a.getAttribute('href')
+    if (href && /^https?:\/\//i.test(href)) { e.preventDefault(); BrowserOpenURL(href) }
+  }
 </script>
 
 <div class="panel">
   <div class="header">
     <span class="header-label">{title}</span>
   </div>
-  <div class="body">
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="body" onclick={onBodyClick}>
     {@html $extensionPanelHTML.get(`${extName}:${panelId}`) ?? '<span class="ext-waiting">…</span>'}
   </div>
   <input

@@ -42,9 +42,20 @@ function render(html) {
 
 const state = {
   apiKey: null,
-  stage: 'boot', // boot -> needKey -> loading -> ready
-  issues: [],    // { identifier, title, url, stateName, stateColor }
+  stage: 'boot',   // boot -> needKey -> loading -> ready
+  issues: [],      // { identifier, title, url, stateName, stateType, stateColor }
+  filter: null,    // null = default (hide completed), 'all' = no filter, else substring match on stateName
   pollTimer: null,
+}
+
+// null (default) hides completed issues, same as the old server-side
+// "neq completed" query filter; 'all' shows everything; anything else is a
+// case-insensitive substring match against the issue's status name.
+function visibleIssues() {
+  if (state.filter === 'all') return state.issues
+  if (state.filter === null) return state.issues.filter(i => i.stateType !== 'completed')
+  const q = state.filter.toLowerCase()
+  return state.issues.filter(i => (i.stateName || '').toLowerCase().includes(q))
 }
 
 function draw(errorLine) {
@@ -57,7 +68,11 @@ function draw(errorLine) {
     return
   }
 
-  const rows = state.issues.map(i => `
+  const filterLabel = state.filter === 'all' ? 'all' : state.filter === null ? 'active' : state.filter
+  const header = `<div style="padding:6px 12px;font-size:11px;opacity:0.6;border-bottom:1px solid rgba(128,128,128,0.15)">
+    filter: ${esc(filterLabel)} — type a status below to filter, "all" to clear
+  </div>`
+  const rows = visibleIssues().map(i => `
     <div style="padding:6px 12px;border-bottom:1px solid rgba(128,128,128,0.15)">
       <a href="${esc(i.url)}" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">
         <span style="opacity:0.6">${esc(i.identifier)}</span>
@@ -67,7 +82,7 @@ function draw(errorLine) {
     </div>
   `).join('')
   const err = errorLine ? `<div style="padding:0 12px 8px;color:#e5484d">${esc(errorLine)}</div>` : ''
-  render(`<div>${rows || '<div style="padding:8px 12px"><i>no assigned issues</i></div>'}</div>${err}`)
+  render(`<div>${header}${rows || '<div style="padding:8px 12px"><i>no matching issues</i></div>'}</div>${err}`)
 }
 
 async function linearFetch(query, variables) {
@@ -86,8 +101,8 @@ async function linearFetch(query, variables) {
 const ISSUES_QUERY = `
   query {
     viewer {
-      assignedIssues(filter: { state: { type: { neq: "completed" } } }, first: 50) {
-        nodes { identifier title url state { name color } }
+      assignedIssues(first: 100) {
+        nodes { identifier title url state { name type color } }
       }
     }
   }
@@ -100,7 +115,7 @@ async function loadIssues() {
   if (!r || r.errors) { draw(`fetch failed: ${r?.errors?.[0]?.message || 'network error'}`); state.stage = 'ready'; return }
   state.issues = (r.data?.viewer?.assignedIssues?.nodes || []).map(n => ({
     identifier: n.identifier, title: n.title, url: n.url,
-    stateName: n.state?.name, stateColor: n.state?.color,
+    stateName: n.state?.name, stateType: n.state?.type, stateColor: n.state?.color,
   }))
   state.stage = 'ready'
   draw()
@@ -136,6 +151,13 @@ onmessage = async (e) => {
       setSecret('apiKey', value)
       await loadIssues()
       schedulePoll()
+      return
+    }
+
+    if (state.stage === 'ready') {
+      const lower = value.toLowerCase()
+      state.filter = lower === 'all' ? 'all' : lower === 'active' || lower === 'default' ? null : value
+      draw()
     }
   }
 }

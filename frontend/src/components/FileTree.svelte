@@ -97,6 +97,7 @@
 
   function startDrag(e: MouseEvent) {
     if (e.button !== 0 || renaming || creating) return
+    if ((e.target as HTMLElement).closest('.row')) return // row drags are native HTML5 DnD (see below), not marquee
     const start = listPoint(e)
     dragBase = (e.metaKey || e.ctrlKey || e.shiftKey) ? [...multiSel] : []
     const move = (ev: MouseEvent) => {
@@ -147,6 +148,69 @@
   function dropTarget(el: HTMLElement) {
     el.addEventListener('bish:filedrop', treeDrop)
     return { destroy: () => el.removeEventListener('bish:filedrop', treeDrop) }
+  }
+
+  // in-tree drag to move files/folders — separate from the native OS file
+  // drop above (that one comes from Wails' window-level OnFileDrop, not
+  // HTML5 DragEvents, so the two mechanisms don't collide)
+  let draggingPaths: string[] | null = null
+  let dragOverRow = $state<string | null>(null)
+
+  function targetDir(node: TreeNode): string {
+    return node.isDir ? node.path : node.path.substring(0, node.path.lastIndexOf('/'))
+  }
+  function isDescendant(anc: string, p: string) {
+    return p === anc || p.startsWith(anc + '/')
+  }
+
+  function onRowDragStart(e: DragEvent, node: TreeNode) {
+    if (renaming || creating) { e.preventDefault(); return }
+    const paths = multiSel.includes(node.path) && multiSel.length > 1 ? [...multiSel] : [node.path]
+    draggingPaths = paths
+    e.dataTransfer!.effectAllowed = 'move'
+    e.dataTransfer!.setData('text/plain', paths.join('\n'))
+  }
+  function onRowDragOver(e: DragEvent, node: TreeNode) {
+    if (!draggingPaths) return
+    const dir = targetDir(node)
+    if (draggingPaths.some(p => isDescendant(p, dir))) return // can't drop into itself/own descendant
+    e.preventDefault()
+    e.dataTransfer!.dropEffect = 'move'
+    dragOverRow = node.path
+  }
+  function onRowDragLeave(node: TreeNode) {
+    if (dragOverRow === node.path) dragOverRow = null
+  }
+  function onRowDrop(e: DragEvent, node: TreeNode) {
+    e.preventDefault()
+    const paths = draggingPaths
+    draggingPaths = null
+    dragOverRow = null
+    if (!paths) return
+    const dir = targetDir(node)
+    if (paths.some(p => isDescendant(p, dir))) return
+    if (paths.every(p => p.substring(0, p.lastIndexOf('/')) === dir)) return // already there
+    FSMove(paths, dir).catch(err => console.error('tree move failed:', err))
+  }
+  function onRowDragEnd() {
+    draggingPaths = null
+    dragOverRow = null
+  }
+  // drop on empty space below the rows — move to project root
+  function onListDragOver(e: DragEvent) {
+    if (!draggingPaths || (e.target as HTMLElement).closest('.row')) return
+    e.preventDefault()
+    e.dataTransfer!.dropEffect = 'move'
+  }
+  function onListDrop(e: DragEvent) {
+    if ((e.target as HTMLElement).closest('.row')) return
+    const paths = draggingPaths
+    draggingPaths = null
+    dragOverRow = null
+    if (!paths) return
+    e.preventDefault()
+    const dir = get(projectRoot) || get(cwd)
+    if (dir) FSMove(paths, dir).catch(err => console.error('tree move failed:', err))
   }
 
   function showMenu(e: MouseEvent, node: TreeNode) {
@@ -265,6 +329,8 @@
     bind:this={listEl}
     onmousedown={startDrag}
     onclick={(e) => { if (!dragMoved && !(e.target as HTMLElement).closest('.row')) multiSel = [] }}
+    ondragover={onListDragOver}
+    ondrop={onListDrop}
     role="presentation"
   >
     {#each $treeNodes as node (node.path)}
@@ -272,11 +338,18 @@
         class="row"
         class:selected={node.selected}
         class:multi={multiSel.includes(node.path)}
+        class:drop-target={dragOverRow === node.path}
         data-path={node.path}
         data-dir={node.isDir ? '1' : undefined}
         style="padding-left: calc(8px + {indent(node.depth)})"
+        draggable={node.depth !== 0 && renaming?.path !== node.path}
         onclick={(e) => handleClick(e, node)}
         oncontextmenu={(e) => showMenu(e, node)}
+        ondragstart={(e) => onRowDragStart(e, node)}
+        ondragover={(e) => onRowDragOver(e, node)}
+        ondragleave={() => onRowDragLeave(node)}
+        ondrop={(e) => onRowDrop(e, node)}
+        ondragend={onRowDragEnd}
         role="treeitem"
         aria-selected={node.selected}
         aria-expanded={node.isDir ? node.expanded : undefined}
@@ -427,6 +500,7 @@
   .row:hover { background: var(--bg-hover); }
   .row.selected { background: var(--bg-selected); }
   .row.multi { background: var(--bg-selected); }
+  .row.drop-target { background: color-mix(in srgb, var(--accent) 18%, transparent); outline: 1px solid var(--accent); outline-offset: -1px; }
 
   .dir-arrow {
     display: flex;
