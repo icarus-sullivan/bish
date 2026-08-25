@@ -44,18 +44,30 @@ const state = {
   apiKey: null,
   stage: 'boot',   // boot -> needKey -> loading -> ready
   issues: [],      // { identifier, title, url, stateName, stateType, stateColor }
-  filter: null,    // null = default (hide completed), 'all' = no filter, else substring match on stateName
+  query: '',       // '' = default (hide completed); 'all' = show everything; else fuzzy search
   pollTimer: null,
 }
 
-// null (default) hides completed issues, same as the old server-side
-// "neq completed" query filter; 'all' shows everything; anything else is a
-// case-insensitive substring match against the issue's status name.
+// Subsequence fuzzy match, case-insensitive — same algorithm as a command
+// palette: every character of query must appear in text, in order, not
+// necessarily contiguous.
+function fuzzyMatch(query, text) {
+  let qi = 0
+  const q = query.toLowerCase()
+  const t = text.toLowerCase()
+  for (let ti = 0; ti < t.length && qi < q.length; ti++) if (t[ti] === q[qi]) qi++
+  return qi === q.length
+}
+
+// '' (default) hides completed issues, same as the old server-side
+// "neq completed" query filter. 'all' shows everything. Any other query
+// fuzzy-matches identifier, title and status — so typing a status name
+// ("done") filters by status, and typing part of a title looks up a ticket,
+// searched across ALL issues (including completed ones the default hides).
 function visibleIssues() {
-  if (state.filter === 'all') return state.issues
-  if (state.filter === null) return state.issues.filter(i => i.stateType !== 'completed')
-  const q = state.filter.toLowerCase()
-  return state.issues.filter(i => (i.stateName || '').toLowerCase().includes(q))
+  if (state.query === '') return state.issues.filter(i => i.stateType !== 'completed')
+  if (state.query.toLowerCase() === 'all') return state.issues
+  return state.issues.filter(i => fuzzyMatch(state.query, `${i.identifier} ${i.title} ${i.stateName}`))
 }
 
 function draw(errorLine) {
@@ -68,9 +80,9 @@ function draw(errorLine) {
     return
   }
 
-  const filterLabel = state.filter === 'all' ? 'all' : state.filter === null ? 'active' : state.filter
+  const queryLabel = state.query === '' ? 'active' : state.query
   const header = `<div style="padding:6px 12px;font-size:11px;opacity:0.6;border-bottom:1px solid rgba(128,128,128,0.15)">
-    filter: ${esc(filterLabel)} — type a status below to filter, "all" to clear
+    ${esc(queryLabel)} — type below to fuzzy-search by ticket or status, "all" to show everything, "clear" to reset
   </div>`
   const rows = visibleIssues().map(i => `
     <div style="padding:6px 12px;border-bottom:1px solid rgba(128,128,128,0.15)">
@@ -156,7 +168,7 @@ onmessage = async (e) => {
 
     if (state.stage === 'ready') {
       const lower = value.toLowerCase()
-      state.filter = lower === 'all' ? 'all' : lower === 'active' || lower === 'default' ? null : value
+      state.query = lower === 'clear' || lower === 'active' ? '' : value
       draw()
     }
   }
