@@ -168,6 +168,10 @@ export function GitUnstage(arg1:string):Promise<void>;
 
 export function ImportSettingsFile():Promise<string>;
 
+export function InstallExtensionFromDirectory():Promise<string>;
+
+export function InstallExtensionFromZip():Promise<string>;
+
 export function IsEditSharing(arg1:string):Promise<boolean>;
 
 export function IsLiveSharing(arg1:string):Promise<boolean>;

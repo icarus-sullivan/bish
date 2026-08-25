@@ -1,6 +1,8 @@
 <script lang="ts">
-  import { loadedExtensions, extensionPanelHTML, sendPanelInput, setExtensionEnabled, uninstallExtension } from '../lib/extensions'
-  import { IconPuzzle, IconPower, IconTrash } from '@tabler/icons-svelte'
+  import { loadedExtensions, extensionPanelHTML, sendPanelInput, setExtensionEnabled, uninstallExtension, installExtensionFromZip, installExtensionFromDirectory } from '../lib/extensions'
+  import { panelSide } from '../lib/stores'
+  import { IconPuzzle, IconPower, IconTrash, IconUpload } from '@tabler/icons-svelte'
+  import ContextMenu from './ContextMenu.svelte'
 
   // keyed by `${extName}:${panelId}` — a panel's `{@html}` body is sanitized
   // and inert (no event handlers survive DOMPurify), so this is the one real
@@ -15,16 +17,52 @@
     inputs[key] = ''
   }
 
-  function uninstall(name: string) {
+  async function uninstall(name: string) {
     if (!confirm(`Uninstall "${name}"? This deletes it from ~/.bish/extensions and cannot be undone.`)) return
-    uninstallExtension(name)
+    try {
+      await uninstallExtension(name)
+    } catch (err) {
+      alert(`Couldn't uninstall "${name}": ${err}`)
+    }
   }
+
+  let uploadMenu = $state<{ x: number; y: number } | null>(null)
+
+  function showUploadMenu(e: MouseEvent) {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    uploadMenu = { x: $panelSide === 'left' ? rect.left : rect.right, y: rect.bottom }
+  }
+
+  async function fromZip() {
+    try {
+      await installExtensionFromZip()
+    } catch (err) {
+      alert(`Couldn't install extension: ${err}`)
+    }
+  }
+
+  async function fromDirectory() {
+    try {
+      await installExtensionFromDirectory()
+    } catch (err) {
+      alert(`Couldn't install extension: ${err}`)
+    }
+  }
+
+  const uploadMenuItems = [
+    { label: 'From Zip File…', action: fromZip },
+    { label: 'From Folder…', action: fromDirectory },
+  ]
 </script>
 
 <div class="panel">
   <div class="header">
     <span class="header-label">Extensions</span>
     {#if $loadedExtensions.length}<span class="count">{$loadedExtensions.length}</span>{/if}
+    <span class="fill"></span>
+    <button class="hdr-btn" onclick={showUploadMenu} title="Install extension from zip or folder">
+      <IconUpload size={13} />
+    </button>
   </div>
 
   <div class="list">
@@ -75,6 +113,15 @@
   </div>
 </div>
 
+{#if uploadMenu}
+  <ContextMenu
+    x={uploadMenu.x} y={uploadMenu.y}
+    align={$panelSide === 'left' ? 'left' : 'right'}
+    items={uploadMenuItems}
+    onClose={() => uploadMenu = null}
+  />
+{/if}
+
 <style>
   .panel { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
   .header {
@@ -89,6 +136,20 @@
     font-size: 10px; color: var(--muted); background: var(--bg-hover);
     border-radius: 8px; padding: 1px 6px;
   }
+  .fill { flex: 1; }
+  .hdr-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 3px 4px;
+    border-radius: 3px;
+    transition: color 0.1s, background 0.1s;
+  }
+  .hdr-btn:hover { color: var(--foreground); background: var(--bg-hover); }
 
   .list { overflow-y: auto; flex: 1; }
   .empty {

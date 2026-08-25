@@ -11,7 +11,7 @@ export {
   GetGalleryImages, GetCurrentGalleryPath, IsVideo,
   GetTheme, GetConfig, SaveConfig,
   ExportSettingsFile, ImportSettingsFile,
-  GetExtensions, SetExtensionEnabled, UninstallExtension,
+  GetExtensions, SetExtensionEnabled, UninstallExtension, InstallExtensionFromZip, InstallExtensionFromDirectory,
   ReadFile, ReadFileChunk, WriteFile,
   OpenProject, CloseProject, GetProjectRoot, GetAllFiles, GetCWD, GetStartupFile,
   OpenRemoteProject, IsRemoteProject,

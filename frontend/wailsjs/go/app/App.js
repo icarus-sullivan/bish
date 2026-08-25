@@ -322,6 +322,14 @@ export function ImportSettingsFile() {
   return window['go']['app']['App']['ImportSettingsFile']();
 }
 
+export function InstallExtensionFromDirectory() {
+  return window['go']['app']['App']['InstallExtensionFromDirectory']();
+}
+
+export function InstallExtensionFromZip() {
+  return window['go']['app']['App']['InstallExtensionFromZip']();
+}
+
 export function IsEditSharing(arg1) {
   return window['go']['app']['App']['IsEditSharing'](arg1);
 }

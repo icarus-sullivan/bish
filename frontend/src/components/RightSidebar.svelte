@@ -34,9 +34,14 @@
 
   let menu = $state<{ x: number; y: number; panelId: string } | null>(null)
 
+  // Anchor to the icon's own bottom edge rather than the click point, and
+  // open toward the panel body (leftward when docked right, rightward when
+  // docked left) so the menu never runs off the window's outer edge.
   function showMenu(e: MouseEvent, id: string) {
     e.preventDefault()
-    menu = { x: e.clientX, y: e.clientY, panelId: id }
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    const x = $panelSide === 'left' ? rect.left : rect.right
+    menu = { x, y: rect.bottom, panelId: id }
   }
 
   function popOut(id: string) {
@@ -96,7 +101,7 @@
 </div>
 
 {#if menu}
-  <ContextMenu x={menu.x} y={menu.y} items={menuItems(menu.panelId)} onClose={() => menu = null} />
+  <ContextMenu x={menu.x} y={menu.y} align={$panelSide === 'left' ? 'left' : 'right'} items={menuItems(menu.panelId)} onClose={() => menu = null} />
 {/if}
 
 <style>

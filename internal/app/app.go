@@ -1,6 +1,7 @@
 package app
 
 import (
+	"archive/zip"
 	"bufio"
 	"bytes"
 	"context"
@@ -8,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1537,18 +1539,222 @@ func (a *App) SetExtensionEnabled(name string, enabled bool) error {
 }
 
 // UninstallExtension deletes an extension's directory under ~/.bish/extensions
-// and drops its enable-state entry. name must be a bare directory name (no
-// separators) — it comes straight from the frontend, and extensions.Dir() is
-// the only root this is ever allowed to touch.
+// and drops its enable-state entry. name must be a bare name (no separators)
+// — it comes straight from the frontend, and extensions.Dir() is the only
+// root this is ever allowed to touch.
 func (a *App) UninstallExtension(name string) error {
 	if name == "" || strings.ContainsAny(name, "/\\") || name == "." || name == ".." {
 		return fmt.Errorf("invalid extension name %q", name)
 	}
-	if err := os.RemoveAll(filepath.Join(extensions.Dir(), name)); err != nil {
+	dir := filepath.Join(extensions.Dir(), name)
+	if _, err := os.Stat(dir); err != nil {
+		// name (the manifest's declared "name" field) doesn't match its own
+		// directory — can happen for a zip/folder install whose folder name
+		// came from the archive rather than the manifest. Fall back to a
+		// scan so uninstall still finds the right directory to remove.
+		dir = ""
+		for _, e := range extensions.Discover(extensions.Dir()) {
+			if e.Name == name {
+				dir = e.Dir
+				break
+			}
+		}
+		if dir == "" {
+			return fmt.Errorf("extension %q not found", name)
+		}
+	}
+	if err := os.RemoveAll(dir); err != nil {
 		return err
 	}
 	delete(a.cfg.Extensions, name)
 	return config.Save(a.cfg)
+}
+
+// extensionInstallName derives the install directory's name from an
+// uploaded zip/folder path and validates it's safe to join under
+// extensions.Dir(). ext is stripped if present (e.g. ".zip"); pass "" for a
+// directory path.
+func extensionInstallName(path, ext string) (string, error) {
+	name := strings.TrimSuffix(filepath.Base(filepath.Clean(path)), ext)
+	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, "/\\") {
+		return "", fmt.Errorf("invalid extension name %q", name)
+	}
+	return name, nil
+}
+
+// zipTopLevelPrefix returns the shared "dir/" prefix if every entry in
+// names lives under one common top-level folder — the shape a GitHub
+// "Download ZIP" produces (everything wrapped in "repo-branch/"). Returns
+// "" if entries live at the archive root already.
+func zipTopLevelPrefix(names []string) string {
+	if len(names) == 0 {
+		return ""
+	}
+	i := strings.IndexByte(names[0], '/')
+	if i < 0 {
+		return ""
+	}
+	prefix := names[0][:i+1]
+	for _, n := range names {
+		if !strings.HasPrefix(n, prefix) {
+			return ""
+		}
+	}
+	return prefix
+}
+
+// finishExtensionInstall marks the newly-installed extension enabled and
+// persists it, shared by both install paths below.
+func (a *App) finishExtensionInstall(name string) error {
+	if a.cfg.Extensions == nil {
+		a.cfg.Extensions = map[string]bool{}
+	}
+	a.cfg.Extensions[name] = true
+	return config.Save(a.cfg)
+}
+
+// InstallExtensionFromZip opens a native Open dialog restricted to .zip
+// files and extracts it under ~/.bish/extensions/<zip-filename-without-ext>.
+// A single wrapping top-level folder (the common "download zip" shape) is
+// stripped so bish-extension.json ends up at the installed dir's root
+// either way. Returns the installed extension's directory name, or ""
+// (with a nil error) if the user cancelled the dialog.
+func (a *App) InstallExtensionFromZip() (string, error) {
+	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title:   "Install Extension from Zip",
+		Filters: []runtime.FileFilter{{DisplayName: "Zip Archive (*.zip)", Pattern: "*.zip"}},
+	})
+	if err != nil || path == "" {
+		return "", err
+	}
+	name, err := extensionInstallName(path, filepath.Ext(path))
+	if err != nil {
+		return "", err
+	}
+
+	r, err := zip.OpenReader(path)
+	if err != nil {
+		return "", err
+	}
+	defer r.Close()
+
+	names := make([]string, len(r.File))
+	for i, f := range r.File {
+		names[i] = f.Name
+	}
+	prefix := zipTopLevelPrefix(names)
+
+	dest := filepath.Join(extensions.Dir(), name)
+	if err := os.RemoveAll(dest); err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		return "", err
+	}
+
+	for _, f := range r.File {
+		rel := strings.TrimPrefix(f.Name, prefix)
+		if rel == "" {
+			continue
+		}
+		target := filepath.Join(dest, filepath.FromSlash(rel))
+		// zip-slip guard: an archive entry like "../../etc/passwd" must not
+		// resolve outside dest.
+		if target != dest && !strings.HasPrefix(target, dest+string(os.PathSeparator)) {
+			continue
+		}
+		if f.FileInfo().IsDir() {
+			if err := os.MkdirAll(target, 0o755); err != nil {
+				os.RemoveAll(dest)
+				return "", err
+			}
+			continue
+		}
+		if err := extractZipEntry(f, target); err != nil {
+			os.RemoveAll(dest)
+			return "", err
+		}
+	}
+
+	if _, err := os.Stat(filepath.Join(dest, "bish-extension.json")); err != nil {
+		os.RemoveAll(dest)
+		return "", fmt.Errorf("no bish-extension.json found in %s", filepath.Base(path))
+	}
+	if err := a.finishExtensionInstall(name); err != nil {
+		return "", err
+	}
+	return name, nil
+}
+
+func extractZipEntry(f *zip.File, target string) error {
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return err
+	}
+	src, err := f.Open()
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+	dst, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	defer dst.Close()
+	_, err = io.Copy(dst, src)
+	return err
+}
+
+// InstallExtensionFromDirectory opens a native folder-picker and copies the
+// chosen directory's tree under ~/.bish/extensions/<folder-name>. Returns
+// the installed extension's directory name, or "" (nil error) on cancel.
+func (a *App) InstallExtensionFromDirectory() (string, error) {
+	dir, err := runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Install Extension from Directory",
+	})
+	if err != nil || dir == "" {
+		return "", err
+	}
+	name, err := extensionInstallName(dir, "")
+	if err != nil {
+		return "", err
+	}
+	if _, err := os.Stat(filepath.Join(dir, "bish-extension.json")); err != nil {
+		return "", fmt.Errorf("no bish-extension.json found in %s", dir)
+	}
+
+	dest := filepath.Join(extensions.Dir(), name)
+	if err := os.RemoveAll(dest); err != nil {
+		return "", err
+	}
+	if err := copyExtensionTree(dir, dest); err != nil {
+		os.RemoveAll(dest)
+		return "", err
+	}
+	if err := a.finishExtensionInstall(name); err != nil {
+		return "", err
+	}
+	return name, nil
+}
+
+func copyExtensionTree(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, 0o644)
+	})
 }
 
 // -- helpers --

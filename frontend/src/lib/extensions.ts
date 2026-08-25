@@ -7,15 +7,20 @@
 // and show up in the Command Palette — before the worker even starts.
 import { writable, get } from 'svelte/store'
 import DOMPurify from 'dompurify'
-import { GetExtensions, SetExtensionEnabled, UninstallExtension } from './wails'
+import { GetExtensions, SetExtensionEnabled, UninstallExtension, InstallExtensionFromZip, InstallExtensionFromDirectory } from './wails'
 import type { Extension } from './wails'
 import { registerCommand } from './commands'
 import { registerKeybind } from './keybinds'
-import { tabs, activeTabId, pendingFormatDocument } from './stores'
+import { tabs, activeTabId, pendingFormatDocument, activeRightPanel } from './stores'
 
 export const loadedExtensions = writable<Extension[]>([])
 // `${extensionName}:${panelId}` -> sanitized HTML
 export const extensionPanelHTML = writable<Map<string, string>>(new Map())
+// `${extensionName}:${panelId}` -> a status-style dropdown next to that
+// panel's input box. Absent (no entry) means the panel shows no dropdown —
+// most extensions never call setPanelSelect and get the plain text input.
+export interface PanelSelect { options: { value: string; label: string }[]; value: string }
+export const extensionPanelSelect = writable<Map<string, PanelSelect>>(new Map())
 
 const workers = new Map<string, Worker>()
 const unregisterFns = new Map<string, (() => void)[]>()
@@ -37,6 +42,17 @@ export function sendPanelInput(extName: string, panelId: string, value: string) 
   workers.get(extName)?.postMessage({ type: 'input', panelId, value })
 }
 
+// Forwards a panel's dropdown selection to that extension's worker.
+export function sendPanelSelect(extName: string, panelId: string, value: string) {
+  workers.get(extName)?.postMessage({ type: 'select', panelId, value })
+}
+
+// Runs one of the extension's manifest-declared commands directly (e.g. a
+// panel's refresh icon), same message a Command Palette invocation sends.
+export function runExtensionCommand(extName: string, commandId: string) {
+  workers.get(extName)?.postMessage({ type: 'command', id: commandId })
+}
+
 function startWorker(ext: Extension) {
   if (workers.has(ext.name)) return
   let worker: Worker
@@ -55,6 +71,15 @@ function startWorker(ext: Extension) {
       extensionPanelHTML.update(m => {
         const next = new Map(m)
         next.set(`${ext.name}:${msg.panelId}`, DOMPurify.sanitize(String(msg.html ?? '')))
+        return next
+      })
+    } else if (msg.type === 'setPanelSelect' && typeof msg.panelId === 'string') {
+      extensionPanelSelect.update(m => {
+        const next = new Map(m)
+        const options = Array.isArray(msg.options)
+          ? msg.options.filter((o: any) => o && typeof o.value === 'string' && typeof o.label === 'string')
+          : []
+        next.set(`${ext.name}:${msg.panelId}`, { options, value: String(msg.value ?? '') })
         return next
       })
     } else if (msg.type === 'getActiveFilePath' && msg.reqId != null) {
@@ -91,6 +116,27 @@ function stopWorker(name: string) {
     for (const k of [...next.keys()]) if (k.startsWith(name + ':')) next.delete(k)
     return next
   })
+  extensionPanelSelect.update(m => {
+    const next = new Map(m)
+    for (const k of [...next.keys()]) if (k.startsWith(name + ':')) next.delete(k)
+    return next
+  })
+}
+
+// Both open a native picker (zip file / folder), install under
+// ~/.bish/extensions/<picked name>, and reload the list so the new
+// extension's worker starts immediately. Return "" if the user cancelled
+// the picker; throw on install failure (missing manifest, bad name, etc.).
+export async function installExtensionFromZip(): Promise<string> {
+  const name = await InstallExtensionFromZip()
+  if (name) await loadExtensions()
+  return name
+}
+
+export async function installExtensionFromDirectory(): Promise<string> {
+  const name = await InstallExtensionFromDirectory()
+  if (name) await loadExtensions()
+  return name
 }
 
 export async function loadExtensions() {
@@ -112,8 +158,17 @@ export function setExtensionEnabled(name: string, enabled: boolean) {
 
 // Deletes the extension's directory under ~/.bish/extensions and drops it
 // from the list — unlike disabling, this can't be undone from Settings.
+// Throws on failure (bad name, permission error, etc.) — the directory is
+// only dropped from the list once the backend confirms it's actually gone,
+// otherwise a swallowed error would leave it on disk while the UI claims
+// it's uninstalled, and it'd reappear the next time extensions reload.
 export async function uninstallExtension(name: string) {
   stopWorker(name)
-  await UninstallExtension(name).catch(() => {})
+  await UninstallExtension(name)
   loadedExtensions.update(list => list.filter(e => e.name !== name))
+  // if the panel we just deleted was showing, fall back so the sidebar
+  // doesn't point at a panel that no longer exists
+  if (get(activeRightPanel).startsWith(`ext:${name}:`)) {
+    activeRightPanel.set('files')
+  }
 }

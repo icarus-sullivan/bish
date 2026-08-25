@@ -15,9 +15,15 @@
 //      paste the key when the panel asks.
 //
 // Messages exchanged with the host, beyond the base extension protocol:
-//   worker -> host  { type: 'getSecret', reqId, key }   (reply carries value)
-//   worker -> host  { type: 'setSecret', key, value }   (fire-and-forget)
-//   host -> worker  { type: 'input', panelId, value }   (panel input submit)
+//   worker -> host  { type: 'getSecret', reqId, key }     (reply carries value)
+//   worker -> host  { type: 'setSecret', key, value }     (fire-and-forget)
+//   worker -> host  { type: 'setPanelSelect', panelId, options, value }
+//                     (adds/updates the status dropdown next to the panel input)
+//   host -> worker  { type: 'input', panelId, value }     (title filter box submit)
+//   host -> worker  { type: 'select', panelId, value }    (status dropdown change)
+//
+// The panel's refresh icon just re-sends the manifest's "refresh" command
+// (same as running it from the Command Palette) — no extra protocol needed.
 
 let reqCounter = 0
 const pending = new Map()
@@ -40,11 +46,15 @@ function render(html) {
   postMessage({ type: 'setPanelHTML', panelId: 'issues', html })
 }
 
+const ACTIVE = '__active__'
+const ALL = '__all__'
+
 const state = {
   apiKey: null,
-  stage: 'boot',   // boot -> needKey -> loading -> ready
-  issues: [],      // { identifier, title, url, stateName, stateType, stateColor }
-  query: '',       // '' = default (hide completed); 'all' = show everything; else fuzzy search
+  stage: 'boot',      // boot -> needKey -> loading -> ready
+  issues: [],         // { identifier, title, url, stateName, stateType, stateColor }
+  titleQuery: '',     // free-text filter, matched against identifier + title
+  statusFilter: ACTIVE, // ACTIVE (hide completed) | ALL | an exact state name
   pollTimer: null,
 }
 
@@ -59,15 +69,28 @@ function fuzzyMatch(query, text) {
   return qi === q.length
 }
 
-// '' (default) hides completed issues, same as the old server-side
-// "neq completed" query filter. 'all' shows everything. Any other query
-// fuzzy-matches identifier, title and status — so typing a status name
-// ("done") filters by status, and typing part of a title looks up a ticket,
-// searched across ALL issues (including completed ones the default hides).
+// Status dropdown options: two fixed entries plus every distinct status
+// name actually seen on the account's issues, discovered from Linear's
+// response rather than hardcoded (workspaces customize workflow states).
+function statusOptions() {
+  const names = [...new Set(state.issues.map(i => i.stateName).filter(Boolean))].sort()
+  return [
+    { value: ACTIVE, label: 'Active' },
+    { value: ALL, label: 'All statuses' },
+    ...names.map(n => ({ value: n, label: n })),
+  ]
+}
+
+function pushSelect() {
+  postMessage({ type: 'setPanelSelect', panelId: 'issues', options: statusOptions(), value: state.statusFilter })
+}
+
 function visibleIssues() {
-  if (state.query === '') return state.issues.filter(i => i.stateType !== 'completed')
-  if (state.query.toLowerCase() === 'all') return state.issues
-  return state.issues.filter(i => fuzzyMatch(state.query, `${i.identifier} ${i.title} ${i.stateName}`))
+  let list = state.issues
+  if (state.statusFilter === ACTIVE) list = list.filter(i => i.stateType !== 'completed')
+  else if (state.statusFilter !== ALL) list = list.filter(i => i.stateName === state.statusFilter)
+  if (state.titleQuery) list = list.filter(i => fuzzyMatch(state.titleQuery, `${i.identifier} ${i.title}`))
+  return list
 }
 
 function draw(errorLine) {
@@ -80,9 +103,8 @@ function draw(errorLine) {
     return
   }
 
-  const queryLabel = state.query === '' ? 'active' : state.query
   const header = `<div style="padding:6px 12px;font-size:11px;opacity:0.6;border-bottom:1px solid rgba(128,128,128,0.15)">
-    ${esc(queryLabel)} — type below to fuzzy-search by ticket or status, "all" to show everything, "clear" to reset
+    ${state.titleQuery ? `filtering by "${esc(state.titleQuery)}"` : 'type below to filter by ticket title — use the dropdown to filter by status'}
   </div>`
   const rows = visibleIssues().map(i => `
     <div style="padding:6px 12px;border-bottom:1px solid rgba(128,128,128,0.15)">
@@ -130,6 +152,7 @@ async function loadIssues() {
     stateName: n.state?.name, stateType: n.state?.type, stateColor: n.state?.color,
   }))
   state.stage = 'ready'
+  pushSelect()
   draw()
 }
 
@@ -153,12 +176,25 @@ onmessage = async (e) => {
     return
   }
   if (msg.type === 'command' && msg.id === 'connect') { boot(); return }
-  if (msg.type === 'command' && msg.id === 'refresh') { if (state.apiKey) loadIssues(); return }
+  if (msg.type === 'command' && msg.id === 'refresh') {
+    if (!state.apiKey) return
+    // "refresh" also clears filters back to defaults, matching the panel's
+    // refresh icon — a full reset, not just a refetch.
+    state.titleQuery = ''
+    state.statusFilter = ACTIVE
+    loadIssues()
+    return
+  }
+  if (msg.type === 'select' && msg.panelId === 'issues' && state.stage === 'ready') {
+    state.statusFilter = String(msg.value || ACTIVE)
+    draw()
+    return
+  }
   if (msg.type === 'input' && msg.panelId === 'issues') {
     const value = String(msg.value || '').trim()
-    if (!value) return
 
     if (state.stage === 'needKey') {
+      if (!value) return
       state.apiKey = value
       setSecret('apiKey', value)
       await loadIssues()
@@ -167,8 +203,7 @@ onmessage = async (e) => {
     }
 
     if (state.stage === 'ready') {
-      const lower = value.toLowerCase()
-      state.query = lower === 'clear' || lower === 'active' ? '' : value
+      state.titleQuery = value
       draw()
     }
   }

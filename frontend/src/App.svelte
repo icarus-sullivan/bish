@@ -187,8 +187,11 @@
 
     function onMove(ev: MouseEvent) {
       // 220 is the narrowest a Processes row (play/stop/dot/port badge/trash,
-      // name already collapsed to 0) still lays out without clipping
-      rightWidth.set(Math.max(220, Math.min(500, startRight + sign * (ev.clientX - startX))))
+      // name already collapsed to 0) still lays out without clipping.
+      // Upper bound leaves 100px for the center column so it never fully
+      // collapses.
+      const maxWidth = window.innerWidth - 100
+      rightWidth.set(Math.max(220, Math.min(maxWidth, startRight + sign * (ev.clientX - startX))))
     }
     function onUp() {
       window.removeEventListener('mousemove', onMove)

@@ -8,9 +8,15 @@
     danger?: boolean
   }
 
-  let { x = 0, y = 0, items = [], onClose }: {
-    x: number; y: number; items: MenuItem[]; onClose: () => void
+  // align 'left' anchors the menu's left edge to x (opens rightward — the
+  // default, right for a left-docked sidebar). 'right' anchors the menu's
+  // right edge to x instead (opens leftward) so it doesn't run off-screen
+  // when x is near the window's right edge, e.g. a right-docked sidebar.
+  let { x = 0, y = 0, items = [], align = 'left', onClose }: {
+    x: number; y: number; items: MenuItem[]; align?: 'left' | 'right'; onClose: () => void
   } = $props()
+
+  const posStyle = $derived(align === 'right' ? `right:${window.innerWidth - x}px` : `left:${x}px`)
 
   function handleAction(item: MenuItem) {
     item.action()
@@ -22,7 +28,7 @@
 
 <svelte:window onclick={onClose} />
 
-<div class="menu" style="left:{x}px; top:{y}px" role="menu">
+<div class="menu" style="{posStyle}; top:{y}px" role="menu">
   {#each items as item, i}
     {#if i > 0 && item.danger && !items[i-1].danger}
       <div class="sep"></div>
