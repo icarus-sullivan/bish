@@ -1456,16 +1456,13 @@ func (a *App) SaveConfig(cfg config.Config) error {
 	return config.Save(cfg)
 }
 
-// applySearchConfig pushes cfg.SearchMaxDepth into the search package's
-// process-wide MaxWalkDepth — shared by the Files panel search, the
-// assistant's list_files/search_files tools, and Replace All, none of which
-// otherwise have a route to per-request config.
+// applySearchConfig pushes cfg's search toggles into the search package's
+// process-wide vars — shared by the Files panel search, the assistant's
+// search_files tool, and Replace All, none of which otherwise have a route
+// to per-request config.
 func applySearchConfig(cfg config.Config) {
-	if cfg.SearchMaxDepth > 0 {
-		search.MaxWalkDepth = cfg.SearchMaxDepth
-	} else {
-		search.MaxWalkDepth = search.DefaultMaxWalkDepth
-	}
+	search.IncludeGitignored = cfg.SearchIncludeGitignored
+	search.IncludeHidden = cfg.SearchHiddenEnabled()
 }
 
 // ExportSettingsFile writes content (a JSON bundle the frontend builds

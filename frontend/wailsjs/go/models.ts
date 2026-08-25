@@ -504,7 +504,8 @@ export namespace config {
 	    shell: string;
 	    format_on_save: boolean;
 	    panel_side?: string;
-	    search_max_depth?: number;
+	    search_include_gitignored?: boolean;
+	    search_include_hidden?: boolean;
 	    persist?: PersistConfig;
 	    features?: Record<string, boolean>;
 	    assistant?: AssistantConfig;
@@ -528,7 +529,8 @@ export namespace config {
 	        this.shell = source["shell"];
 	        this.format_on_save = source["format_on_save"];
 	        this.panel_side = source["panel_side"];
-	        this.search_max_depth = source["search_max_depth"];
+	        this.search_include_gitignored = source["search_include_gitignored"];
+	        this.search_include_hidden = source["search_include_hidden"];
 	        this.persist = this.convertValues(source["persist"], PersistConfig);
 	        this.features = source["features"];
 	        this.assistant = this.convertValues(source["assistant"], AssistantConfig);

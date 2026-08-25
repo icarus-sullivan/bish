@@ -65,11 +65,6 @@
     saveCfg({ theme: name })
   }
 
-  function onSearchMaxDepth(e: Event) {
-    const n = parseInt((e.target as HTMLInputElement).value, 10)
-    if (Number.isFinite(n) && n > 0) saveCfg({ search_max_depth: n })
-  }
-
   function onPanelSide(e: Event) {
     const side = (e.target as HTMLSelectElement).value as 'left' | 'right'
     panelSide.set(side)
@@ -308,16 +303,19 @@
       <h2>Search</h2>
       <div class="row">
         <div class="labels">
-          <span class="label">Max search depth</span>
-          <span class="hint">
-            How many directory levels deep global search, Replace All, and file listing (Go to File,
-            the Assistant's file tools) recurse before giving up. Raise this if a large or deeply
-            nested project is missing matches — default 40.
-          </span>
+          <span class="label">Search hidden files</span>
+          <span class="hint">Include dotfiles and dot-directories in global search and Replace All.</span>
         </div>
-        <input type="number" class="kb-input narrow-input" min="1" max="500"
-               value={cfg?.search_max_depth || 40}
-               onchange={onSearchMaxDepth} />
+        <input type="checkbox" checked={cfg?.search_include_hidden ?? true}
+               onchange={(e) => saveCfg({ search_include_hidden: (e.target as HTMLInputElement).checked })} />
+      </div>
+      <div class="row">
+        <div class="labels">
+          <span class="label">Search .gitignored files</span>
+          <span class="hint">Include paths excluded by .gitignore in global search and Replace All.</span>
+        </div>
+        <input type="checkbox" checked={cfg?.search_include_gitignored ?? false}
+               onchange={(e) => saveCfg({ search_include_gitignored: (e.target as HTMLInputElement).checked })} />
       </div>
     </section>
 
@@ -660,7 +658,6 @@
   }
   .kb-input:focus { border-color: var(--accent); }
   .kb-input.wide-input { width: 240px; }
-  .kb-input.narrow-input { width: 70px; text-align: right; }
 
   .badge-row {
     display: flex;

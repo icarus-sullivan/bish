@@ -12,9 +12,14 @@ type Config struct {
 	FormatOnSave bool   `json:"format_on_save"`
 	// PanelSide docks the sidebar left or right; empty/"right" = right (default)
 	PanelSide string `json:"panel_side,omitempty"`
-	// SearchMaxDepth caps recursion depth for global search/replace/list-files
-	// (internal/search). 0/unset = search.DefaultMaxWalkDepth.
-	SearchMaxDepth int `json:"search_max_depth,omitempty"`
+	// SearchIncludeGitignored, when true, makes global search/replace ignore
+	// .gitignore rules and include ignored paths. false (default) = respect
+	// .gitignore.
+	SearchIncludeGitignored bool `json:"search_include_gitignored,omitempty"`
+	// SearchIncludeHidden follows the nil-means-on convention (see
+	// Notifications/NotificationsEnabled below) — nil/missing = true,
+	// dotfiles/dot-dirs are searched by default.
+	SearchIncludeHidden *bool `json:"search_include_hidden,omitempty"`
 	// nil = persist everything (frontend treats missing as true)
 	Persist *PersistConfig `json:"persist,omitempty"`
 	// per-feature toggles; missing key = frontend registry default (features.ts)
@@ -58,6 +63,12 @@ type LanguageOverride struct {
 // NotificationsEnabled applies the nil-means-on convention.
 func (c Config) NotificationsEnabled() bool {
 	return c.Notifications == nil || *c.Notifications
+}
+
+// SearchHiddenEnabled applies the same nil-means-on convention as
+// NotificationsEnabled.
+func (c Config) SearchHiddenEnabled() bool {
+	return c.SearchIncludeHidden == nil || *c.SearchIncludeHidden
 }
 
 // Snippet is a user-defined autocomplete snippet, additive to the built-in
