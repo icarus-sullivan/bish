@@ -33,7 +33,12 @@ func discoverRepos(def *Definition, roots []string) {
 			MainBranch: detectMainBranch(root),
 			WorktreeIn: filepath.Dir(root),
 			Prefix:     id + "-",
+			DependsOn:  []string{},
+			Link:       []string{},
+			Copy:       []string{},
 			Env:        map[string]string{},
+			Steps:      []*Step{},
+			Services:   []*Service{},
 		})
 	}
 }

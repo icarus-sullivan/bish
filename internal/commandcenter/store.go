@@ -22,7 +22,35 @@ func loadDefinition(projectRoot string) (*Definition, error) {
 		return def, err
 	}
 	err = json.Unmarshal(data, def)
+	normalizeDefinition(def)
 	return def, err
+}
+
+// normalizeDefinition replaces nil slices with empty ones on every repo —
+// a Go nil slice marshals to JSON null, and the frontend indexes these
+// fields (.length, .includes) without a null guard, so a null here crashes
+// the Svelte render entirely and silently strands the UI on stale state.
+// Applies to repos loaded from an existing file (json.Unmarshal populates
+// zero-value nil slices for JSON null / absent keys) as well as freshly
+// discovered ones.
+func normalizeDefinition(def *Definition) {
+	for _, r := range def.Repos {
+		if r.DependsOn == nil {
+			r.DependsOn = []string{}
+		}
+		if r.Link == nil {
+			r.Link = []string{}
+		}
+		if r.Copy == nil {
+			r.Copy = []string{}
+		}
+		if r.Steps == nil {
+			r.Steps = []*Step{}
+		}
+		if r.Services == nil {
+			r.Services = []*Service{}
+		}
+	}
 }
 
 func saveDefinition(projectRoot string, def *Definition) error {
@@ -62,6 +90,11 @@ func loadState(projectRoot string) (*State, error) {
 	if st.Targets == nil {
 		st.Targets = map[string]*Target{}
 	}
+	for _, t := range st.Targets {
+		if t.Services == nil {
+			t.Services = []string{}
+		}
+	}
 	return st, nil
 }
 
@@ -80,5 +113,5 @@ func saveState(projectRoot string, st *State) error {
 // ticked (the user picks which to run — unlike command-center, a freshly
 // discovered repo has no services defined yet to default-select).
 func defaultTarget(r *Repo) *Target {
-	return &Target{Mode: "main", Path: r.Path, Branch: r.MainBranch, Env: map[string]string{}}
+	return &Target{Mode: "main", Path: r.Path, Branch: r.MainBranch, Services: []string{}, Env: map[string]string{}}
 }

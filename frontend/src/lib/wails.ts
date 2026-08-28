@@ -127,15 +127,17 @@ export interface CCStep {
 export interface CCService { name: string; cmd: string; port: number }
 export interface CCRepo {
   id: string; name: string; path: string; mainBranch: string
-  dependsOn: string[]; worktreeIn: string; prefix: string
-  overrides: string; setup: string; link: string[]; copy: string[]
-  env: Record<string, string>; steps: CCStep[]; services: CCService[]
+  // Go nil slices marshal to JSON null, not [] — always null-check these
+  // (r.dependsOn ?? []) rather than assuming the array itself exists.
+  dependsOn: string[] | null; worktreeIn: string; prefix: string
+  overrides: string; setup: string; link: string[] | null; copy: string[] | null
+  env: Record<string, string>; steps: CCStep[] | null; services: CCService[] | null
 }
 export interface CCDefinition { repos: CCRepo[] }
 export interface CCTarget {
   mode: 'main' | 'worktree' | 'off'
   path: string; branch: string
-  services: string[]; steps?: Record<string, boolean>; env: Record<string, string>
+  services: string[] | null; steps?: Record<string, boolean>; env: Record<string, string>
 }
 export interface CCState { targets: Record<string, CCTarget> }
 export interface CCBranchInfo { name: string; path?: string; main?: boolean; remote?: boolean }

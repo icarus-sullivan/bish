@@ -56,9 +56,10 @@
   }
 
   async function toggleService(repo: CCRepo, target: CCTarget, name: string) {
-    const services = target.services.includes(name)
-      ? target.services.filter(s => s !== name)
-      : [...target.services, name]
+    const current = target.services ?? []
+    const services = current.includes(name)
+      ? current.filter(s => s !== name)
+      : [...current, name]
     await SetCommandCenterTarget(repo.id, { ...target, services })
   }
 
@@ -81,9 +82,10 @@
   }
 
   async function toggleDependsOn(def: CCDefinition, repo: CCRepo, depId: string) {
-    const dependsOn = repo.dependsOn.includes(depId)
-      ? repo.dependsOn.filter(d => d !== depId)
-      : [...repo.dependsOn, depId]
+    const current = repo.dependsOn ?? []
+    const dependsOn = current.includes(depId)
+      ? current.filter(d => d !== depId)
+      : [...current, depId]
     await SaveCommandCenterDefinition({ repos: def.repos.map(r => r.id === repo.id ? { ...r, dependsOn } : r) })
   }
 
@@ -95,13 +97,13 @@
     if (!addServiceFor || !addServiceName.trim() || !addServiceCmd.trim()) return
     const port = parseInt(addServicePort, 10) || 0
     const repos = def.repos.map(r => r.id === addServiceFor
-      ? { ...r, services: [...r.services, { name: addServiceName.trim(), cmd: addServiceCmd.trim(), port }] }
+      ? { ...r, services: [...(r.services ?? []), { name: addServiceName.trim(), cmd: addServiceCmd.trim(), port }] }
       : r)
     await SaveCommandCenterDefinition({ repos })
     addServiceFor = null
   }
   function removeService(def: CCDefinition, repo: CCRepo, name: string) {
-    SaveCommandCenterDefinition({ repos: def.repos.map(r => r.id === repo.id ? { ...r, services: r.services.filter(s => s.name !== name) } : r) })
+    SaveCommandCenterDefinition({ repos: def.repos.map(r => r.id === repo.id ? { ...r, services: (r.services ?? []).filter(s => s.name !== name) } : r) })
   }
 
   function openAddStep(repoId: string) {
@@ -111,13 +113,13 @@
   async function submitAddStep(def: CCDefinition) {
     if (!addStepFor || !addStepName.trim() || !addStepCmd.trim()) return
     const repos = def.repos.map(r => r.id === addStepFor
-      ? { ...r, steps: [...r.steps, { name: addStepName.trim(), cmd: addStepCmd.trim(), default: addStepDefault, destructive: addStepDestructive }] }
+      ? { ...r, steps: [...(r.steps ?? []), { name: addStepName.trim(), cmd: addStepCmd.trim(), default: addStepDefault, destructive: addStepDestructive }] }
       : r)
     await SaveCommandCenterDefinition({ repos })
     addStepFor = null
   }
   function removeStep(def: CCDefinition, repo: CCRepo, name: string) {
-    SaveCommandCenterDefinition({ repos: def.repos.map(r => r.id === repo.id ? { ...r, steps: r.steps.filter(s => s.name !== name) } : r) })
+    SaveCommandCenterDefinition({ repos: def.repos.map(r => r.id === repo.id ? { ...r, steps: (r.steps ?? []).filter(s => s.name !== name) } : r) })
   }
 
   function statusFor(repoId: string, key: string) {
@@ -145,7 +147,7 @@
           <div class="card">
             <div class="card-header">
               <span class="repo-name">{repo.name}</span>
-              {#if repo.dependsOn.length}
+              {#if repo.dependsOn?.length}
                 <span class="dep-badge" title="depends on">→ {repo.dependsOn.join(', ')}</span>
               {/if}
               <div class="card-actions">
@@ -175,12 +177,12 @@
               {/if}
             </div>
 
-            {#if repo.services.length}
+            {#if repo.services?.length}
               <div class="section-label">Services</div>
               {#each repo.services as svc (svc.name)}
                 {@const st = statusFor(repo.id, svc.name)}
                 <div class="row">
-                  <input type="checkbox" checked={target.services.includes(svc.name)} onchange={() => toggleService(repo, target, svc.name)} />
+                  <input type="checkbox" checked={(target.services ?? []).includes(svc.name)} onchange={() => toggleService(repo, target, svc.name)} />
                   <span class="status-dot" class:running={st?.status === 'running'} class:crashed={st?.status === 'crashed'} class:stopped={st?.status === 'stopped'}></span>
                   <span class="svc-name" title={svc.cmd}>{svc.name}</span>
                   {#if svc.port}<span class="badge">:{svc.port}</span>{/if}
@@ -191,7 +193,7 @@
             {/if}
             <button class="add-link" onclick={() => openAddService(repo.id)}><IconPlus size={11} /> add service</button>
 
-            {#if repo.steps.length}
+            {#if repo.steps?.length}
               <div class="section-label">Before start</div>
               {#each repo.steps as step (step.name)}
                 <div class="row">
@@ -208,7 +210,7 @@
               <div class="section-label">Depends on</div>
               <div class="chip-row">
                 {#each $commandCenter.definition.repos.filter(r => r.id !== repo.id) as other (other.id)}
-                  <button class="chip" class:active={repo.dependsOn.includes(other.id)} onclick={() => toggleDependsOn($commandCenter.definition, repo, other.id)}>{other.name}</button>
+                  <button class="chip" class:active={(repo.dependsOn ?? []).includes(other.id)} onclick={() => toggleDependsOn($commandCenter.definition, repo, other.id)}>{other.name}</button>
                 {/each}
               </div>
             {/if}
