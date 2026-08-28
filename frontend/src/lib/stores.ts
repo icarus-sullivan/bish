@@ -1,5 +1,5 @@
 import { writable, get } from 'svelte/store'
-import type { Process, SavedCommand, TreeNode, Theme, ProjectCmd, Task } from './wails'
+import type { Process, SavedCommand, TreeNode, Theme, ProjectCmd, Task, CCSnapshot } from './wails'
 import { ConfirmDiscardChanges } from './wails'
 
 export type Pane = 'processes' | 'commands' | 'terminal' | 'tree'
@@ -7,6 +7,7 @@ export type Pane = 'processes' | 'commands' | 'terminal' | 'tree'
 export const focusedPane = writable<Pane>('terminal')
 export const processes = writable<Process[]>([])
 export const commands = writable<SavedCommand[]>([])
+export const commandCenter = writable<CCSnapshot>({ definition: { repos: [] }, state: { targets: {} }, statuses: {} })
 export const treeNodes = writable<TreeNode[]>([])
 export const cwd = writable<string>('')
 export const theme = writable<Theme | null>(null)

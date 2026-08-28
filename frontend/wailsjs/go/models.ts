@@ -336,6 +336,261 @@ export namespace assistant {
 
 }
 
+export namespace commandcenter {
+	
+	export class BranchInfo {
+	    name: string;
+	    path?: string;
+	    main?: boolean;
+	    remote?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new BranchInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.path = source["path"];
+	        this.main = source["main"];
+	        this.remote = source["remote"];
+	    }
+	}
+	export class Service {
+	    name: string;
+	    cmd: string;
+	    port: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Service(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.cmd = source["cmd"];
+	        this.port = source["port"];
+	    }
+	}
+	export class Step {
+	    name: string;
+	    cmd: string;
+	    default: boolean;
+	    destructive?: boolean;
+	    supersedes?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new Step(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.cmd = source["cmd"];
+	        this.default = source["default"];
+	        this.destructive = source["destructive"];
+	        this.supersedes = source["supersedes"];
+	    }
+	}
+	export class Repo {
+	    id: string;
+	    name: string;
+	    path: string;
+	    mainBranch: string;
+	    dependsOn: string[];
+	    worktreeIn: string;
+	    prefix: string;
+	    overrides: string;
+	    setup: string;
+	    link: string[];
+	    copy: string[];
+	    env: Record<string, string>;
+	    steps: Step[];
+	    services: Service[];
+	
+	    static createFrom(source: any = {}) {
+	        return new Repo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.path = source["path"];
+	        this.mainBranch = source["mainBranch"];
+	        this.dependsOn = source["dependsOn"];
+	        this.worktreeIn = source["worktreeIn"];
+	        this.prefix = source["prefix"];
+	        this.overrides = source["overrides"];
+	        this.setup = source["setup"];
+	        this.link = source["link"];
+	        this.copy = source["copy"];
+	        this.env = source["env"];
+	        this.steps = this.convertValues(source["steps"], Step);
+	        this.services = this.convertValues(source["services"], Service);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class Definition {
+	    repos: Repo[];
+	
+	    static createFrom(source: any = {}) {
+	        return new Definition(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.repos = this.convertValues(source["repos"], Repo);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
+	export class ServiceStatus {
+	    key: string;
+	    processId: string;
+	    pid: number;
+	    status: string;
+	    ports: number[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ServiceStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.processId = source["processId"];
+	        this.pid = source["pid"];
+	        this.status = source["status"];
+	        this.ports = source["ports"];
+	    }
+	}
+	export class Target {
+	    mode: string;
+	    path: string;
+	    branch: string;
+	    services: string[];
+	    steps?: Record<string, boolean>;
+	    env: Record<string, string>;
+	
+	    static createFrom(source: any = {}) {
+	        return new Target(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.mode = source["mode"];
+	        this.path = source["path"];
+	        this.branch = source["branch"];
+	        this.services = source["services"];
+	        this.steps = source["steps"];
+	        this.env = source["env"];
+	    }
+	}
+	export class State {
+	    targets: Record<string, Target>;
+	
+	    static createFrom(source: any = {}) {
+	        return new State(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.targets = this.convertValues(source["targets"], Target, true);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class Snapshot {
+	    definition?: Definition;
+	    state?: State;
+	    statuses: Record<string, ServiceStatus>;
+	
+	    static createFrom(source: any = {}) {
+	        return new Snapshot(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.definition = this.convertValues(source["definition"], Definition);
+	        this.state = this.convertValues(source["state"], State);
+	        this.statuses = this.convertValues(source["statuses"], ServiceStatus, true);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
+
+}
+
 export namespace commands {
 	
 	export class SavedCommand {

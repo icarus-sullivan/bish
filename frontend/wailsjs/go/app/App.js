@@ -174,6 +174,14 @@ export function GetCWD() {
   return window['go']['app']['App']['GetCWD']();
 }
 
+export function GetCommandCenterBranches(arg1) {
+  return window['go']['app']['App']['GetCommandCenterBranches'](arg1);
+}
+
+export function GetCommandCenterSnapshot() {
+  return window['go']['app']['App']['GetCommandCenterSnapshot']();
+}
+
 export function GetCommands() {
   return window['go']['app']['App']['GetCommands']();
 }
@@ -414,6 +422,10 @@ export function ReadFileChunk(arg1, arg2, arg3) {
   return window['go']['app']['App']['ReadFileChunk'](arg1, arg2, arg3);
 }
 
+export function RefreshCommandCenterRepo(arg1) {
+  return window['go']['app']['App']['RefreshCommandCenterRepo'](arg1);
+}
+
 export function RefreshTree() {
   return window['go']['app']['App']['RefreshTree']();
 }
@@ -466,6 +478,10 @@ export function RunTask(arg1) {
   return window['go']['app']['App']['RunTask'](arg1);
 }
 
+export function SaveCommandCenterDefinition(arg1) {
+  return window['go']['app']['App']['SaveCommandCenterDefinition'](arg1);
+}
+
 export function SaveConfig(arg1) {
   return window['go']['app']['App']['SaveConfig'](arg1);
 }
@@ -480,6 +496,10 @@ export function SaveProjectUI(arg1) {
 
 export function SearchInFiles(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
   return window['go']['app']['App']['SearchInFiles'](arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+}
+
+export function SetCommandCenterTarget(arg1, arg2) {
+  return window['go']['app']['App']['SetCommandCenterTarget'](arg1, arg2);
 }
 
 export function SetEditShareGuestPermission(arg1, arg2, arg3) {
@@ -502,6 +522,18 @@ export function SetQuitRequested() {
   return window['go']['app']['App']['SetQuitRequested']();
 }
 
+export function StartAllCommandCenter() {
+  return window['go']['app']['App']['StartAllCommandCenter']();
+}
+
+export function StartCommandCenterRepo(arg1) {
+  return window['go']['app']['App']['StartCommandCenterRepo'](arg1);
+}
+
+export function StartCommandCenterService(arg1, arg2) {
+  return window['go']['app']['App']['StartCommandCenterService'](arg1, arg2);
+}
+
 export function StartEditShare(arg1) {
   return window['go']['app']['App']['StartEditShare'](arg1);
 }
@@ -512,6 +544,14 @@ export function StartLiveShare(arg1) {
 
 export function StashDropped(arg1) {
   return window['go']['app']['App']['StashDropped'](arg1);
+}
+
+export function StopAllCommandCenter() {
+  return window['go']['app']['App']['StopAllCommandCenter']();
+}
+
+export function StopCommandCenterRepo(arg1) {
+  return window['go']['app']['App']['StopCommandCenterRepo'](arg1);
 }
 
 export function StopEditShare(arg1) {

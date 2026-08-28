@@ -22,6 +22,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 
 	"github.com/csullivan/bish/internal/assistant"
+	"github.com/csullivan/bish/internal/commandcenter"
 	"github.com/csullivan/bish/internal/commands"
 	"github.com/csullivan/bish/internal/completion"
 	"github.com/csullivan/bish/internal/config"
@@ -57,6 +58,7 @@ var skipDirs = tree.SkipDirs
 
 type App struct {
 	mgr         *process.Manager
+	cc          *commandcenter.Manager
 	cmdStore    *commands.Store
 	cmdMu       sync.Mutex
 	shell       *bishpty.PTY
@@ -120,6 +122,7 @@ func New(cfg config.Config, mgr *process.Manager, store *commands.Store,
 	shell *bishpty.PTY, cwd, cwdFile, wFilePath, galleryFile string) *App {
 	return &App{
 		mgr:         mgr,
+		cc:          commandcenter.New(mgr),
 		cmdStore:    store,
 		shell:       shell,
 		terminals:   make(map[string]*bishpty.PTY),
@@ -523,12 +526,16 @@ func (a *App) pollWLoop() {
 				if line == "" {
 					continue
 				}
-				parts := strings.SplitN(line, "\t", 2)
-				if len(parts) != 2 {
+				parts := strings.SplitN(line, "\t", 3)
+				if len(parts) < 2 {
 					continue
 				}
 				cwd, cmdStr := parts[0], parts[1]
-				a.mgr.Add(cmdStr, cwd, "") //nolint
+				name := ""
+				if len(parts) == 3 {
+					name = parts[2]
+				}
+				a.mgr.Add(cmdStr, cwd, name) //nolint
 				a.projectMu.Lock()
 				// only save into the project if the command ran inside it —
 				// otherwise commands leak into whatever project happens to be open
@@ -587,7 +594,7 @@ func (a *App) pollGalleryLoop() {
 }
 
 func (a *App) refreshLoop() {
-	var last []byte
+	var last, lastCC []byte
 	for {
 		select {
 		case <-a.ctx.Done():
@@ -601,6 +608,12 @@ func (a *App) refreshLoop() {
 			if err != nil || !bytes.Equal(cur, last) {
 				last = cur
 				runtime.EventsEmit(a.ctx, "processes:update", procs)
+			}
+			snap := a.cc.Snapshot()
+			curCC, err := json.Marshal(snap)
+			if err != nil || !bytes.Equal(curCC, lastCC) {
+				lastCC = curCC
+				runtime.EventsEmit(a.ctx, "cc:update", snap)
 			}
 		}
 	}
@@ -700,7 +713,7 @@ func (a *App) RunCommand(id string) error {
 		return err
 	}
 	defer f.Close()
-	_, err = fmt.Fprintf(f, "%s\t%s\n", found.CWD, found.Command)
+	_, err = fmt.Fprintf(f, "%s\t%s\t%s\n", found.CWD, found.Command, found.Name)
 	return err
 }
 
@@ -744,6 +757,72 @@ func (a *App) RenameCommand(id, name string) error {
 	}
 	runtime.EventsEmit(a.ctx, "commands:update", cmds)
 	return nil
+}
+
+// -- Command Center methods --
+
+func (a *App) GetCommandCenterSnapshot() *commandcenter.Snapshot {
+	return a.cc.Snapshot()
+}
+
+func (a *App) SaveCommandCenterDefinition(def *commandcenter.Definition) error {
+	if err := a.cc.SaveDefinition(def); err != nil {
+		return err
+	}
+	runtime.EventsEmit(a.ctx, "cc:update", a.cc.Snapshot())
+	return nil
+}
+
+func (a *App) SetCommandCenterTarget(repoID string, target *commandcenter.Target) error {
+	if err := a.cc.SetTarget(repoID, target); err != nil {
+		return err
+	}
+	runtime.EventsEmit(a.ctx, "cc:update", a.cc.Snapshot())
+	return nil
+}
+
+func (a *App) GetCommandCenterBranches(repoID string) ([]commandcenter.BranchInfo, error) {
+	return a.cc.Branches(repoID)
+}
+
+func (a *App) RefreshCommandCenterRepo(repoID string) error {
+	if err := a.cc.RefreshRepo(repoID); err != nil {
+		return err
+	}
+	runtime.EventsEmit(a.ctx, "cc:update", a.cc.Snapshot())
+	return nil
+}
+
+func (a *App) StartCommandCenterRepo(repoID string) error {
+	a.telemetry.Count("cc_start_repo")
+	err := a.cc.StartRepo(repoID)
+	runtime.EventsEmit(a.ctx, "cc:update", a.cc.Snapshot())
+	return err
+}
+
+func (a *App) StartCommandCenterService(repoID, service string) error {
+	a.telemetry.Count("cc_start_service")
+	err := a.cc.StartService(repoID, service)
+	runtime.EventsEmit(a.ctx, "cc:update", a.cc.Snapshot())
+	return err
+}
+
+func (a *App) StartAllCommandCenter() error {
+	a.telemetry.Count("cc_start_all")
+	err := a.cc.StartAll()
+	runtime.EventsEmit(a.ctx, "cc:update", a.cc.Snapshot())
+	return err
+}
+
+func (a *App) StopCommandCenterRepo(repoID string) error {
+	err := a.cc.StopRepo(repoID)
+	runtime.EventsEmit(a.ctx, "cc:update", a.cc.Snapshot())
+	return err
+}
+
+func (a *App) StopAllCommandCenter() {
+	a.cc.StopAll()
+	runtime.EventsEmit(a.ctx, "cc:update", a.cc.Snapshot())
 }
 
 // -- Tree methods --
@@ -1925,6 +2004,10 @@ func (a *App) openProjectDir(dir string) error {
 	a.extraRoots = append([]string{}, cfg.ExtraRoots...)
 	a.extraTrees = make(map[string]*tree.Tree, len(a.extraRoots))
 	a.treeMu.Unlock()
+	if err := a.cc.Load(dir, cfg.ExtraRoots); err != nil {
+		fmt.Fprintf(os.Stderr, "command center: load %s: %v\n", dir, err)
+	}
+	runtime.EventsEmit(a.ctx, "cc:update", a.cc.Snapshot())
 	runtime.WindowSetTitle(a.ctx, filepath.Base(dir))
 	a.reloadTree()
 	// restore saved expansion from previous session
@@ -2059,6 +2142,11 @@ func (a *App) saveExtraRoots() {
 	}
 	cfg.ExtraRoots = extra
 	project.Save(cfg) //nolint
+	// re-discover: a newly added/removed workspace folder may itself be a
+	// git repo Command Center should (or should no longer) offer to launch
+	if err := a.cc.Load(cfg.CWD, extra); err == nil {
+		runtime.EventsEmit(a.ctx, "cc:update", a.cc.Snapshot())
+	}
 }
 
 // GetWorkspaceRoots returns the primary project root followed by every
@@ -2205,7 +2293,7 @@ func (a *App) RunProjectCommand(id string) error {
 		return err
 	}
 	defer f.Close()
-	_, err = fmt.Fprintf(f, "%s\t%s\n", found.Directory, found.Command)
+	_, err = fmt.Fprintf(f, "%s\t%s\t%s\n", found.Directory, found.Command, found.Name)
 	return err
 }
 

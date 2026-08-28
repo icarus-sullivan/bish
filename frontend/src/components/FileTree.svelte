@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { treeNodes, focusedPane, openFileTab, projectRoot, cwd, isMediaPath, pendingGoto, pendingReveal, showGlobalSearch, searchScopeDir, closeTabsForPaths, isRemoteProject, showOpenRemote } from '../lib/stores'
+  import { treeNodes, focusedPane, openFileTab, projectRoot, cwd, isMediaPath, pendingGoto, pendingReveal, showGlobalSearch, searchScopeDir, closeTabsForPaths, isRemoteProject, showOpenRemote, galleryMode, galleryImages, galleryIndex } from '../lib/stores'
   import ContextMenu from './ContextMenu.svelte'
-  import { ToggleTreeNode, CdToPath, FSNewFile, FSNewFolder, FSRename, FSDelete, FSDeletePaths, FSCopyPath, FSRevealInFinder, FSMove, FSDuplicate, CloseProject, CollapseAllTree, AddWorkspaceRoot, RemoveWorkspaceRoot } from '../lib/wails'
+  import { ToggleTreeNode, CdToPath, FSNewFile, FSNewFolder, FSRename, FSDelete, FSDeletePaths, FSCopyPath, FSRevealInFinder, FSMove, FSDuplicate, CloseProject, CollapseAllTree, AddWorkspaceRoot, RemoveWorkspaceRoot, GetGalleryImages } from '../lib/wails'
   import type { TreeNode } from '../lib/wails'
   import { IconFilePlus, IconFolderPlus, IconLibraryMinus, IconChevronRight, IconChevronDown, IconServer, IconDots } from '@tabler/icons-svelte'
   import { get } from 'svelte/store'
@@ -220,6 +220,17 @@
     menu = { x: e.clientX, y: e.clientY, node }
   }
 
+  // scans node's containing folder for media and, if any is found, opens
+  // gallery mode scoped to it — no-ops silently if the folder has none
+  async function openGallery(path: string) {
+    const imgs = await GetGalleryImages(path).catch(() => [])
+    if (imgs && imgs.length > 0) {
+      galleryImages.set(imgs)
+      galleryIndex.set(0)
+      galleryMode.set(true)
+    }
+  }
+
   function menuItems(node: TreeNode) {
     if (multiSel.length > 1 && multiSel.includes(node.path)) {
       return [
@@ -247,6 +258,7 @@
     return [
       { label: 'Open',            action: () => { openFileTab(node.path) } },
       ...(isMediaPath(node.path) ? [{ label: 'Open as Text', action: () => openFileTab(node.path, true) }] : []),
+      { label: 'Open in Gallery', action: () => openGallery(node.path) },
       { label: 'Reveal in Finder', action: () => FSRevealInFinder(node.path) },
       { label: 'Copy Path',       action: async () => { const p = await FSCopyPath(node.path); navigator.clipboard.writeText(p) } },
       { label: 'Rename',          action: () => startRename(node.path, node.name) },

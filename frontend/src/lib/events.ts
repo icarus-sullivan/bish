@@ -1,11 +1,13 @@
 import { waitForWails, on, GetProcesses, GetCommands, GetTreeNodes, GetTheme, GetGalleryImages, GetCWD,
-         GetProjectRoot, GetProjectCommands, GetTasks, IsRemoteProject, GetProjectUI, SaveProjectUI, GetConfig, GitStatus, GetStartupFile, initMediaBase } from './wails'
+         GetProjectRoot, GetProjectCommands, GetTasks, IsRemoteProject, GetProjectUI, SaveProjectUI, GetConfig, GitStatus, GetStartupFile, initMediaBase,
+         GetCommandCenterSnapshot } from './wails'
 import {
   processes, commands, treeNodes, cwd,
   galleryMode, galleryImages, theme, projectRoot, isRemoteProject,
   showPalette, projectCommands, projectTasks, openFileTab,
   showRight, rightWidth, panelSide,
-  tabs, activeTabId, isMediaPath, activeRightPanel, persistPrefs, formatOnSave, gitBranch
+  tabs, activeTabId, isMediaPath, activeRightPanel, persistPrefs, formatOnSave, gitBranch,
+  commandCenter
 } from './stores'
 import { get } from 'svelte/store'
 import { loadFeatures } from './features'
@@ -44,6 +46,7 @@ export async function initEvents() {
     IsRemoteProject().catch(() => false),
     GetStartupFile().catch(() => ''),
   ])
+  GetCommandCenterSnapshot().then((snap) => { if (snap) commandCenter.set(snap as any) }).catch(() => {})
 
   if (procs) processes.set(procs as any)
   if (cmds) commands.set(cmds as any)
@@ -81,6 +84,7 @@ export async function initEvents() {
   // Wire backend → store events
   on('processes:update', (procs) => processes.set(procs))
   on('commands:update', (cmds) => commands.set(cmds))
+  on('cc:update', (snap: any) => commandCenter.set(snap))
   on('tree:update', (nodes) => { treeNodes.set(nodes); refreshGitBranch() })
   on('cwd:change', (newCwd) => { cwd.set(newCwd); refreshGitBranch() })
   on('theme:update', (t) => { theme.set(t); applyTheme(t) })

@@ -110,10 +110,16 @@
         label: 'Share Terminal…',
         action: () => shareDialogTerminalId.set(tab.id),
       }] : []),
-      ...(tab.type === 'file' && tab.path && tab.path !== '__new__' ? [{
-        label: 'Share for Co-Editing…',
-        action: () => shareDialogFilePath.set(tab.path!),
-      }] : []),
+      ...(tab.type === 'file' && tab.path && tab.path !== '__new__' ? [
+        {
+          label: 'Copy Path',
+          action: () => navigator.clipboard.writeText(tab.path!),
+        },
+        {
+          label: 'Share for Co-Editing…',
+          action: () => shareDialogFilePath.set(tab.path!),
+        },
+      ] : []),
       {
         label: 'Close Others',
         action: () => withPtyCleanup(closeOtherTabs(tab.id)),

@@ -39,9 +39,27 @@ export {
   GitCommitForRoot, GitBranchesForRoot, GitCheckoutForRoot,
   FileOutline,
   FileTests, GetGoTests, RunGoTest,
+  RefreshCommandCenterRepo, StartCommandCenterRepo, StartCommandCenterService, StartAllCommandCenter,
+  StopCommandCenterRepo, StopAllCommandCenter,
 } from '../../wailsjs/go/app/App'
 
 import { GetMediaBase } from '../../wailsjs/go/app/App'
+import {
+  GetCommandCenterSnapshot as _GetCommandCenterSnapshot,
+  SaveCommandCenterDefinition as _SaveCommandCenterDefinition,
+  SetCommandCenterTarget as _SetCommandCenterTarget,
+  GetCommandCenterBranches as _GetCommandCenterBranches,
+} from '../../wailsjs/go/app/App'
+
+// The generated .d.ts types these four with the wailsjs/go/models.ts classes
+// (which require a convertValues method nothing at runtime actually
+// provides — Wails never constructs those classes for you, `.d.ts` typing
+// is TS-only). Thin wrappers here keep our plain CC* interfaces (below) as
+// the types components actually use, same as Process/SavedCommand/etc. above.
+export function GetCommandCenterSnapshot(): Promise<CCSnapshot> { return _GetCommandCenterSnapshot() as unknown as Promise<CCSnapshot> }
+export function SaveCommandCenterDefinition(def: CCDefinition): Promise<void> { return _SaveCommandCenterDefinition(def as any) }
+export function SetCommandCenterTarget(repoId: string, target: CCTarget): Promise<void> { return _SetCommandCenterTarget(repoId, target as any) }
+export function GetCommandCenterBranches(repoId: string): Promise<CCBranchInfo[]> { return _GetCommandCenterBranches(repoId) as unknown as Promise<CCBranchInfo[]> }
 
 // Videos must stream over real HTTP (WKWebView can't play media through the
 // wails:// scheme). Base is fetched once at startup; '' falls back to the
@@ -99,6 +117,34 @@ export interface TreeNode {
 export interface Theme {
   background: string; foreground: string; border: string; borderFocused: string
   accent: string; muted: string; success: string; error: string; warning: string
+}
+
+// -- Command Center --
+export interface CCStep {
+  name: string; cmd: string; default: boolean
+  destructive?: boolean; supersedes?: string[]
+}
+export interface CCService { name: string; cmd: string; port: number }
+export interface CCRepo {
+  id: string; name: string; path: string; mainBranch: string
+  dependsOn: string[]; worktreeIn: string; prefix: string
+  overrides: string; setup: string; link: string[]; copy: string[]
+  env: Record<string, string>; steps: CCStep[]; services: CCService[]
+}
+export interface CCDefinition { repos: CCRepo[] }
+export interface CCTarget {
+  mode: 'main' | 'worktree' | 'off'
+  path: string; branch: string
+  services: string[]; steps?: Record<string, boolean>; env: Record<string, string>
+}
+export interface CCState { targets: Record<string, CCTarget> }
+export interface CCBranchInfo { name: string; path?: string; main?: boolean; remote?: boolean }
+export interface CCServiceStatus {
+  key: string; processId: string; pid: number
+  status: 'running' | 'stopped' | 'crashed'; ports: number[]
+}
+export interface CCSnapshot {
+  definition: CCDefinition; state: CCState; statuses: Record<string, CCServiceStatus>
 }
 
 // Wait for Wails runtime to be injected (can be async in some launch paths)

@@ -1,11 +1,12 @@
 import type { Component } from 'svelte'
 import { derived } from 'svelte/store'
-import { IconFolder, IconGitBranch, IconActivity, IconBookmark } from '@tabler/icons-svelte'
+import { IconFolder, IconGitBranch, IconActivity, IconBookmark, IconRocket } from '@tabler/icons-svelte'
 import { IconListSearch, IconSparkles, IconAlertTriangle, IconBug, IconFlask, IconPuzzle, IconCode } from '@tabler/icons-svelte'
 import FileTree from '../components/FileTree.svelte'
 import GitPanel from '../components/GitPanel.svelte'
 import ProcessList from '../components/ProcessList.svelte'
 import CommandList from '../components/CommandList.svelte'
+import CommandCenter from '../components/CommandCenter.svelte'
 import Outline from '../components/Outline.svelte'
 import Problems from '../components/Problems.svelte'
 import DebugPanel from '../components/DebugPanel.svelte'
@@ -47,6 +48,7 @@ export const builtinPanels: Panel[] = [
   // Go backend anyway — switching/hiding never kills a running process
   { id: 'processes', title: 'Processes', icon: IconActivity, component: ProcessList },
   { id: 'commands', title: 'Saved Commands', icon: IconBookmark, component: CommandList },
+  { id: 'commandCenter', title: 'Command Center', icon: IconRocket, component: CommandCenter, feature: 'commandCenter' },
 ]
 
 // Reactive: built-ins plus one sidebar entry per enabled extension's
