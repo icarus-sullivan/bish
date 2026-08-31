@@ -16,19 +16,41 @@
     x: number; y: number; items: MenuItem[]; align?: 'left' | 'right'; onClose: () => void
   } = $props()
 
-  const posStyle = $derived(align === 'right' ? `right:${window.innerWidth - x}px` : `left:${x}px`)
+  let menuEl: HTMLDivElement | undefined = $state()
+  let adjX = $state(x)
+  let adjY = $state(y)
+  let adjAlign = $state(align)
+
+  const posStyle = $derived(adjAlign === 'right' ? `right:${window.innerWidth - adjX}px` : `left:${adjX}px`)
 
   function handleAction(item: MenuItem) {
     item.action()
     onClose()
   }
 
-  onMount(() => registerKeybind({ combo: 'escape', handler: onClose }))
+  onMount(() => {
+    registerKeybind({ combo: 'escape', handler: onClose })
+    if (!menuEl) return
+    const rect = menuEl.getBoundingClientRect()
+    const margin = 4
+    if (rect.bottom > window.innerHeight - margin) {
+      adjY = Math.max(margin, window.innerHeight - rect.height - margin)
+    }
+    const overflowsRight = adjAlign === 'left' ? rect.right > window.innerWidth - margin : false
+    const overflowsLeft = adjAlign === 'right' ? rect.left < margin : false
+    if (overflowsRight) {
+      adjAlign = 'right'
+      adjX = Math.min(x, window.innerWidth - margin)
+    } else if (overflowsLeft) {
+      adjAlign = 'left'
+      adjX = Math.max(x - rect.width, margin)
+    }
+  })
 </script>
 
 <svelte:window onclick={onClose} />
 
-<div class="menu" style="{posStyle}; top:{y}px" role="menu">
+<div bind:this={menuEl} class="menu" style="{posStyle}; top:{adjY}px" role="menu">
   {#each items as item, i}
     {#if i > 0 && item.danger && !items[i-1].danger}
       <div class="sep"></div>

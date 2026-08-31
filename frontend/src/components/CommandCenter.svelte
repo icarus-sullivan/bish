@@ -6,8 +6,9 @@
     StartAllCommandCenter, StopAllCommandCenter, RefreshCommandCenterRepo,
   } from '../lib/wails'
   import type { CCRepo, CCTarget, CCStep, CCBranchInfo, CCDefinition } from '../lib/wails'
-  import { IconPlus, IconPlayerPlayFilled, IconPlayerStopFilled, IconRefresh, IconTrash, IconChevronDown } from '@tabler/icons-svelte'
+  import { IconPlus, IconPlayerPlayFilled, IconPlayerStopFilled, IconRefresh, IconTrash, IconChevronDown, IconExternalLink } from '@tabler/icons-svelte'
   import { modalA11y } from '../lib/a11y'
+  import { BrowserOpenURL } from '../../wailsjs/runtime/runtime'
 
   let branchesCache: Record<string, CCBranchInfo[]> = $state({})
   let envDraft: Record<string, string> = $state({})
@@ -125,6 +126,11 @@
   function statusFor(repoId: string, key: string) {
     return $commandCenter.statuses[repoId + '|' + key]
   }
+
+  function openPort(e: MouseEvent, port: number) {
+    e.stopPropagation()
+    BrowserOpenURL(`http://localhost:${port}`)
+  }
 </script>
 
 <div class="panel">
@@ -185,7 +191,11 @@
                   <input type="checkbox" checked={(target.services ?? []).includes(svc.name)} onchange={() => toggleService(repo, target, svc.name)} />
                   <span class="status-dot" class:running={st?.status === 'running'} class:crashed={st?.status === 'crashed'} class:stopped={st?.status === 'stopped'}></span>
                   <span class="svc-name" title={svc.cmd}>{svc.name}</span>
-                  {#if svc.port}<span class="badge">:{svc.port}</span>{/if}
+                  {#if svc.port}
+                    <button class="badge port" onclick={(e) => openPort(e, svc.port)} title="Open http://localhost:{svc.port} in browser">
+                      <IconExternalLink size={9} />:{svc.port}
+                    </button>
+                  {/if}
                   <button class="row-btn" onclick={() => StartCommandCenterService(repo.id, svc.name)} title="Start"><IconPlayerPlayFilled size={12} /></button>
                   <button class="row-btn" onclick={() => removeService($commandCenter.definition, repo, svc.name)} title="Remove"><IconTrash size={12} /></button>
                 </div>
@@ -417,8 +427,15 @@
     font-family: "SF Mono", Menlo, monospace;
     font-size: 10px; padding: 1px 5px; border-radius: 3px;
     background: var(--bg-hover); color: var(--muted);
+    border: none;
   }
   .badge.danger { color: var(--error); }
+  .badge.port {
+    display: flex; align-items: center; gap: 2px;
+    color: color-mix(in srgb, var(--accent) 80%, var(--foreground));
+    cursor: pointer; transition: background 0.1s;
+  }
+  .badge.port:hover { background: var(--bg-selected); }
 
   .add-link {
     display: flex; align-items: center; gap: 3px;

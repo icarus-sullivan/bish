@@ -707,6 +707,7 @@
     width: 100%; resize: none; background: var(--background); border: 1px solid var(--border);
     border-radius: 5px; color: var(--foreground); font-size: 12px; padding: 6px 8px; outline: none;
     font-family: inherit; box-sizing: border-box;
+    field-sizing: content; max-height: 200px; overflow-y: auto;
   }
   .composer-input:focus { border-color: var(--accent); }
 
