@@ -135,7 +135,9 @@
     <div class="header">
       <span class="title">Search in Files</span>
       {#if $searchScopeDir}
-        <span class="scope" title={$searchScopeDir}>{$searchScopeDir.split('/').pop()}/</span>
+        <button class="scope" title={`Scoped to ${$searchScopeDir} — click to search whole project`} onclick={() => searchScopeDir.set(null)}>
+          {$searchScopeDir.split('/').pop()}/ ✕
+        </button>
       {/if}
       <button class="close-btn" onclick={() => showGlobalSearch.set(false)} aria-label="Close">✕</button>
     </div>
@@ -284,7 +286,13 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    background: none;
+    border: none;
+    padding: 0;
+    text-align: left;
+    cursor: pointer;
   }
+  .scope:hover { color: var(--error); }
   .close-btn {
     margin-left: auto;
     background: none; border: none; color: var(--muted);

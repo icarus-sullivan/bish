@@ -3,7 +3,7 @@ import { registerCommands } from './commands'
 import { NewTerminal } from './wails'
 import {
   openFileTab, openSettingsTab, addTerminalTab, closeTab, reopenMainTab,
-  showPalette, showGlobalSearch, showRight, tabs, activeTabId,
+  showPalette, showGlobalSearch, searchScopeDir, showRight, tabs, activeTabId,
   cycleTab, terminalFontSize,
 } from './stores'
 
@@ -17,7 +17,7 @@ export function registerBuiltinCommands() {
   registerCommands([
     { id: 'file.new',        title: 'New File',            run: () => openFileTab('__new__') },
     { id: 'file.goto',       title: 'Go to File…',         run: () => showPalette.set(true) },
-    { id: 'search.global',   title: 'Search in Files…',    run: () => { showGlobalSearch.set(true) } },
+    { id: 'search.global',   title: 'Search in Files…',    run: () => { searchScopeDir.set(null); showGlobalSearch.set(true) } },
     { id: 'terminal.new',    title: 'New Terminal',        run: newTerminal },
     { id: 'terminal.focus',  title: 'Focus Terminal',      run: reopenMainTab },
     { id: 'settings.open',   title: 'Open Settings',       run: () => openSettingsTab() },
