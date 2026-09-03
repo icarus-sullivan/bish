@@ -352,12 +352,23 @@ func (m *Manager) watchDeps(prestartID string, deps []string) {
 }
 
 func (m *Manager) startServices(r *Repo, t *Target, dir string, env map[string]string, only []string) error {
-	list := t.Services
+	wanted := t.Services
 	if len(only) > 0 {
-		list = only
+		wanted = only
 	}
-	if len(list) == 0 {
+	if len(wanted) == 0 {
 		return fmt.Errorf("no services ticked for %s", r.Name)
+	}
+	// start in the repo's defined service order, not toggle-click order
+	set := make(map[string]bool, len(wanted))
+	for _, n := range wanted {
+		set[n] = true
+	}
+	var list []string
+	for _, svc := range r.Services {
+		if set[svc.Name] {
+			list = append(list, svc.Name)
+		}
 	}
 	var firstErr error
 	at := branchSuffix(dir)

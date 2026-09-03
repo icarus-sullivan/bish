@@ -1,12 +1,12 @@
 <script lang="ts">
-  import { commandCenter, projectRoot } from '../lib/stores'
+  import { commandCenter, projectRoot, openLogsTab } from '../lib/stores'
   import {
     GetCommandCenterBranches, SetCommandCenterTarget, SaveCommandCenterDefinition,
     StartCommandCenterRepo, StopCommandCenterRepo, StartCommandCenterService,
     StartAllCommandCenter, StopAllCommandCenter, RefreshCommandCenterRepo,
   } from '../lib/wails'
   import type { CCRepo, CCTarget, CCStep, CCBranchInfo, CCDefinition } from '../lib/wails'
-  import { IconPlus, IconPlayerPlayFilled, IconPlayerStopFilled, IconRefresh, IconTrash, IconChevronDown, IconExternalLink } from '@tabler/icons-svelte'
+  import { IconPlus, IconPlayerPlayFilled, IconPlayerStopFilled, IconRefresh, IconTrash, IconChevronDown, IconExternalLink, IconListDetails, IconGripVertical } from '@tabler/icons-svelte'
   import { modalA11y } from '../lib/a11y'
   import { BrowserOpenURL } from '../../wailsjs/runtime/runtime'
 
@@ -131,6 +131,50 @@
     e.stopPropagation()
     BrowserOpenURL(`http://localhost:${port}`)
   }
+
+  function ports(svc: { port: number }, st: { status?: string; ports?: number[] } | undefined) {
+    if (st?.ports?.length) return st.ports
+    return svc.port ? [svc.port] : []
+  }
+
+  function viewLogs(repo: CCRepo, name: string, st: { processId?: string } | undefined) {
+    if (!st?.processId) return
+    openLogsTab(st.processId, repo.name + ' · ' + name)
+  }
+
+  // drag-to-reorder services (list order = start order)
+  let dragSvc = $state<{ repoId: string; name: string } | null>(null)
+  let dropBeforeSvc = $state<string | null>(null)
+
+  function onSvcDragStart(e: DragEvent, repoId: string, name: string) {
+    dragSvc = { repoId, name }
+    e.dataTransfer!.effectAllowed = 'move'
+  }
+  function onSvcDragOver(e: DragEvent, repoId: string, name: string) {
+    if (!dragSvc || dragSvc.repoId !== repoId) return
+    e.preventDefault()
+    e.dataTransfer!.dropEffect = 'move'
+    dropBeforeSvc = name
+  }
+  function onSvcDrop(e: DragEvent, def: CCDefinition, repo: CCRepo) {
+    e.preventDefault()
+    if (dragSvc && dragSvc.repoId === repo.id) reorderServices(def, repo, dragSvc.name, dropBeforeSvc)
+    dragSvc = null
+    dropBeforeSvc = null
+  }
+  function onSvcDragEnd() {
+    dragSvc = null
+    dropBeforeSvc = null
+  }
+  function reorderServices(def: CCDefinition, repo: CCRepo, srcName: string, beforeName: string | null) {
+    const services = [...(repo.services ?? [])]
+    const srcIdx = services.findIndex(s => s.name === srcName)
+    if (srcIdx === -1) return
+    const [moved] = services.splice(srcIdx, 1)
+    const destIdx = beforeName ? services.findIndex(s => s.name === beforeName) : services.length
+    services.splice(destIdx === -1 ? services.length : destIdx, 0, moved)
+    SaveCommandCenterDefinition({ repos: def.repos.map(r => r.id === repo.id ? { ...r, services } : r) })
+  }
 </script>
 
 <div class="panel">
@@ -187,19 +231,35 @@
               <div class="section-label">Services</div>
               {#each repo.services as svc (svc.name)}
                 {@const st = statusFor(repo.id, svc.name)}
-                <div class="row">
+                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <div class="row" role="listitem"
+                  class:dragging={dragSvc?.repoId === repo.id && dragSvc?.name === svc.name}
+                  class:drop-before={dragSvc !== null && dragSvc.repoId === repo.id && dragSvc.name !== svc.name && dropBeforeSvc === svc.name}
+                  draggable="true"
+                  ondragstart={(e) => onSvcDragStart(e, repo.id, svc.name)}
+                  ondragover={(e) => onSvcDragOver(e, repo.id, svc.name)}
+                  ondrop={(e) => onSvcDrop(e, $commandCenter.definition, repo)}
+                  ondragend={onSvcDragEnd}>
+                  <IconGripVertical class="grip" size={11} />
                   <input type="checkbox" checked={(target.services ?? []).includes(svc.name)} onchange={() => toggleService(repo, target, svc.name)} />
                   <span class="status-dot" class:running={st?.status === 'running'} class:crashed={st?.status === 'crashed'} class:stopped={st?.status === 'stopped'}></span>
                   <span class="svc-name" title={svc.cmd}>{svc.name}</span>
-                  {#if svc.port}
-                    <button class="badge port" onclick={(e) => openPort(e, svc.port)} title="Open http://localhost:{svc.port} in browser">
-                      <IconExternalLink size={9} />:{svc.port}
+                  {#each ports(svc, st) as port (port)}
+                    <button class="badge port" onclick={(e) => openPort(e, port)} title="Open http://localhost:{port} in browser">
+                      <IconExternalLink size={9} />:{port}
                     </button>
-                  {/if}
+                  {/each}
+                  <button class="row-btn" disabled={!st?.processId} onclick={() => viewLogs(repo, svc.name, st)} title="View output"><IconListDetails size={12} /></button>
                   <button class="row-btn" onclick={() => StartCommandCenterService(repo.id, svc.name)} title="Start"><IconPlayerPlayFilled size={12} /></button>
                   <button class="row-btn" onclick={() => removeService($commandCenter.definition, repo, svc.name)} title="Remove"><IconTrash size={12} /></button>
                 </div>
               {/each}
+              {#if dragSvc?.repoId === repo.id}
+                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <div class="svc-drop-end" class:drop-before={dropBeforeSvc === null}
+                  ondragover={(e) => { e.preventDefault(); e.dataTransfer!.dropEffect = 'move'; dropBeforeSvc = null }}
+                  ondrop={(e) => onSvcDrop(e, $commandCenter.definition, repo)}></div>
+              {/if}
             {/if}
             <button class="add-link" onclick={() => openAddService(repo.id)}><IconPlus size={11} /> add service</button>
 
@@ -328,6 +388,8 @@
     transition: color 0.1s, background 0.1s;
   }
   .hdr-btn:hover, .row-btn:hover { color: var(--foreground); background: var(--bg-hover); }
+  .row-btn:disabled { opacity: 0.3; cursor: default; }
+  .row-btn:disabled:hover { color: var(--muted); background: none; }
 
   .list { overflow-y: auto; flex: 1; padding: 6px 0; }
   .empty { padding: 10px 12px; color: var(--muted); font-size: 11px; font-style: italic; }
@@ -400,6 +462,32 @@
     font-size: 12px;
   }
   .svc-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .row :global(.grip) { color: var(--muted); flex-shrink: 0; cursor: grab; opacity: 0.5; }
+  .row:hover :global(.grip) { opacity: 1; }
+  .row.dragging { opacity: 0.35; }
+  .row.drop-before { position: relative; }
+  .row.drop-before::before {
+    content: '';
+    position: absolute;
+    left: 0; right: 0; top: -2px;
+    height: 2px;
+    background: var(--accent);
+    border-radius: 1px;
+  }
+  .svc-drop-end {
+    height: 6px;
+    margin: -2px 0 2px;
+    position: relative;
+  }
+  .svc-drop-end.drop-before::before {
+    content: '';
+    position: absolute;
+    left: 2px; right: 2px; top: 2px;
+    height: 2px;
+    background: var(--accent);
+    border-radius: 1px;
+  }
 
   .status-dot {
     width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
