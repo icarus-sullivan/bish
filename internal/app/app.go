@@ -1930,7 +1930,9 @@ func launchNewInstance(args ...string) error {
 		openArgs = append(openArgs, args...)
 		return exec.Command("open", openArgs...).Start()
 	}
-	return exec.Command(exe, args...).Start()
+	cmd := exec.Command(exe, args...)
+	cmd.SysProcAttr = detachAttr()
+	return cmd.Start()
 }
 
 // appBundlePath returns the .app bundle root for an executable path inside
