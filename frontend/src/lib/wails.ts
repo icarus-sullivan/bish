@@ -18,7 +18,7 @@ export {
   NewWindow, SaveNewFile,
   GetProjectCommands, GetRecentProjects, OpenRecentProject, DeleteProjectCommand, RunProjectCommand, AddProjectCommand, RenameProjectCommand,
   GetTasks, RunTask,
-  AddWorkspaceRoot, RemoveWorkspaceRoot, GetWorkspaceRoots, GitStatusForRoots,
+  AddWorkspaceRoot, RemoveWorkspaceRoot, GetWorkspaceRoots, GitStatusForRoots, GitWorktrees, SwitchWorktree,
   GetProjectUI, SaveProjectUI,
   NewTerminal, CloseTerminal, WritePTYTab, ResizePTYTab,
   StartLiveShare, StopLiveShare, IsLiveSharing, GetLiveShareGuests, SetLiveShareGuestPermission,
@@ -96,6 +96,7 @@ export interface Extension {
   commands?: ExtContribution[]; panels?: ExtContribution[]
 }
 export interface GitStatusDTO { branch: string; files: GitFileStatus[] }
+export interface GitWorktree { path: string; branch: string; head: string; bare: boolean; locked: boolean }
 export interface ProcessDef { candidates: string[][]; install?: string[]; installHint?: string }
 export interface LanguageOverride {
   server_path?: string; server_args?: string[]; disable_server?: boolean

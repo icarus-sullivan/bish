@@ -209,6 +209,62 @@ func gitStatusFor(dir string) *GitStatusDTO {
 	return st
 }
 
+// GitWorktree describes one entry from `git worktree list`.
+type GitWorktree struct {
+	Path   string `json:"path"`
+	Branch string `json:"branch"` // "" when detached
+	Head   string `json:"head"`
+	Bare   bool   `json:"bare"`
+	Locked bool   `json:"locked"`
+}
+
+// GitWorktrees lists the worktrees attached to the repo containing root
+// (main checkout first, matching `git worktree list`'s own order), or nil if
+// root isn't a git repo.
+func (a *App) GitWorktrees(root string) []GitWorktree {
+	return gitWorktreesIn(root)
+}
+
+func gitWorktreesIn(dir string) []GitWorktree {
+	out, err := exec.Command("git", "-C", dir, "worktree", "list", "--porcelain").Output()
+	if err != nil {
+		return nil
+	}
+	var list []GitWorktree
+	var cur *GitWorktree
+	flush := func() {
+		if cur != nil {
+			list = append(list, *cur)
+			cur = nil
+		}
+	}
+	for _, l := range strings.Split(string(out), "\n") {
+		switch {
+		case strings.HasPrefix(l, "worktree "):
+			flush()
+			cur = &GitWorktree{Path: l[len("worktree "):]}
+		case l == "bare":
+			if cur != nil {
+				cur.Bare = true
+			}
+		case strings.HasPrefix(l, "HEAD "):
+			if cur != nil {
+				cur.Head = l[len("HEAD "):]
+			}
+		case strings.HasPrefix(l, "branch "):
+			if cur != nil {
+				cur.Branch = strings.TrimPrefix(l[len("branch "):], "refs/heads/")
+			}
+		case strings.HasPrefix(l, "locked"):
+			if cur != nil {
+				cur.Locked = true
+			}
+		}
+	}
+	flush()
+	return list
+}
+
 func (a *App) gitDir() string {
 	if a.projectRoot != "" {
 		return a.projectRoot

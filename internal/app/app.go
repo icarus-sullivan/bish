@@ -1983,6 +1983,15 @@ func (a *App) SaveNewFile(content, defaultDir string) (string, error) {
 // -- Project methods --
 
 func (a *App) openProjectDir(dir string) error {
+	return a.openProjectDirOpts(dir, true)
+}
+
+// openProjectDirOpts is openProjectDir with control over whether the
+// workspace's extra folders get reset from the new dir's saved config.
+// resetExtra=false is used by SwitchWorktree: hopping to a sibling worktree
+// of the same repo should leave any other attached workspace folders alone,
+// unlike opening a genuinely different project.
+func (a *App) openProjectDirOpts(dir string, resetExtra bool) error {
 	a.lsp.StopAll() // stale servers point at the old root
 	a.dap.Stop()    // stale debug session points at the old root
 	cfg, err := project.Load(dir)
@@ -2002,11 +2011,18 @@ func (a *App) openProjectDir(dir string) error {
 		project.UnregisterWindow(prevRoot) //nolint
 	}
 	project.RegisterWindow(dir, os.Getpid()) //nolint
-	a.treeMu.Lock()
-	a.extraRoots = append([]string{}, cfg.ExtraRoots...)
-	a.extraTrees = make(map[string]*tree.Tree, len(a.extraRoots))
-	a.treeMu.Unlock()
-	if err := a.cc.Load(dir, cfg.ExtraRoots); err != nil {
+	extraRoots := cfg.ExtraRoots
+	if resetExtra {
+		a.treeMu.Lock()
+		a.extraRoots = append([]string{}, cfg.ExtraRoots...)
+		a.extraTrees = make(map[string]*tree.Tree, len(a.extraRoots))
+		a.treeMu.Unlock()
+	} else {
+		a.treeMu.Lock()
+		extraRoots = append([]string{}, a.extraRoots...)
+		a.treeMu.Unlock()
+	}
+	if err := a.cc.Load(dir, extraRoots); err != nil {
 		fmt.Fprintf(os.Stderr, "command center: load %s: %v\n", dir, err)
 	}
 	runtime.EventsEmit(a.ctx, "cc:update", a.cc.Snapshot())
@@ -2164,6 +2180,45 @@ func (a *App) GetWorkspaceRoots() []string {
 		out = append(out, root)
 	}
 	return append(out, a.extraRoots...)
+}
+
+// SwitchWorktree repoints an open workspace folder (the primary project root
+// or one of the extra folders added via AddWorkspaceRoot) at newPath — a
+// different worktree of the same repo. root identifies which folder to
+// switch (as returned by GetWorkspaceRoots); the rest of the workspace is
+// left untouched. The Git panel's worktree picker calls this so the file
+// tree and editor show newPath's checkout instead of root's.
+func (a *App) SwitchWorktree(root, newPath string) error {
+	info, err := os.Stat(newPath)
+	if err != nil || !info.IsDir() {
+		return fmt.Errorf("not a directory: %s", newPath)
+	}
+	a.projectMu.Lock()
+	isPrimary := root == a.projectRoot
+	a.projectMu.Unlock()
+	if isPrimary {
+		return a.openProjectDirOpts(newPath, false)
+	}
+
+	a.treeMu.Lock()
+	found := false
+	for i, r := range a.extraRoots {
+		if r == root {
+			a.extraRoots[i] = newPath
+			found = true
+			break
+		}
+	}
+	if found {
+		delete(a.extraTrees, root)
+	}
+	a.treeMu.Unlock()
+	if !found {
+		return fmt.Errorf("%s is not an open workspace folder", root)
+	}
+	a.saveExtraRoots()
+	a.reloadTree()
+	return nil
 }
 
 func (a *App) OpenProject() (string, error) {

@@ -41,6 +41,21 @@ type Process struct {
 	stopping bool            // set by Stop() right before killing, so the exit-watch goroutine reports "stopped" not "crashed"
 }
 
+// kill terminates the whole process group cmd was spawned into (see
+// setProcAttrs), falling back to killing just the shell process if the group
+// kill fails (e.g. it already exited) — otherwise a shell command that forks
+// children (`npm run dev`, `make start`, ...) leaves them running as orphans
+// after Stop, still holding whatever port they bound.
+func (p *Process) kill() error {
+	if p.cmd == nil || p.cmd.Process == nil {
+		return nil
+	}
+	if err := killGroup(p.PID); err == nil {
+		return nil
+	}
+	return p.cmd.Process.Kill()
+}
+
 func (p *Process) Uptime() string {
 	if p.Status != StatusRunning {
 		return "-"
@@ -99,6 +114,7 @@ func (m *Manager) spawnLocked(p *Process, cmdStr, cwd string) error {
 	// -l so .zprofile (brew shellenv etc.) applies to background commands.
 	cmd := exec.Command(shellenv.DefaultShell(), "-l", "-c", cmdStr)
 	cmd.Dir = cwd
+	setProcAttrs(cmd) // own process group, so kill() can take down children too, not just this shell
 
 	pr, pw, err := os.Pipe()
 	if err != nil {
@@ -185,7 +201,7 @@ func (m *Manager) Stop(id string) error {
 		return nil
 	}
 	p.stopping = true
-	return p.cmd.Process.Kill()
+	return p.kill()
 }
 
 func (m *Manager) Remove(id string) {
@@ -193,9 +209,7 @@ func (m *Manager) Remove(id string) {
 	defer m.mu.Unlock()
 	for i, p := range m.Processes {
 		if p.ID == id {
-			if p.cmd != nil && p.cmd.Process != nil {
-				p.cmd.Process.Kill() //nolint
-			}
+			p.kill() //nolint
 			m.Processes = append(m.Processes[:i], m.Processes[i+1:]...)
 			return
 		}
@@ -222,9 +236,7 @@ func (m *Manager) Restart(id string) error {
 	if old == nil {
 		return fmt.Errorf("process %s not found", id)
 	}
-	if old.cmd != nil && old.cmd.Process != nil {
-		old.cmd.Process.Kill() //nolint
-	}
+	old.kill() //nolint
 	np := &Process{ID: old.ID, Name: old.Name, Log: logs.NewBuffer()}
 	if err := m.spawnLocked(np, old.Cmd, old.CWD); err != nil {
 		return err
@@ -269,9 +281,7 @@ func (m *Manager) KillAll() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, p := range m.Processes {
-		if p.cmd != nil && p.cmd.Process != nil {
-			p.cmd.Process.Kill() //nolint
-		}
+		p.kill() //nolint
 	}
 }
 

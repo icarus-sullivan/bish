@@ -1,8 +1,18 @@
 package logs
 
-import "sync"
+import (
+	"regexp"
+	"sync"
+)
 
 const maxLines = 1000
+
+// ansiEscape matches ANSI CSI sequences ("\x1b[...<letter>") — the color/style
+// codes tools like npm, vite, and next wrap their output in. The process log
+// viewer renders lines as flat text, so left unstripped these show up as
+// garbage (the ESC control char followed by literal text like "[2m[32m")
+// instead of being interpreted as color.
+var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
 
 type LogBuffer struct {
 	mu    sync.Mutex
@@ -18,7 +28,7 @@ func NewBuffer() *LogBuffer {
 func (b *LogBuffer) Write(line string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.lines[b.head] = line
+	b.lines[b.head] = ansiEscape.ReplaceAllString(line, "")
 	b.head = (b.head + 1) % maxLines
 	if b.count < maxLines {
 		b.count++

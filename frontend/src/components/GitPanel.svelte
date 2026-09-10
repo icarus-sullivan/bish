@@ -3,19 +3,21 @@
   import { get } from 'svelte/store'
   import {
     GitStatus, GitStage, GitUnstage, GitCommit, GitBranches, GitCheckout,
-    GitCommitForRoot, GitBranchesForRoot, GitCheckoutForRoot, GitStatusForRoots, GetWorkspaceRoots, on,
+    GitCommitForRoot, GitBranchesForRoot, GitCheckoutForRoot, GitStatusForRoots, GetWorkspaceRoots,
+    GitWorktrees, SwitchWorktree, on,
   } from '../lib/wails'
-  import type { GitStatusDTO, GitFileStatus } from '../lib/wails'
+  import type { GitStatusDTO, GitFileStatus, GitWorktree } from '../lib/wails'
   import { activeRightPanel, projectRoot, openFileTab, openDiffTab, openConflictTab, isRemoteProject } from '../lib/stores'
   import { featureOn } from '../lib/features'
-  import { IconRefresh, IconGitBranch, IconPlus, IconMinus, IconCheck, IconChevronDown, IconGitMerge } from '@tabler/icons-svelte'
+  import { IconRefresh, IconGitBranch, IconPlus, IconMinus, IconCheck, IconChevronDown, IconGitMerge, IconFolderCog } from '@tabler/icons-svelte'
 
-  interface RootSection { root: string; status: GitStatusDTO | null; branches: string[]; message: string }
+  interface RootSection { root: string; status: GitStatusDTO | null; branches: string[]; worktrees: GitWorktree[]; message: string }
 
   // single-root (unchanged from before multi-root support — this is still
   // the common case and stays on its original, simplest path)
   let status = $state<GitStatusDTO | null>(null)
   let branches = $state<string[]>([])
+  let worktrees = $state<GitWorktree[]>([])
   let message = $state('')
 
   // multi-root: one independent section per workspace folder
@@ -40,6 +42,7 @@
           root: r,
           status: st,
           branches: st ? await GitBranchesForRoot(r).catch(() => []) : [],
+          worktrees: st ? await GitWorktrees(r).catch(() => []) : [],
           message: prevMsgs.get(r) ?? '',
         }
       }))
@@ -48,6 +51,7 @@
     multi = false
     status = await GitStatus().catch(() => null)
     branches = await GitBranches().catch(() => [])
+    worktrees = status ? await GitWorktrees($projectRoot).catch(() => []) : []
   }
 
   // this panel stays mounted (display:none) when hidden — only hit git when
@@ -93,6 +97,10 @@
     const b = (e.target as HTMLSelectElement).value
     if (b && b !== status?.branch) await act(() => GitCheckout(b))
   }
+  async function switchWorktree(root: string, e: Event) {
+    const path = (e.target as HTMLSelectElement).value
+    if (path && path !== root) await act(() => SwitchWorktree(root, path))
+  }
 
   async function commitSection(s: RootSection) {
     if (!s.message.trim() || stagedOf(s.status).length === 0) return
@@ -111,6 +119,9 @@
   }
   const code = (s: string) => s.trim() || s
   function fileName(p: string) { return p.split('/').pop() || p }
+  function worktreeLabel(w: GitWorktree) {
+    return `${w.path.split('/').pop() || w.path} (${w.branch || 'detached'})`
+  }
   function dirName(p: string, root: string) {
     let rel = root && p.startsWith(root + '/') ? p.slice(root.length + 1) : p
     const i = rel.lastIndexOf('/')
@@ -160,6 +171,18 @@
         </span>
       {/if}
     </div>
+    {#if s.worktrees.length > 1}
+      <div class="worktree-row">
+        <IconFolderCog size={11} />
+        <span class="select-wrap">
+          <select class="branch-select" value={s.root} onchange={(e) => switchWorktree(s.root, e)} disabled={busy}>
+            {#if !s.worktrees.some(w => w.path === s.root)}<option value={s.root}>{s.root}</option>{/if}
+            {#each s.worktrees as w}<option value={w.path}>{worktreeLabel(w)}</option>{/each}
+          </select>
+          <IconChevronDown size={12} class="select-chevron" />
+        </span>
+      </div>
+    {/if}
     {#if !s.status}
       <div class="empty">Not a git repository</div>
     {:else}
@@ -209,6 +232,19 @@
       <button class="hdr-btn" onclick={refresh} title="Refresh"><IconRefresh size={13} /></button>
     </div>
   </div>
+
+  {#if !multi && worktrees.length > 1}
+    <div class="worktree-row">
+      <IconFolderCog size={11} />
+      <span class="select-wrap">
+        <select class="branch-select" value={$projectRoot} onchange={(e) => switchWorktree($projectRoot, e)} disabled={busy}>
+          {#if !worktrees.some(w => w.path === $projectRoot)}<option value={$projectRoot}>{$projectRoot}</option>{/if}
+          {#each worktrees as w}<option value={w.path}>{worktreeLabel(w)}</option>{/each}
+        </select>
+        <IconChevronDown size={12} class="select-chevron" />
+      </span>
+    </div>
+  {/if}
 
   {#if error}<div class="err">{error}</div>{/if}
 
@@ -311,6 +347,13 @@
   .commit-btn:disabled { opacity: 0.4; cursor: default; }
   .commit-btn:not(:disabled):hover { opacity: 0.85; }
   .err { color: var(--error); font-size: 11px; padding: 6px 12px; white-space: pre-wrap; }
+
+  .worktree-row {
+    display: flex; align-items: center; gap: 6px; padding: 6px 10px;
+    color: var(--muted); border-bottom: 1px solid var(--border);
+  }
+  .worktree-row .select-wrap { flex: 1; min-width: 0; }
+  .worktree-row .branch-select { font-weight: 400; }
 
   .list { overflow-y: auto; flex: 1; padding: 4px 0; user-select: none; }
   .multi-list { padding: 0; }
