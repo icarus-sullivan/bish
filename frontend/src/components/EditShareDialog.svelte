@@ -19,6 +19,8 @@
   })
 
   const guests = $derived($editShareGuests.get(path) ?? [])
+  // see LiveShareDialog.svelte's isPublic for why this is a string-sniff
+  const isPublic = $derived(url.includes('.trycloudflare.com'))
 
   function copyLink() {
     if (!url) return
@@ -49,7 +51,7 @@
         <div class="error">{error}</div>
       {:else if url}
         <label class="field">
-          <span class="label">Link — anyone on your local network can open this</span>
+          <span class="label">Link — anyone {isPublic ? 'with this link' : 'on your local network'} can open this</span>
           <div class="link-row">
             <input class="link-input" readonly value={url} onclick={(e) => (e.target as HTMLInputElement).select()} />
             <button class="copy-btn" onclick={copyLink} title="Copy link">

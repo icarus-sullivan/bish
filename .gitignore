@@ -2,3 +2,5 @@ build/
 frontend/node_modules/
 frontend/dist/
 .DS_Store
+internal/liveshare/assets/cloudflared/*
+!internal/liveshare/assets/cloudflared/README.txt

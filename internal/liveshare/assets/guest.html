@@ -23,7 +23,19 @@
     const term = new Terminal({
       fontFamily: '"SF Mono", Menlo, Monaco, monospace',
       fontSize: 13,
-      theme: { background: '#1e1e2e', foreground: '#cdd6f4' },
+      // matches Terminal.svelte's themeFor(null) default (Catppuccin Mocha)
+      // so ANSI colors in the shared session look the same as on the host —
+      // this static guest page can't read the host's live theme/CSS vars,
+      // so it hardcodes the same fallback values Terminal.svelte itself
+      // falls back to.
+      theme: {
+        background: '#1e1e2e', foreground: '#cdd6f4',
+        cursor: '#cba6f7', cursorAccent: '#1e1e2e', selectionBackground: '#313244',
+        black: '#45475a', red: '#f38ba8', green: '#a6e3a1', yellow: '#fab387',
+        blue: '#89b4fa', magenta: '#f5c2e7', cyan: '#94e2d5', white: '#bac2de',
+        brightBlack: '#585b70', brightRed: '#f38ba8', brightGreen: '#a6e3a1', brightYellow: '#fab387',
+        brightBlue: '#89b4fa', brightMagenta: '#f5c2e7', brightCyan: '#94e2d5', brightWhite: '#a6adc8',
+      },
       convertEol: false,
       disableStdin: true, // flipped on once the host grants "can type"
     })

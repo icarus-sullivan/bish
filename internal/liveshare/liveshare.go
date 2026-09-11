@@ -11,11 +11,16 @@
 //     direction and BroadcastEdit in the other. See frontend/src/lib/coedit.ts
 //     and yjsRelay.ts for the actual CRDT sync logic.
 //
-// Scope, stated plainly: LAN-only (the share link embeds the host's local
-// IP; there's no relay or NAT traversal for guests off the local network).
+// Scope: the share link embeds the host's local IP by default — LAN-only.
+// If cloudflared was bundled at build time (see cloudflared.go and
+// scripts/fetch-cloudflared.sh), Start/StartEdit also spin up a Cloudflare
+// Quick Tunnel and hand back a public https://*.trycloudflare.com link
+// instead, so guests off the LAN can join too. No account/relay setup on
+// bish's end either way — Quick Tunnels need none.
 package liveshare
 
 import (
+	"bytes"
 	"crypto/rand"
 	"embed"
 	"encoding/hex"
@@ -161,6 +166,7 @@ type Manager struct {
 	byToken  map[string]*Session // token -> session
 	server   *http.Server
 	port     int
+	tunnel   *quickTunnel // nil if no cloudflared bundled/reachable — falls back to a LAN-only link
 	emit     func(string, ...interface{})
 }
 
@@ -243,6 +249,10 @@ func (m *Manager) StopAll() {
 	if m.server != nil {
 		m.server.Close() //nolint
 		m.server = nil
+	}
+	if m.tunnel != nil {
+		m.tunnel.Stop()
+		m.tunnel = nil
 	}
 }
 
@@ -332,6 +342,9 @@ func (m *Manager) SetEditGuestPermission(path, guestID string, canType bool) err
 }
 
 func (m *Manager) urlForLocked(token string) string {
+	if m.tunnel != nil {
+		return fmt.Sprintf("%s/live/%s", m.tunnel.URL, token)
+	}
 	return fmt.Sprintf("http://%s:%d/live/%s", localIP(), m.port, token)
 }
 
@@ -351,6 +364,14 @@ func (m *Manager) startServerLocked() error {
 
 	m.server = &http.Server{Handler: mux}
 	go m.server.Serve(ln) //nolint
+
+	// Best-effort: an off-LAN link is strictly better than the LAN-only
+	// fallback, but never worth failing the share over — no bundled binary,
+	// no network, a corporate proxy blocking Cloudflare's edge, etc. all just
+	// leave m.tunnel nil and startLocked's caller gets the LAN link instead.
+	if t, err := startQuickTunnel(m.port); err == nil {
+		m.tunnel = t
+	}
 	return nil
 }
 
@@ -383,6 +404,18 @@ func (m *Manager) handleGuestPage(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
+	}
+	if s.Kind == "edit" {
+		// tells coeditGuest.ts what file this is so it can pick a CodeMirror
+		// language (see frontend/src/lib/codeLang.ts's langFor) — the guest
+		// page itself is a static asset with no other way to learn the path.
+		pathJSON, _ := json.Marshal(s.TerminalID) // edit sessions: TerminalID holds the file path
+		// guard against the path containing a literal "</script>" and
+		// prematurely closing the tag we're about to embed it in.
+		safe := bytes.ReplaceAll(pathJSON, []byte("</"), []byte(`<\/`))
+		script := append([]byte("<script>var BishPath = "), safe...)
+		script = append(script, []byte(";</script>")...)
+		data = bytes.Replace(data, []byte("<!--BISH_PATH-->"), script, 1)
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write(data) //nolint

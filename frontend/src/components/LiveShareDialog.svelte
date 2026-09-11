@@ -21,6 +21,11 @@
   // with the `$state` rune (svelte-check misreads `$state(...)` above as
   // store-auto-subscription of a `state` variable and errors)
   const share = $derived($liveShares.get(terminalId))
+  // cloudflared quick tunnels hand back a public *.trycloudflare.com link;
+  // no bundled/reachable tunnel falls back to a LAN-only link (see
+  // internal/liveshare/cloudflared.go) — string-sniff rather than a second
+  // API round trip since the host is the only source of truth either way.
+  const isPublic = $derived(share?.url.includes('.trycloudflare.com') ?? false)
 
   function copyLink() {
     if (!share) return
@@ -51,7 +56,7 @@
         <div class="error">{error}</div>
       {:else if share}
         <label class="field">
-          <span class="label">Link — anyone on your local network can open this</span>
+          <span class="label">Link — anyone {isPublic ? 'with this link' : 'on your local network'} can open this</span>
           <div class="link-row">
             <input class="link-input" readonly value={share.url} onclick={(e) => (e.target as HTMLInputElement).select()} />
             <button class="copy-btn" onclick={copyLink} title="Copy link">

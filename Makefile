@@ -13,12 +13,19 @@ APP_DESC := $(shell scripts/read-config.sh app.description)
 CLI_NAME := $(shell scripts/read-config.sh cli.name)
 CLI_DESC := $(shell scripts/read-config.sh cli.description)
 
-.PHONY: init dev build install darwin sync-config
+.PHONY: init dev build install darwin sync-config fetch-cloudflared
 
-init:
+init: fetch-cloudflared
 	go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
 	go mod download
 	cd frontend && pnpm install
+
+# Bundles cloudflared (Quick Tunnel binary for off-LAN share links) into
+# internal/liveshare/assets/cloudflared/ so the Go side's go:embed picks it
+# up at compile time. Safe to skip/fail offline — liveshare falls back to
+# LAN-only links when no binary is present for the running platform.
+fetch-cloudflared:
+	scripts/fetch-cloudflared.sh
 
 dev:
 	$(WAILS) dev
@@ -30,7 +37,7 @@ sync-config:
 	jq --arg v "$(VERSION)" '.version=$$v' \
 		frontend/package.json > frontend/package.json.tmp && mv frontend/package.json.tmp frontend/package.json
 
-build: sync-config
+build: sync-config fetch-cloudflared
 	rm -rf build
 	mkdir build
 ifeq ($(UNAME_S),Darwin)
@@ -41,6 +48,7 @@ endif
 	$(WAILS) build -tags "$(TAGS)" -ldflags "-X main.version=$(VERSION) -X main.appName=$(APP_NAME) -X main.cliName=$(CLI_NAME) -X 'main.cliDescription=$(CLI_DESC)'"
 
 darwin: sync-config
+	scripts/fetch-cloudflared.sh darwin
 	rm -rf build
 	mkdir build
 	sips -z 1024 1024 icons/bish_icon.png --out build/appicon.png

@@ -21,6 +21,7 @@
 <body>
   <div id="banner"><span class="dot"></span><span id="status">Connecting…</span></div>
   <div id="editor"></div>
+  <!--BISH_PATH-->
   <script src="assets/coedit.js"></script>
   <script>
     const banner = document.getElementById('banner')
@@ -30,6 +31,7 @@
     const wsUrl = proto + '//' + location.host + location.pathname.replace(/\/$/, '') + '/ws'
 
     BishCoedit.mount(document.getElementById('editor'), wsUrl, {
+      path: typeof BishPath !== 'undefined' ? BishPath : '',
       onStatus: (text, disconnected) => {
         status.textContent = text
         banner.classList.toggle('disconnected', !!disconnected)

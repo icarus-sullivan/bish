@@ -337,7 +337,8 @@ func (a *App) ptyFor(id string) *bishpty.PTY {
 // -- Live Share (terminal pairing) --
 
 // StartLiveShare shares terminalId's live output with anyone who opens the
-// returned link on the local network — idempotent, returns the existing
+// returned link — a public link if a Cloudflare Quick Tunnel could be
+// started, otherwise a LAN-only fallback. Idempotent, returns the existing
 // link if already sharing. See internal/liveshare's doc comment for scope.
 func (a *App) StartLiveShare(terminalId string) (string, error) {
 	p := a.ptyFor(terminalId)
