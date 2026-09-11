@@ -7,6 +7,27 @@ import (
 	"strings"
 )
 
+// killPort force-kills whatever's listening on port, if anything. Used to
+// preempt a stale listener (one that escaped the killed process's group via
+// setsid/detach, or a prior run's straggler) before a process is restarted
+// on a port it's known to have bound before.
+func killPort(port int) {
+	if port <= 0 {
+		return
+	}
+	out, err := exec.Command("lsof", "-ti", "tcp:"+strconv.Itoa(port)).Output()
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		pid, err := strconv.Atoi(strings.TrimSpace(line))
+		if err != nil || pid <= 1 {
+			continue
+		}
+		exec.Command("kill", "-9", strconv.Itoa(pid)).Run() //nolint
+	}
+}
+
 // DetectPorts returns listening ports for pid and every descendant of it
 // (children, grandchildren, ...). Every bish-managed process is spawned as
 // `<shell> -l -c <cmdStr>` (see spawnLocked) — the tracked PID is the login

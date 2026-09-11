@@ -393,7 +393,9 @@ func (m *Manager) startServices(r *Repo, t *Target, dir string, env map[string]s
 func (m *Manager) stopServices(repoID string, only []string) {
 	prefix := repoID + "|"
 	m.mu.Lock()
+	r := m.def.repo(repoID)
 	var toStop []string
+	var ports []int
 	for k, id := range m.tracked {
 		if !strings.HasPrefix(k, prefix) || k == prefix+"prestart" {
 			continue
@@ -403,10 +405,21 @@ func (m *Manager) stopServices(repoID string, only []string) {
 			continue
 		}
 		toStop = append(toStop, id)
+		if r != nil {
+			if s := r.service(svc); s != nil && s.Port > 0 {
+				ports = append(ports, s.Port)
+			}
+		}
 	}
 	m.mu.Unlock()
 	for _, id := range toStop {
 		m.mgr.Stop(id) //nolint
+	}
+	// killGroup's SIGKILL misses children that escaped the process group
+	// (setsid, detached spawn — common in dev-server tooling), leaving them
+	// bound to the port. lsof-sweep it directly, same as the pre-start guard.
+	for _, port := range ports {
+		killPort(port)
 	}
 }
 

@@ -237,6 +237,13 @@ func (m *Manager) Restart(id string) error {
 		return fmt.Errorf("process %s not found", id)
 	}
 	old.kill() //nolint
+	// old.Ports is whatever Refresh last observed while it was running (Stop
+	// doesn't clear it) — sweep those ports before respawning so a listener
+	// that escaped the group kill (setsid/detach) can't block the new run
+	// with EADDRINUSE.
+	for _, port := range old.Ports {
+		killPort(port)
+	}
 	np := &Process{ID: old.ID, Name: old.Name, Log: logs.NewBuffer()}
 	if err := m.spawnLocked(np, old.Cmd, old.CWD); err != nil {
 		return err
