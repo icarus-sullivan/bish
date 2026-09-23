@@ -6,6 +6,7 @@ package search
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,6 +20,14 @@ import (
 
 // maxFileSize skips huge files in search/replace; raise if it bites.
 const maxFileSize = 2 * 1024 * 1024
+
+// maxResults caps Search's result count. Was 500, which on large repos let
+// the walk hit the cap inside an early (alphabetically-sorted) directory and
+// stop, silently dropping real matches that lived in later directories; then
+// 5000, before the frontend switched to chunked/virtualized rendering
+// (GlobalSearch.svelte no longer mounts one DOM node per result up front, so
+// a much bigger in-memory result set no longer means a frozen tab).
+const maxResults = 50000
 
 var skipDirs = tree.SkipDirs
 
@@ -164,144 +173,18 @@ func realDir(fullPath string) (string, bool) {
 	return real, true
 }
 
-func BuildMatcher(query string, caseSensitive, wholeWord, useRegex bool) (*regexp.Regexp, string, error) {
-	if useRegex || wholeWord {
-		pattern := query
-		if !useRegex {
-			pattern = regexp.QuoteMeta(query)
-		}
-		if wholeWord {
-			pattern = `\b` + pattern + `\b`
-		}
-		if !caseSensitive {
-			pattern = "(?i)" + pattern
-		}
-		re, err := regexp.Compile(pattern)
-		return re, "", err
-	}
-	plain := query
-	if !caseSensitive {
-		plain = strings.ToLower(query)
-	}
-	return nil, plain, nil
-}
+// errStopWalk, returned from a walkFiles visit callback, ends the walk early
+// without being treated as a failure (e.g. a result cap was hit).
+var errStopWalk = errors.New("stop walk")
 
-func Search(dir, query string, caseSensitive, wholeWord, useRegex bool, include, exclude string) []Result {
-	if query == "" {
-		return nil
-	}
-	re, plain, err := BuildMatcher(query, caseSensitive, wholeWord, useRegex)
-	if err != nil {
-		return nil
-	}
-	includeRe := compileGlobs(include)
-	excludeRe := compileGlobs(exclude)
-	var results []Result
-	visited := map[string]struct{}{}
-	var walk func(d string, stack []gitignoreLayer)
-	walk = func(d string, stack []gitignoreLayer) {
-		if len(results) >= 500 {
-			return
-		}
-		if !IncludeGitignored {
-			stack = extendGitignoreStack(stack, d)
-		}
-		entries, err := os.ReadDir(d)
-		if err != nil {
-			return
-		}
-		for _, e := range entries {
-			name := e.Name()
-			if !IncludeHidden && strings.HasPrefix(name, ".") {
-				continue
-			}
-			fullPath := filepath.Join(d, name)
-			rel := filepath.ToSlash(strings.TrimPrefix(strings.TrimPrefix(fullPath, dir), "/"))
-			if !IncludeGitignored && ignoredByStack(stack, fullPath) {
-				continue
-			}
-			if dirIsDir(e, fullPath) {
-				if skipDirs[name] || matchesAny(excludeRe, rel) {
-					continue
-				}
-				if e.Type()&os.ModeSymlink != 0 {
-					real, ok := realDir(fullPath)
-					if !ok {
-						continue
-					}
-					if _, seen := visited[real]; seen {
-						continue
-					}
-					visited[real] = struct{}{}
-				}
-				walk(fullPath, stack)
-			} else {
-				if len(excludeRe) > 0 && matchesAny(excludeRe, rel) {
-					continue
-				}
-				if len(includeRe) > 0 && !matchesAny(includeRe, rel) {
-					continue
-				}
-				if info, err := e.Info(); err != nil || info.Size() > maxFileSize {
-					continue
-				}
-				f, err := os.Open(fullPath)
-				if err != nil {
-					continue
-				}
-				scanner := bufio.NewScanner(f)
-				// default 64KB line cap silently aborts files with long
-				// (minified) lines — raise it so matches after them aren't lost
-				scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-				lineNum := 0
-				for scanner.Scan() {
-					lineNum++
-					raw := scanner.Text()
-					if strings.ContainsRune(raw, 0) {
-						break
-					}
-					var col int
-					if re != nil {
-						loc := re.FindStringIndex(raw)
-						if loc == nil {
-							continue
-						}
-						col = loc[0]
-					} else {
-						haystack := raw
-						if !caseSensitive {
-							haystack = strings.ToLower(raw)
-						}
-						col = strings.Index(haystack, plain)
-						if col < 0 {
-							continue
-						}
-					}
-					results = append(results, Result{File: fullPath, Line: lineNum, Col: col, Text: raw})
-					if len(results) >= 500 {
-						f.Close()
-						return
-					}
-				}
-				f.Close()
-			}
-		}
-	}
-	walk(dir, nil)
-	return results
-}
-
-func Replace(dir, query, replacement string, caseSensitive, wholeWord, useRegex bool, include, exclude string) (int, error) {
-	if query == "" {
-		return 0, nil
-	}
-	re, plain, err := BuildMatcher(query, caseSensitive, wholeWord, useRegex)
-	if err != nil {
-		return 0, err
-	}
-	includeRe := compileGlobs(include)
-	excludeRe := compileGlobs(exclude)
-	changed := 0
+// walkTree walks dir, calling onDir for every eligible directory (skipDirs,
+// hidden, gitignore, and exclude-glob checked — include-glob doesn't apply to
+// directories) before descending into it, and onFile for every eligible
+// regular file (skipDirs/hidden/gitignore/include/exclude/maxFileSize
+// checked). Either callback may be nil. A callback returning errStopWalk ends
+// the walk early without being treated as a failure; any other non-nil error
+// aborts and propagates to the caller.
+func walkTree(dir string, includeRe, excludeRe []*regexp.Regexp, onDir, onFile func(fullPath string) error) error {
 	visited := map[string]struct{}{}
 	var walk func(d string, stack []gitignoreLayer) error
 	walk = func(d string, stack []gitignoreLayer) error {
@@ -336,8 +219,18 @@ func Replace(dir, query, replacement string, caseSensitive, wholeWord, useRegex 
 					}
 					visited[real] = struct{}{}
 				}
-				walk(fullPath, stack) //nolint
+				if onDir != nil {
+					if err := onDir(fullPath); err != nil {
+						return err
+					}
+				}
+				if err := walk(fullPath, stack); err != nil {
+					return err
+				}
 			} else {
+				if onFile == nil {
+					continue
+				}
 				if len(excludeRe) > 0 && matchesAny(excludeRe, rel) {
 					continue
 				}
@@ -347,47 +240,165 @@ func Replace(dir, query, replacement string, caseSensitive, wholeWord, useRegex 
 				if info, err := e.Info(); err != nil || info.Size() > maxFileSize {
 					continue
 				}
-				content, err := os.ReadFile(fullPath)
-				if err != nil {
-					continue
-				}
-				if strings.ContainsRune(string(content), 0) {
-					continue
-				}
-				var newContent string
-				if re != nil {
-					newContent = re.ReplaceAllString(string(content), replacement)
-				} else if caseSensitive {
-					newContent = strings.ReplaceAll(string(content), query, replacement)
-				} else {
-					s := string(content)
-					lower := strings.ToLower(s)
-					lq := plain
-					var b strings.Builder
-					for {
-						idx := strings.Index(lower, lq)
-						if idx < 0 {
-							b.WriteString(s)
-							break
-						}
-						b.WriteString(s[:idx])
-						b.WriteString(replacement)
-						s = s[idx+len(query):]
-						lower = lower[idx+len(query):]
-					}
-					newContent = b.String()
-				}
-				if newContent != string(content) {
-					if err := os.WriteFile(fullPath, []byte(newContent), 0o644); err != nil {
-						return fmt.Errorf("write %s: %w", fullPath, err)
-					}
-					changed++
+				if err := onFile(fullPath); err != nil {
+					return err
 				}
 			}
 		}
 		return nil
 	}
-	err = walk(dir, nil)
+	if err := walk(dir, nil); err != nil && err != errStopWalk {
+		return err
+	}
+	return nil
+}
+
+// walkFiles is walkTree with only a file callback — the common case for
+// Search, Replace, and the zoekt indexer's full-build pass.
+func walkFiles(dir string, includeRe, excludeRe []*regexp.Regexp, visit func(fullPath string) error) error {
+	return walkTree(dir, includeRe, excludeRe, nil, visit)
+}
+
+// regexPattern returns query's regex pattern with whole-word/regex wrapping
+// applied, before any case-insensitivity is layered on — shared by
+// BuildMatcher (which adds the (?i) prefix itself) and buildZoektQuery
+// (zoekt_query.go), which expresses case-sensitivity via
+// query.Regexp.CaseSensitive instead of an inline flag.
+func regexPattern(query string, wholeWord, useRegex bool) string {
+	pattern := query
+	if !useRegex {
+		pattern = regexp.QuoteMeta(query)
+	}
+	if wholeWord {
+		pattern = `\b` + pattern + `\b`
+	}
+	return pattern
+}
+
+func BuildMatcher(query string, caseSensitive, wholeWord, useRegex bool) (*regexp.Regexp, string, error) {
+	if useRegex || wholeWord {
+		pattern := regexPattern(query, wholeWord, useRegex)
+		if !caseSensitive {
+			pattern = "(?i)" + pattern
+		}
+		re, err := regexp.Compile(pattern)
+		return re, "", err
+	}
+	plain := query
+	if !caseSensitive {
+		plain = strings.ToLower(query)
+	}
+	return nil, plain, nil
+}
+
+func Search(dir, query string, caseSensitive, wholeWord, useRegex bool, include, exclude string) []Result {
+	if query == "" {
+		return nil
+	}
+	re, plain, err := BuildMatcher(query, caseSensitive, wholeWord, useRegex)
+	if err != nil {
+		return nil
+	}
+	if results, ok := indexSearch(dir, query, caseSensitive, wholeWord, useRegex, include, exclude); ok {
+		return results
+	}
+	includeRe := compileGlobs(include)
+	excludeRe := compileGlobs(exclude)
+	var results []Result
+	_ = walkFiles(dir, includeRe, excludeRe, func(fullPath string) error {
+		f, err := os.Open(fullPath)
+		if err != nil {
+			return nil
+		}
+		defer f.Close()
+		scanner := bufio.NewScanner(f)
+		// default 64KB line cap silently aborts files with long
+		// (minified) lines — raise it so matches after them aren't lost
+		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		lineNum := 0
+		for scanner.Scan() {
+			lineNum++
+			raw := scanner.Text()
+			if strings.ContainsRune(raw, 0) {
+				break
+			}
+			var col int
+			if re != nil {
+				loc := re.FindStringIndex(raw)
+				if loc == nil {
+					continue
+				}
+				col = loc[0]
+			} else {
+				haystack := raw
+				if !caseSensitive {
+					haystack = strings.ToLower(raw)
+				}
+				col = strings.Index(haystack, plain)
+				if col < 0 {
+					continue
+				}
+			}
+			results = append(results, Result{File: fullPath, Line: lineNum, Col: col, Text: raw})
+			if len(results) >= maxResults {
+				return errStopWalk
+			}
+		}
+		return nil
+	})
+	return results
+}
+
+func Replace(dir, query, replacement string, caseSensitive, wholeWord, useRegex bool, include, exclude string) (int, error) {
+	if query == "" {
+		return 0, nil
+	}
+	re, plain, err := BuildMatcher(query, caseSensitive, wholeWord, useRegex)
+	if err != nil {
+		return 0, err
+	}
+	includeRe := compileGlobs(include)
+	excludeRe := compileGlobs(exclude)
+	changed := 0
+	err = walkFiles(dir, includeRe, excludeRe, func(fullPath string) error {
+		content, err := os.ReadFile(fullPath)
+		if err != nil {
+			return nil
+		}
+		if strings.ContainsRune(string(content), 0) {
+			return nil
+		}
+		var newContent string
+		if re != nil {
+			newContent = re.ReplaceAllString(string(content), replacement)
+		} else if caseSensitive {
+			newContent = strings.ReplaceAll(string(content), query, replacement)
+		} else {
+			s := string(content)
+			lower := strings.ToLower(s)
+			lq := plain
+			var b strings.Builder
+			for {
+				idx := strings.Index(lower, lq)
+				if idx < 0 {
+					b.WriteString(s)
+					break
+				}
+				b.WriteString(s[:idx])
+				b.WriteString(replacement)
+				s = s[idx+len(query):]
+				lower = lower[idx+len(query):]
+			}
+			newContent = b.String()
+		}
+		if newContent != string(content) {
+			if err := os.WriteFile(fullPath, []byte(newContent), 0o644); err != nil {
+				return fmt.Errorf("write %s: %w", fullPath, err)
+			}
+			changed++
+		}
+		return nil
+	})
 	return changed, err
 }
 

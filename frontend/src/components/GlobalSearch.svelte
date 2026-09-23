@@ -20,6 +20,13 @@
   let replaceCount = $state<number | null>(null)
   let searchError = $state('')
   let inputEl: HTMLInputElement
+  let resultsEl: HTMLDivElement
+
+  // Results render in chunks as the panel is scrolled, rather than one DOM
+  // node per match up front — a query that matches tens of thousands of
+  // lines would otherwise freeze the tab mounting them all at once.
+  const CHUNK = 60
+  let visibleCount = $state(CHUNK)
 
   onMount(() => {
     inputEl?.focus()
@@ -125,6 +132,36 @@
       return acc
     }, {})
   )
+
+  type Row = { kind: 'header'; file: string } | { kind: 'row'; r: SearchResultDTO }
+
+  const flatRows = $derived.by(() => {
+    const out: Row[] = []
+    for (const [file, hits] of Object.entries(grouped)) {
+      out.push({ kind: 'header', file })
+      for (const r of hits) out.push({ kind: 'row', r })
+    }
+    return out
+  })
+
+  const visibleRows = $derived(flatRows.slice(0, visibleCount))
+
+  // new search results replace the list wholesale — start the chunk window
+  // over from the top rather than keeping whatever scroll position/count the
+  // previous query left behind
+  $effect(() => {
+    results
+    visibleCount = CHUNK
+    resultsEl?.scrollTo(0, 0)
+  })
+
+  function onResultsScroll() {
+    if (!resultsEl || visibleCount >= flatRows.length) return
+    const { scrollTop, scrollHeight, clientHeight } = resultsEl
+    if (scrollHeight - (scrollTop + clientHeight) < 300) {
+      visibleCount = Math.min(visibleCount + CHUNK, flatRows.length)
+    }
+  }
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -220,23 +257,22 @@
       <div class="msg ok">Replaced in {replaceCount} file{replaceCount === 1 ? '' : 's'}</div>
     {/if}
 
-    <div class="results">
+    <div class="results" bind:this={resultsEl} onscroll={onResultsScroll}>
       {#if results.length === 0 && !searching && query.trim()}
         <div class="empty">No results</div>
       {:else}
-        {#each Object.entries(grouped) as [file, hits]}
-          <div class="file-group">
-            <div class="file-header">{relPath(file)}</div>
-            {#each hits as r}
-              <button class="result-row" onclick={() => openResult(r)}>
-                <span class="line-num">{r.line}</span>
-                <span class="line-text">{r.text.trim()}</span>
-              </button>
-            {/each}
-          </div>
+        {#each visibleRows as row (row.kind === 'header' ? 'h:' + row.file : 'r:' + row.r.file + ':' + row.r.line + ':' + row.r.col)}
+          {#if row.kind === 'header'}
+            <div class="file-header">{relPath(row.file)}</div>
+          {:else}
+            <button class="result-row" onclick={() => openResult(row.r)}>
+              <span class="line-num">{row.r.line}</span>
+              <span class="line-text">{row.r.text.trim()}</span>
+            </button>
+          {/if}
         {/each}
-        {#if results.length >= 500}
-          <div class="empty">Showing first 500 matches</div>
+        {#if results.length >= 50000}
+          <div class="empty">Showing first 50000 matches</div>
         {/if}
       {/if}
     </div>
@@ -398,10 +434,9 @@
     color: var(--muted);
   }
 
-  .file-group { margin-bottom: 2px; }
-
   .file-header {
     padding: 5px 14px 3px;
+    margin-top: 4px;
     font-size: 13px;
     font-weight: 600;
     color: var(--accent);

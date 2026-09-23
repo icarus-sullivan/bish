@@ -160,6 +160,7 @@ func (a *App) Startup(ctx context.Context) {
 	a.telemetry = telemetry.NewManager()
 	a.telemetry.SetConfig(a.cfg.Telemetry.Enabled, a.cfg.Telemetry.Endpoint)
 	applySearchConfig(a.cfg)
+	go search.PruneStaleIndexes()
 	a.telemetry.StartLoop(ctx.Done())
 	a.prevProcStatus = map[string]process.Status{}
 	if !a.cfg.BuiltinExtensionsSeeded {
@@ -2023,6 +2024,7 @@ func (a *App) openProjectDirOpts(dir string, resetExtra bool) error {
 		extraRoots = append([]string{}, a.extraRoots...)
 		a.treeMu.Unlock()
 	}
+	search.ReconcileIndexRoots(append([]string{dir}, extraRoots...))
 	if err := a.cc.Load(dir, extraRoots); err != nil {
 		fmt.Fprintf(os.Stderr, "command center: load %s: %v\n", dir, err)
 	}
@@ -2081,6 +2083,7 @@ func (a *App) OpenRemoteProject(dest, path string) error {
 	a.extraRoots = nil
 	a.extraTrees = make(map[string]*tree.Tree)
 	a.treeMu.Unlock()
+	search.ReconcileIndexRoots(nil) // remote roots aren't locally indexable
 	runtime.WindowSetTitle(a.ctx, fmt.Sprintf("%s — %s", filepath.Base(path), remote.ShortDest(dest)))
 	a.reloadTree()
 	runtime.EventsEmit(a.ctx, "project:change", path)
@@ -2271,6 +2274,7 @@ func (a *App) CloseProject() {
 	a.extraRoots = nil
 	a.extraTrees = make(map[string]*tree.Tree)
 	a.treeMu.Unlock()
+	search.ReconcileIndexRoots(nil)
 	runtime.WindowSetTitle(a.ctx, "bish")
 	a.reloadTree()
 	runtime.EventsEmit(a.ctx, "project:change", "")

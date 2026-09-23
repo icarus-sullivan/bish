@@ -134,6 +134,26 @@ export namespace app {
 		    return a;
 		}
 	}
+	export class GitWorktree {
+	    path: string;
+	    branch: string;
+	    head: string;
+	    bare: boolean;
+	    locked: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new GitWorktree(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.branch = source["branch"];
+	        this.head = source["head"];
+	        this.bare = source["bare"];
+	        this.locked = source["locked"];
+	    }
+	}
 	export class GoTest {
 	    name: string;
 	    file: string;

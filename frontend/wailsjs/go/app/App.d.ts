@@ -171,6 +171,8 @@ export function GitStatusForRoots(arg1:Array<string>):Promise<Record<string, app
 
 export function GitUnstage(arg1:string):Promise<void>;
 
+export function GitWorktrees(arg1:string):Promise<Array<app.GitWorktree>>;
+
 export function ImportSettingsFile():Promise<string>;
 
 export function InstallExtensionFromDirectory():Promise<string>;
@@ -290,6 +292,8 @@ export function StopEditShare(arg1:string):Promise<void>;
 export function StopLiveShare(arg1:string):Promise<void>;
 
 export function StopProcess(arg1:string):Promise<void>;
+
+export function SwitchWorktree(arg1:string,arg2:string):Promise<void>;
 
 export function ToggleTreeNode(arg1:string):Promise<void>;
 

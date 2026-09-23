@@ -326,6 +326,10 @@ export function GitUnstage(arg1) {
   return window['go']['app']['App']['GitUnstage'](arg1);
 }
 
+export function GitWorktrees(arg1) {
+  return window['go']['app']['App']['GitWorktrees'](arg1);
+}
+
 export function ImportSettingsFile() {
   return window['go']['app']['App']['ImportSettingsFile']();
 }
@@ -564,6 +568,10 @@ export function StopLiveShare(arg1) {
 
 export function StopProcess(arg1) {
   return window['go']['app']['App']['StopProcess'](arg1);
+}
+
+export function SwitchWorktree(arg1, arg2) {
+  return window['go']['app']['App']['SwitchWorktree'](arg1, arg2);
 }
 
 export function ToggleTreeNode(arg1) {
