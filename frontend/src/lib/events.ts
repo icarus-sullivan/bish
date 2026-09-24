@@ -10,11 +10,27 @@ import {
   commandCenter
 } from './stores'
 import { get } from 'svelte/store'
+import type { CCSnapshot } from './wails'
 import { loadFeatures } from './features'
 import { setUserSnippets } from './snippets'
 import { loadExtensions } from './extensions'
 import { loadLanguageExtensions } from './languageExtensions'
 import { OnFileDrop } from '../../wailsjs/runtime/runtime'
+
+// CommandCenter.svelte (a permanently-mounted sidebar panel, per
+// RightSidebar's "keep every panel mounted" comment) reads
+// $commandCenter.definition.repos unguarded in a dozen places. The backend
+// can send a snapshot with a null definition/state (e.g. a project with no
+// command-center config) via either the initial GetCommandCenterSnapshot
+// fetch or a later cc:update event — normalize at both write sites so the
+// store's shape stays the safe one from its own default, never null.
+function normalizeCC(snap: any): CCSnapshot {
+  return {
+    definition: { repos: snap?.definition?.repos ?? [] },
+    state: { targets: snap?.state?.targets ?? {} },
+    statuses: snap?.statuses ?? {},
+  }
+}
 
 export async function initEvents() {
   await waitForWails()
@@ -46,7 +62,7 @@ export async function initEvents() {
     IsRemoteProject().catch(() => false),
     GetStartupFile().catch(() => ''),
   ])
-  GetCommandCenterSnapshot().then((snap) => { if (snap) commandCenter.set(snap as any) }).catch(() => {})
+  GetCommandCenterSnapshot().then((snap) => { if (snap) commandCenter.set(normalizeCC(snap)) }).catch(() => {})
 
   if (procs) processes.set(procs as any)
   if (cmds) commands.set(cmds as any)
@@ -84,7 +100,7 @@ export async function initEvents() {
   // Wire backend → store events
   on('processes:update', (procs) => processes.set(procs))
   on('commands:update', (cmds) => commands.set(cmds))
-  on('cc:update', (snap: any) => commandCenter.set(snap))
+  on('cc:update', (snap: any) => commandCenter.set(normalizeCC(snap)))
   on('tree:update', (nodes) => { treeNodes.set(nodes); refreshGitBranch() })
   on('cwd:change', (newCwd) => { cwd.set(newCwd); refreshGitBranch() })
   on('theme:update', (t) => { theme.set(t); applyTheme(t) })
