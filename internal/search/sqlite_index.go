@@ -166,15 +166,30 @@ func (idx *rootIndex) buildFull() {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return
 	}
-	os.Remove(idx.dbPath) //nolint // stale index from a previous run; rebuilding fresh is simpler than reconciling
 
-	db, err := openIndexDB(idx.dbPath)
+	// Open + schema creation retried together: a corporate AV/EDR real-time
+	// scanner locking the freshly-created file mid-write is the likeliest
+	// way this ends up corrupted ("file is not a database") rather than
+	// just failing to open — a plain open failure wouldn't explain that.
+	// Removing and starting over on each attempt discards any such half
+	// written file instead of leaving it behind for the next process to
+	// trip over.
+	var db *sql.DB
+	err := withRetry(3, func() error {
+		os.Remove(idx.dbPath) //nolint // stale/half-written index; rebuilding fresh is simpler than reconciling
+		var openErr error
+		db, openErr = openIndexDB(idx.dbPath)
+		if openErr != nil {
+			return openErr
+		}
+		if _, execErr := db.Exec(schema); execErr != nil {
+			db.Close() //nolint
+			db = nil
+			return execErr
+		}
+		return nil
+	})
 	if err != nil {
-		return
-	}
-
-	if _, err := db.Exec(schema); err != nil {
-		db.Close() //nolint
 		return
 	}
 
@@ -239,8 +254,12 @@ func (idx *rootIndex) buildFull() {
 // minified lines) as Search's brute-force scan, so index and fallback can
 // never disagree about where a line starts or ends.
 func indexFileLines(insertFile, insertLine, insertFTS *sql.Stmt, rel, fullPath string) {
-	content, err := os.ReadFile(fullPath)
-	if err != nil || bytes.IndexByte(content, 0) >= 0 {
+	var content []byte
+	if err := withRetry(3, func() error {
+		var readErr error
+		content, readErr = os.ReadFile(fullPath)
+		return readErr
+	}); err != nil || bytes.IndexByte(content, 0) >= 0 {
 		return
 	}
 	res, err := insertFile.Exec(rel)

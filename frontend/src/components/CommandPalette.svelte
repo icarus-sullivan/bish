@@ -2,7 +2,7 @@
   import { onMount } from 'svelte'
   import { get } from 'svelte/store'
   import { cwd, projectRoot, openFileTab, pendingReveal } from '../lib/stores'
-  import { GetAllFiles, RevealInTree } from '../lib/wails'
+  import { GetAllFiles, GetWorkspaceRoots, RevealInTree } from '../lib/wails'
 
   let { onClose }: { onClose: () => void } = $props()
 
@@ -19,17 +19,32 @@
     indices: number[]
   }
 
-  // File index cache — invalidated when root changes
-  let cachedRoot = ''
+  // File index cache — invalidated when the workspace roots change
+  let cachedRootsKey = ''
   let cachedFiles: string[] = []
+  let lastRoots: string[] = []
+
+  // unscoped ("search whole project") spans every workspace root, not just
+  // the primary one — mirrors GlobalSearch.svelte's searchDirs
+  async function workspaceRoots(): Promise<string[]> {
+    const roots = await GetWorkspaceRoots().catch(() => [])
+    return roots.length ? roots : [get(projectRoot) || get(cwd)]
+  }
 
   async function getFiles(): Promise<string[]> {
-    const root = get(projectRoot) || get(cwd)
-    if (root === cachedRoot && cachedFiles.length > 0) return cachedFiles
-    const files = await GetAllFiles(root).catch(() => [])
-    cachedRoot = root
-    cachedFiles = files ?? []
+    const roots = await workspaceRoots()
+    const key = roots.join('\n')
+    if (key === cachedRootsKey && cachedFiles.length > 0) return cachedFiles
+    const perRoot = await Promise.all(roots.map(r => GetAllFiles(r).catch(() => [])))
+    lastRoots = roots
+    cachedRootsKey = key
+    cachedFiles = perRoot.flat()
     return cachedFiles
+  }
+
+  function relPathFor(file: string): string {
+    const root = lastRoots.find(r => file.startsWith(r + '/'))
+    return root ? file.slice(root.length + 1) : file
   }
 
   function globToRegex(pattern: string): RegExp {
@@ -81,7 +96,6 @@
       return
     }
     const files = await getFiles()
-    const root = get(projectRoot) || get(cwd)
     const matched: MatchResult[] = []
 
     if (q.includes('*')) {
@@ -93,7 +107,7 @@
         matched.push({
           path: f,
           filename,
-          relPath: f.startsWith(root + '/') ? f.slice(root.length + 1) : f,
+          relPath: relPathFor(f),
           score: 0,
           indices: [],
         })
@@ -107,7 +121,7 @@
         matched.push({
           path: f,
           filename: f.slice(slash + 1),
-          relPath: f.startsWith(root + '/') ? f.slice(root.length + 1) : f,
+          relPath: relPathFor(f),
           score: m.score,
           indices: m.indices,
         })

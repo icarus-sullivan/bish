@@ -12,11 +12,31 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	ignore "github.com/sabhiram/go-gitignore"
 
 	"github.com/csullivan/bish/internal/tree"
 )
+
+// withRetry runs fn up to attempts times, with a short backoff between
+// tries, before giving up and returning the last error. Corporate AV/EDR
+// real-time scanners commonly lock a file for a few dozen milliseconds while
+// they inspect it; without a retry that reads as a permanent I/O error and
+// the file (or, in the indexer, the whole index) silently drops the content
+// forever instead of just being briefly delayed.
+func withRetry(attempts int, fn func() error) error {
+	var err error
+	for i := 0; i < attempts; i++ {
+		if err = fn(); err == nil {
+			return nil
+		}
+		if i < attempts-1 {
+			time.Sleep(time.Duration(i+1) * 40 * time.Millisecond)
+		}
+	}
+	return err
+}
 
 // maxFileSize skips huge files in search/replace; raise if it bites.
 const maxFileSize = 2 * 1024 * 1024
@@ -306,8 +326,12 @@ func Search(dir, query string, caseSensitive, wholeWord, useRegex bool, include,
 	excludeRe := compileGlobs(exclude)
 	var results []Result
 	_ = walkFiles(dir, includeRe, excludeRe, func(fullPath string) error {
-		f, err := os.Open(fullPath)
-		if err != nil {
+		var f *os.File
+		if err := withRetry(3, func() error {
+			var openErr error
+			f, openErr = os.Open(fullPath)
+			return openErr
+		}); err != nil {
 			return nil
 		}
 		defer f.Close()

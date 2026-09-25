@@ -164,8 +164,12 @@ func reindexOneFile(tx *sql.Tx, rel, full string) {
 		}
 	}
 
-	content, err := os.ReadFile(full)
-	if err != nil || bytes.IndexByte(content, 0) >= 0 || int64(len(content)) > maxFileSize {
+	var content []byte
+	if err := withRetry(3, func() error {
+		var readErr error
+		content, readErr = os.ReadFile(full)
+		return readErr
+	}); err != nil || bytes.IndexByte(content, 0) >= 0 || int64(len(content)) > maxFileSize {
 		return
 	}
 
