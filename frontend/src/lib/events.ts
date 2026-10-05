@@ -101,7 +101,15 @@ export async function initEvents() {
   on('processes:update', (procs) => processes.set(procs))
   on('commands:update', (cmds) => commands.set(cmds))
   on('cc:update', (snap: any) => commandCenter.set(normalizeCC(snap)))
-  on('tree:update', (nodes) => { treeNodes.set(nodes); refreshGitBranch() })
+  // the watcher re-sends the whole flattened tree on any fs burst (a build
+  // writing into an expanded dist/, our own saves) — usually identical;
+  // skip the store emit so FileTree doesn't re-render every row for nothing
+  let lastTree = ''
+  on('tree:update', (nodes) => {
+    const key = JSON.stringify(nodes)
+    if (key !== lastTree) { lastTree = key; treeNodes.set(nodes) }
+    refreshGitBranch()
+  })
   on('cwd:change', (newCwd) => { cwd.set(newCwd); refreshGitBranch() })
   on('theme:update', (t) => { theme.set(t); applyTheme(t) })
   on('project:change', (root: string) => {
@@ -128,8 +136,15 @@ export async function initEvents() {
   })
 }
 
+// Debounced: tree:update fires on every watched fs burst and cwd:change on
+// every prompt, and each call is a full `git status` — on a big repo during
+// a build that was a steady stream of subprocesses for one branch name.
+let gitBranchTimer: ReturnType<typeof setTimeout> | undefined
 function refreshGitBranch() {
-  GitStatus().then((s: any) => gitBranch.set(s?.branch || null)).catch(() => gitBranch.set(null))
+  clearTimeout(gitBranchTimer)
+  gitBranchTimer = setTimeout(() => {
+    GitStatus().then((s: any) => gitBranch.set(s?.branch || null)).catch(() => gitBranch.set(null))
+  }, 250)
 }
 
 // ─── per-project UI state (panel sizes/visibility, open tabs) ────────────────

@@ -6,7 +6,7 @@
     IconSparkles, IconPlus, IconPlayerStop, IconPlayerStopFilled, IconSendFilled, IconX, IconCheck, IconCode, IconSlash,
   } from '@tabler/icons-svelte'
   import {
-    on, AssistantStart, AssistantSend, AssistantRespondPermission, AssistantStop, AssistantInterrupt, AssistantSwitchMode,
+    on, AssistantStart, AssistantSend, AssistantSendWithImages, AssistantRespondPermission, AssistantStop, AssistantInterrupt, AssistantSwitchMode,
     AssistantPickFiles, StashDropped,
   } from '../lib/wails'
   import {
@@ -71,6 +71,10 @@
   let offExit: (() => void) | null = null
   let seq = 0
   const nextId = () => 'm' + seq++
+  // did this turn produce any assistant text (else show the result line)
+  let turnHasText = false
+  // in-flight StashDropped copy; send() waits on it
+  let pendingDrop: Promise<void> = Promise.resolve()
 
   // click the pill, or Shift+Tab in the composer — same as claude CLI's own cycle keybind.
   // Permission mode is fixed at process spawn time, so if a session is already
@@ -135,6 +139,8 @@
     return parts.length ? parts.join('\n\n') + '\n\n---\n\n' : ''
   }
 
+  const IMAGE_EXT = /\.(png|jpe?g|gif|webp)$/i
+
   async function send() {
     const text = input.trim()
     if (!text) return
@@ -143,11 +149,23 @@
       showModelDialog = true
       return
     }
+    // the headless CLI session can't reset this panel's transcript, so /clear
+    // is handled here: end the session (the next message starts a fresh one)
+    if (text === '/clear') {
+      input = ''
+      slashDismissed = false
+      newSession()
+      return
+    }
+    // a drop still being stashed must land in this message, not the next
+    await pendingDrop
     const cmd = SLASH_COMMANDS.find(c => c.terminalOnly && c.name === text.split(/\s+/)[0])
     turn += 1
     slashDismissed = false
     messages.push({ id: nextId(), turnId: turn, role: 'user', text })
     input = ''
+    const sentImages = attachedFiles.filter(p => IMAGE_EXT.test(p))
+    const ctx = buildContext()
     attachedFiles = []
     if (cmd) {
       messages.push({
@@ -156,11 +174,14 @@
       })
       return
     }
-    const ctx = buildContext()
     busy = true
+    turnHasText = false
     try {
       const id = await ensureSession()
-      await AssistantSend(id, ctx + text)
+      // images ride along inline so the model sees them directly (dropped
+      // screenshots included), not just as paths it may be unable to open
+      if (sentImages.length) await AssistantSendWithImages(id, ctx + text, sentImages)
+      else await AssistantSend(id, ctx + text)
     } catch (e) {
       messages.push({ id: nextId(), turnId: turn, role: 'error', text: `${e}` })
       busy = false
@@ -173,6 +194,7 @@
     if (msg.type === 'assistant') {
       for (const block of msg.message?.content ?? []) {
         if (block.type === 'text' && block.text) {
+          turnHasText = true
           messages.push({ id: nextId(), turnId: turn, role: 'assistant', html: await renderMd(block.text) })
         } else if (block.type === 'tool_use' && block.name === 'ExitPlanMode') {
           messages.push({
@@ -212,6 +234,11 @@
     } else if (msg.type === 'result') {
       busy = false
       if (msg.is_error) messages.push({ id: nextId(), turnId: turn, role: 'error', text: msg.result ?? 'The assistant hit an error.' })
+      // slash commands (/cost, /status, /help, …) answer with only a result
+      // line and no assistant message — show it or the command looks dead
+      else if (!turnHasText && typeof msg.result === 'string' && msg.result.trim())
+        messages.push({ id: nextId(), turnId: turn, role: 'assistant', html: await renderMd(msg.result) })
+      turnHasText = false
     }
   }
 
@@ -269,10 +296,12 @@
     attachedFiles = attachedFiles.filter(f => f !== p)
   }
 
-  async function onDrop(e: Event) {
+  function onDrop(e: Event) {
     const dropped: string[] = (e as CustomEvent).detail.paths
-    const paths = await StashDropped(dropped).catch(() => dropped)
-    for (const p of paths) if (!attachedFiles.includes(p)) attachedFiles.push(p)
+    pendingDrop = pendingDrop.then(async () => {
+      const paths = await StashDropped(dropped).catch(() => dropped)
+      for (const p of paths) if (!attachedFiles.includes(p)) attachedFiles.push(p)
+    })
   }
 
   async function pickFiles() {
@@ -373,6 +402,43 @@
   })
 
   let textareaEl: HTMLTextAreaElement
+
+  // Drag the composer's top edge to resize the input for long prompts.
+  // null = auto-grow (default); double-click the handle to return to it.
+  const COMPOSER_H_KEY = 'bish.assistant.composerHeight'
+  function loadComposerHeight(): number | null {
+    try { const n = Number(localStorage.getItem(COMPOSER_H_KEY)); return n > 0 ? n : null } catch { return null }
+  }
+  let composerHeight = $state<number | null>(loadComposerHeight())
+  function saveComposerHeight() {
+    try {
+      if (composerHeight) localStorage.setItem(COMPOSER_H_KEY, String(composerHeight))
+      else localStorage.removeItem(COMPOSER_H_KEY)
+    } catch {}
+  }
+  function startComposerResize(e: MouseEvent) {
+    e.preventDefault()
+    const startY = e.clientY
+    const startH = textareaEl?.offsetHeight ?? 48
+    // leave room for the header and at least a sliver of transcript
+    const maxH = Math.max(80, (container?.clientHeight ?? 600) - 160)
+    const onMove = (ev: MouseEvent) => {
+      composerHeight = Math.round(Math.max(40, Math.min(maxH, startH + (startY - ev.clientY))))
+    }
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      document.body.style.cursor = ''
+      saveComposerHeight()
+    }
+    document.body.style.cursor = 'ns-resize'
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
+  function resetComposerHeight() {
+    composerHeight = null
+    saveComposerHeight()
+  }
 
   let container: HTMLDivElement
   $effect(() => {
@@ -480,6 +546,10 @@
   </div>
 
   <div class="composer">
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <div class="composer-resize" role="separator" aria-orientation="horizontal" tabindex="-1"
+         title="Drag to resize · double-click to reset"
+         onmousedown={startComposerResize} ondblclick={resetComposerHeight}></div>
     {#if slashOpen}
       <div class="slash-menu">
         {#if slashResults.length > 0}
@@ -525,6 +595,8 @@
       onkeydown={onKeydown}
       oninput={onComposerInput}
       rows={2}
+      class:sized={composerHeight !== null}
+      style:height={composerHeight !== null ? composerHeight + 'px' : null}
     ></textarea>
     <div class="composer-actions">
       <div class="actions-left">
@@ -710,6 +782,13 @@
     field-sizing: content; max-height: 200px; overflow-y: auto;
   }
   .composer-input:focus { border-color: var(--accent); }
+  /* user-dragged height: fixed size, scrolls instead of auto-growing */
+  .composer-input.sized { field-sizing: fixed; max-height: none; }
+  .composer-resize {
+    position: absolute; top: -3px; left: 0; right: 0; height: 6px;
+    cursor: ns-resize; z-index: 2;
+  }
+  .composer-resize:hover { background: color-mix(in srgb, var(--accent) 40%, transparent); }
 
   .composer-actions { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; }
   .actions-left, .actions-right { display: flex; align-items: center; gap: 4px; }

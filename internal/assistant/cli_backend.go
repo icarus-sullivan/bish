@@ -10,10 +10,13 @@ package assistant
 
 import (
 	"bufio"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -110,17 +113,51 @@ func (b *cliBackend) Start(root, permissionMode string) (string, error) {
 
 // Send writes one stream-json user turn to the session's stdin.
 func (b *cliBackend) Send(id, text string) error {
+	return b.SendWithImages(id, text, nil)
+}
+
+// maxInlineImage caps one inline image; the API rejects larger ones.
+const maxInlineImage = 5 << 20
+
+var imageMediaTypes = map[string]string{
+	".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+	".gif": "image/gif", ".webp": "image/webp",
+}
+
+// SendWithImages writes one user turn with each image attached as an inline
+// base64 block, read now — so a dropped screenshot reaches the model even if
+// its file is gone by the time the model would have opened it, and without
+// a Read permission prompt for a path outside the project. Unreadable or
+// unsupported files are skipped (their paths are still listed in the text).
+func (b *cliBackend) SendWithImages(id, text string, imagePaths []string) error {
 	s := b.session(id)
 	if s == nil {
 		return fmt.Errorf("assistant: no session %q", id)
 	}
+	content := []map[string]any{{"type": "text", "text": text}}
+	for _, p := range imagePaths {
+		mt, ok := imageMediaTypes[strings.ToLower(filepath.Ext(p))]
+		if !ok {
+			continue
+		}
+		data, err := os.ReadFile(p)
+		if err != nil || len(data) == 0 || len(data) > maxInlineImage {
+			continue
+		}
+		content = append(content, map[string]any{
+			"type": "image",
+			"source": map[string]any{
+				"type":       "base64",
+				"media_type": mt,
+				"data":       base64.StdEncoding.EncodeToString(data),
+			},
+		})
+	}
 	return s.write(map[string]any{
 		"type": "user",
 		"message": map[string]any{
-			"role": "user",
-			"content": []map[string]any{
-				{"type": "text", "text": text},
-			},
+			"role":    "user",
+			"content": content,
 		},
 	})
 }
@@ -254,6 +291,14 @@ func spawn(root, permissionMode string) (*exec.Cmd, io.WriteCloser, io.Reader, *
 		"--include-partial-messages",
 		"--replay-user-messages",
 		"--permission-mode", permissionMode,
+	}
+	// dropped files are stashed outside the project (see app.StashDropped);
+	// let the model Read them without a per-file permission prompt
+	if home, err := os.UserHomeDir(); err == nil {
+		drops := filepath.Join(home, ".config", "bish", "drops")
+		if os.MkdirAll(drops, 0o755) == nil {
+			args = append(args, "--add-dir", drops)
+		}
 	}
 	cmd := exec.Command("claude", args...)
 	cmd.Dir = root

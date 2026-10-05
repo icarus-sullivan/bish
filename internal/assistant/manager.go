@@ -71,6 +71,22 @@ func (m *Manager) Send(id, text string) error {
 	return m.current().Send(id, text)
 }
 
+// imageSender is implemented by backends that can take images inline with a
+// user turn (the claude CLI); others just get the text.
+type imageSender interface {
+	SendWithImages(id, text string, imagePaths []string) error
+}
+
+// SendWithImages sends text plus the given image files as inline image
+// blocks when the backend supports it, else falls back to plain Send.
+func (m *Manager) SendWithImages(id, text string, imagePaths []string) error {
+	b := m.current()
+	if is, ok := b.(imageSender); ok && len(imagePaths) > 0 {
+		return is.SendWithImages(id, text, imagePaths)
+	}
+	return b.Send(id, text)
+}
+
 func (m *Manager) RespondPermission(id, requestID string, allow bool, message string) error {
 	return m.current().RespondPermission(id, requestID, allow, message)
 }

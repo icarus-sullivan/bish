@@ -30,6 +30,10 @@ export function AssistantSend(arg1, arg2) {
   return window['go']['app']['App']['AssistantSend'](arg1, arg2);
 }
 
+export function AssistantSendWithImages(arg1, arg2, arg3) {
+  return window['go']['app']['App']['AssistantSendWithImages'](arg1, arg2, arg3);
+}
+
 export function AssistantStart(arg1, arg2) {
   return window['go']['app']['App']['AssistantStart'](arg1, arg2);
 }
@@ -64,6 +68,10 @@ export function CompletionSuggest(arg1, arg2) {
 
 export function ConfirmDiscardChanges(arg1) {
   return window['go']['app']['App']['ConfirmDiscardChanges'](arg1);
+}
+
+export function ConfirmFileConflict(arg1) {
+  return window['go']['app']['App']['ConfirmFileConflict'](arg1);
 }
 
 export function DebugContinue() {
@@ -550,6 +558,10 @@ export function StashDropped(arg1) {
   return window['go']['app']['App']['StashDropped'](arg1);
 }
 
+export function StatMtime(arg1) {
+  return window['go']['app']['App']['StatMtime'](arg1);
+}
+
 export function StopAllCommandCenter() {
   return window['go']['app']['App']['StopAllCommandCenter']();
 }
@@ -592,6 +604,10 @@ export function UninstallExtension(arg1) {
 
 export function WriteFile(arg1, arg2) {
   return window['go']['app']['App']['WriteFile'](arg1, arg2);
+}
+
+export function WriteFileChecked(arg1, arg2, arg3) {
+  return window['go']['app']['App']['WriteFileChecked'](arg1, arg2, arg3);
 }
 
 export function WritePTY(arg1) {

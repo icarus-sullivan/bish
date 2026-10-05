@@ -171,6 +171,13 @@ func (a *App) Startup(ctx context.Context) {
 	}
 	_ = runtime.InitializeNotifications(ctx) // no-op error on unsupported platforms, notifications just won't fire
 	project.RegisterInstance(os.Getpid())    //nolint
+	runtime.EventsOn(ctx, "pty:attach", func(data ...interface{}) {
+		if len(data) > 0 {
+			if id, ok := data[0].(string); ok {
+				a.attachPTY(id)
+			}
+		}
+	})
 	go a.readPTYLoopFor("main", a.shell)
 	go a.pollCWDLoop()
 	go a.pollWLoop()
@@ -301,6 +308,7 @@ func (a *App) CloseTerminal(id string) {
 	a.terminalsMu.Unlock()
 	if ok {
 		p.Close()
+		dropStream(id)
 	}
 }
 
@@ -409,66 +417,6 @@ func (a *App) EditShareBroadcast(path, dataB64 string) error {
 	}
 	a.liveShare.BroadcastEdit(path, b)
 	return nil
-}
-
-func (a *App) readPTYLoopFor(id string, p *bishpty.PTY) {
-	dataEvent, exitEvent := "pty:data", "pty:exit"
-	if id != "main" {
-		dataEvent = "pty:data:" + id
-		exitEvent = "pty:exit:" + id
-	}
-
-	ch := make(chan []byte, 512)
-
-	// reader: push raw chunks into channel as fast as the PTY produces them
-	go func() {
-		buf := make([]byte, 32768)
-		for {
-			n, err := p.Read(buf)
-			if n > 0 {
-				tmp := make([]byte, n)
-				copy(tmp, buf[:n])
-				ch <- tmp
-			}
-			if err != nil {
-				close(ch)
-				return
-			}
-		}
-	}()
-
-	// emitter: coalesce chunks for up to 8ms so escape sequences
-	// are never split across EventsEmit calls
-	ticker := time.NewTicker(8 * time.Millisecond)
-	defer ticker.Stop()
-	var pending []byte
-
-	flush := func() {
-		if len(pending) > 0 {
-			s := string(pending) // copies — pending's backing array gets reused below
-			runtime.EventsEmit(a.ctx, dataEvent, s)
-			a.liveShare.Broadcast(id, []byte(s)) // no-op unless this terminal is currently shared
-			pending = pending[:0]
-		}
-	}
-
-	for {
-		select {
-		case data, ok := <-ch:
-			if !ok {
-				flush()
-				runtime.EventsEmit(a.ctx, exitEvent)
-				a.liveShare.Stop(id)
-				return
-			}
-			pending = append(pending, data...)
-			if len(pending) > 65536 {
-				flush()
-			}
-		case <-ticker.C:
-			flush()
-		}
-	}
 }
 
 func (a *App) pollCWDLoop() {
@@ -1271,7 +1219,7 @@ func (a *App) WriteFile(path, content string) error {
 	if a.remoteDest != "" {
 		return remote.WriteFile(a.remoteDest, path, content)
 	}
-	return os.WriteFile(path, []byte(content), 0o644)
+	return writeFileAtomic(path, []byte(content))
 }
 
 // -- PTY methods --
@@ -1413,6 +1361,12 @@ func (a *App) AssistantStart(root, permissionMode string) (string, error) {
 // AssistantSend writes one user turn to the session's stdin.
 func (a *App) AssistantSend(sessionID, text string) error {
 	return a.assistant.Send(sessionID, text)
+}
+
+// AssistantSendWithImages is AssistantSend plus image files (dropped
+// screenshots, attached pngs) sent inline as image blocks.
+func (a *App) AssistantSendWithImages(sessionID, text string, imagePaths []string) error {
+	return a.assistant.SendWithImages(sessionID, text, imagePaths)
 }
 
 // AssistantRespondPermission answers a pending permission ask — the plan

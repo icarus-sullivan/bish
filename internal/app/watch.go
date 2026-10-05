@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // External FS changes (git checkout, builds, other editors) refresh the tree;
@@ -23,6 +24,19 @@ func (a *App) startWatcher() {
 		// (e.g. rsync copying many small files) would otherwise keep
 		// resetting debounce forever and never actually reload.
 		var debounce, maxWait *time.Timer
+		// paths touched since the last reload, for open editors to recheck
+		// (fs:changed) — capped so a huge checkout doesn't build a giant payload
+		changed := map[string]struct{}{}
+		fire := func() {
+			debounce, maxWait = nil, nil
+			a.reloadTree()
+			paths := make([]string, 0, len(changed))
+			for p := range changed {
+				paths = append(paths, p)
+			}
+			changed = map[string]struct{}{}
+			runtime.EventsEmit(a.ctx, "fs:changed", paths)
+		}
 		for {
 			var debounceC, maxWaitC <-chan time.Time
 			if debounce != nil {
@@ -42,6 +56,9 @@ func (a *App) startWatcher() {
 				if ev.Op == fsnotify.Chmod {
 					continue
 				}
+				if len(changed) < 2000 {
+					changed[ev.Name] = struct{}{}
+				}
 				if debounce == nil {
 					debounce = time.NewTimer(300 * time.Millisecond)
 				} else {
@@ -51,11 +68,9 @@ func (a *App) startWatcher() {
 					maxWait = time.NewTimer(2 * time.Second)
 				}
 			case <-debounceC:
-				debounce, maxWait = nil, nil
-				a.reloadTree()
+				fire()
 			case <-maxWaitC:
-				debounce, maxWait = nil, nil
-				a.reloadTree()
+				fire()
 			case _, ok := <-w.Errors:
 				if !ok {
 					return

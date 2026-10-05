@@ -1,5 +1,5 @@
 // Wails v2 generated bindings — do not call window.go directly
-export { EventsOn as on, EventsOff as off } from '../../wailsjs/runtime/runtime'
+export { EventsOn as on, EventsOff as off, EventsEmit as emit } from '../../wailsjs/runtime/runtime'
 
 // Re-export all bound methods so components can import by name
 export {
@@ -12,7 +12,7 @@ export {
   GetTheme, GetConfig, SaveConfig,
   ExportSettingsFile, ImportSettingsFile,
   GetExtensions, SetExtensionEnabled, UninstallExtension, InstallExtensionFromZip, InstallExtensionFromDirectory,
-  ReadFile, ReadFileChunk, WriteFile,
+  ReadFile, ReadFileChunk, WriteFile, WriteFileChecked, StatMtime, ConfirmFileConflict,
   OpenProject, CloseProject, GetProjectRoot, GetAllFiles, GetCWD, GetStartupFile,
   OpenRemoteProject, IsRemoteProject,
   NewWindow, SaveNewFile,
@@ -29,7 +29,7 @@ export {
   ListLanguageExtensions, FormatterInstalled, FormatterInstall, FormatWithExtension,
   GetLanguageOverride, SetLanguageOverride,
   DebugStart, DebugSetBreakpoints, DebugContinue, DebugStepOver, DebugStepIn, DebugStepOut, DebugStop,
-  AssistantStart, AssistantSend, AssistantRespondPermission, AssistantStop, AssistantInterrupt, AssistantSwitchMode, AssistantPickFiles,
+  AssistantStart, AssistantSend, AssistantSendWithImages, AssistantRespondPermission, AssistantStop, AssistantInterrupt, AssistantSwitchMode, AssistantPickFiles,
   OllamaListModels,
   CompletionSuggest, ConfirmDiscardChanges,
   ReadFileBase64,

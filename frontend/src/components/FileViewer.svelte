@@ -10,7 +10,8 @@
   import { Prec } from '@codemirror/state'
   import { basicSetup } from 'codemirror'
   import { langFor, highlightFor } from '../lib/codeLang'
-  import { ReadFile, ReadFileChunk, WriteFile, SaveNewFile, mediaUrl } from '../lib/wails'
+  import { ReadFile, ReadFileChunk, WriteFileChecked, StatMtime, ConfirmFileConflict, SaveNewFile, mediaUrl, on } from '../lib/wails'
+  import { stashEditor, takeEditor, serializeState, serializedFields } from '../lib/editorCache'
   import { currentThemeName, cwd, projectRoot, updateTabPath, setTabModified, pendingGoto, pendingFocus, pendingExternalReload, pendingFormatDocument, activeSelection, tabs } from '../lib/stores'
   import { codeIntel, intelKindFor } from '../lib/codeintel'
   import { defFor, loadLanguage } from '../lib/languageExtensions'
@@ -406,22 +407,75 @@
   }
 
   // ─── load/reload ──────────────────────────────────────────────────────────
-  async function load(p: string, themeName: string) {
+  // disk mtime this buffer was loaded/saved against — WriteFileChecked
+  // refuses the save if the file changed underneath it (0 = unknown/skip)
+  let mtime = 0
+  // path the current `view` was built for (stash target on teardown)
+  let loadedPath: string | null = null
+  // bumps per load(): an older load still awaiting disk must not mount over
+  // a newer one (fast tab/theme switches)
+  let loadSeq = 0
+  // disk mtime we already warned about (unsaved buffer vs changed file), so
+  // the warning shows once per external change, not on every tab switch
+  let warnedMtime = 0
+
+  const isModified = () => !!get(tabs).find(t => t.id === tabId)?.modified
+
+  // park this buffer in the per-tab cache so the next mount restores it
+  function stash() {
+    if (!view || !loadedPath) return
+    stashEditor(tabId, {
+      path: loadedPath,
+      json: serializeState(view.state),
+      scroll: view.scrollSnapshot(),
+      mtime,
+      warnedMtime,
+      modified: isModified(),
+    })
+  }
+
+  // fromDisk: ignore any cached buffer (explicit reload / conflict "Reload")
+  async function load(p: string, themeName: string, fromDisk = false) {
+    const seq = ++loadSeq
+    if (!fromDisk) stash()
     view?.destroy()
     view = null
-    setModified(false)
+    loadedPath = null
     loadError = ''
     rawMode = false
     rawForceText = false
     preview = false
 
+    let cached = takeEditor(tabId, p)
+    if (fromDisk) cached = null
+    warnedMtime = cached?.warnedMtime ?? 0
     let content = ''
-    if (p !== UNTITLED) {
-      content = await ReadFile(p).catch((e: any) => {
-        loadError = String(e)
-        return ''
-      })
+    if (cached && p !== UNTITLED) {
+      // buffer survived a tab switch; if it's clean and the file moved on
+      // disk meanwhile, the disk version wins (same as a fresh open)
+      const disk = await StatMtime(p).catch(() => 0)
+      if (seq !== loadSeq) return
+      if (!cached.modified && disk && cached.mtime && disk !== cached.mtime) cached = null
+      else if (cached.modified && disk && cached.mtime && disk !== cached.mtime && cached.warnedMtime !== disk) {
+        warnedMtime = disk
+        toast.warning(`${p.split('/').pop()} changed on disk`, {
+          description: 'You have unsaved edits — saving will ask before overwriting.',
+        })
+      }
     }
+    if (cached) {
+      content = cached.json.doc
+      mtime = cached.mtime
+    } else if (p !== UNTITLED) {
+      const [text, m] = await Promise.all([
+        ReadFile(p).catch((e: any) => { loadError = String(e); return '' }),
+        StatMtime(p).catch(() => 0),
+      ])
+      if (seq !== loadSeq) return
+      content = text
+      mtime = m
+    }
+    setModified(cached?.modified ?? false)
     // never mount an editor for a failed read — saving would clobber the file.
     // Fall back to the read-only chunked raw view; keep the error if even
     // chunked reads fail (>1GB, permissions, ...).
@@ -444,47 +498,47 @@
         line: ln.number, col: head - ln.from, lines: state.doc.lines, indent,
       })
     }
-    view = new EditorView({
-      state: EditorState.create({
-        doc: content,
-        extensions: [
-          basicSetup,
-          bishTheme(isDark()),
-          highlightFor(themeName),
-          indentUnit.of(indent),
-          lang,
-          extLangCompartment.of([]),
-          ...(featureOn('lsp') ? codeIntel(p, get(projectRoot) || get(cwd), lang, intelKindFor(p)) : []),
-          ...(featureOn('snippets') ? snippets(lang, intelKindFor(p)) : []),
-          ...(featureOn('qwenComplete') ? qwenComplete(lang, intelKindFor(p)) : []),
-          ...(featureOn('gitBlame') && p !== UNTITLED ? [gitBlame(p)] : []),
-          ...(featureOn('gitGutter') && p !== UNTITLED ? [gitGutter(p)] : []),
-          ...(featureOn('debugger') && p !== UNTITLED && intelKindFor(p) === 'go' ? [breakpointGutter(p)] : []),
-          ...(featureOn('tests') && p.endsWith('_test.go') ? [testGutter(p)] : []),
-          collabCompartment.of(coEditExtension(p) ?? []),
-          search({ top: true }),
-          // Highest priority: always consume Tab so focus never escapes the editor
-          Prec.highest(keymap.of([
-            { key: 'Tab',       run: (v) => acceptCompletion(v) || (indentMore(v), true) },
-            { key: 'Shift-Tab', run: (v) => { indentLess(v); return true } },
-          ])),
-          keymap.of([
-            ...defaultKeymap,
-            ...historyKeymap,
-            ...searchKeymap,
-            ...completionKeymap,
-          ]),
-          Prec.highest(keymap.of([{ key: 'Mod-k', run: openInlineEdit }])),
-          EditorView.updateListener.of((upd) => {
-            if (upd.docChanged) setModified(true)
-            if (upd.docChanged || upd.selectionSet || upd.transactions.some(tr => tr.effects.length))
-              refreshMatchCount()
-            if (upd.selectionSet || upd.docChanged) reportSelection(upd.state)
-          }),
-        ],
+    const extensions = [
+      basicSetup,
+      bishTheme(isDark()),
+      highlightFor(themeName),
+      indentUnit.of(indent),
+      lang,
+      extLangCompartment.of([]),
+      ...(featureOn('lsp') ? codeIntel(p, get(projectRoot) || get(cwd), lang, intelKindFor(p)) : []),
+      ...(featureOn('snippets') ? snippets(lang, intelKindFor(p)) : []),
+      ...(featureOn('qwenComplete') ? qwenComplete(lang, intelKindFor(p)) : []),
+      ...(featureOn('gitBlame') && p !== UNTITLED ? [gitBlame(p)] : []),
+      ...(featureOn('gitGutter') && p !== UNTITLED ? [gitGutter(p)] : []),
+      ...(featureOn('debugger') && p !== UNTITLED && intelKindFor(p) === 'go' ? [breakpointGutter(p)] : []),
+      ...(featureOn('tests') && p.endsWith('_test.go') ? [testGutter(p)] : []),
+      collabCompartment.of(coEditExtension(p) ?? []),
+      search({ top: true }),
+      // Highest priority: always consume Tab so focus never escapes the editor
+      Prec.highest(keymap.of([
+        { key: 'Tab',       run: (v) => acceptCompletion(v) || (indentMore(v), true) },
+        { key: 'Shift-Tab', run: (v) => { indentLess(v); return true } },
+      ])),
+      keymap.of([
+        ...defaultKeymap,
+        ...historyKeymap,
+        ...searchKeymap,
+        ...completionKeymap,
+      ]),
+      Prec.highest(keymap.of([{ key: 'Mod-k', run: openInlineEdit }])),
+      EditorView.updateListener.of((upd) => {
+        if (upd.docChanged) setModified(true)
+        if (upd.docChanged || upd.selectionSet || upd.transactions.some(tr => tr.effects.length))
+          refreshMatchCount()
+        if (upd.selectionSet || upd.docChanged) reportSelection(upd.state)
       }),
-      parent: container,
-    })
+    ]
+    const state = cached
+      ? EditorState.fromJSON(cached.json, { extensions }, serializedFields)
+      : EditorState.create({ doc: content, extensions })
+    view = new EditorView({ state, parent: container })
+    loadedPath = p
+    if (cached) view.dispatch({ effects: cached.scroll })
     reportSelection(view.state)
 
     // net-new language (not in the static langFor set above): upgrade the
@@ -558,9 +612,54 @@
   $effect(() => {
     if ($pendingExternalReload !== path) return
     pendingExternalReload.set(null)
-    if (get(tabs).find(t => t.id === tabId)?.modified) return
-    load(path, $currentThemeName)
+    syncFromDisk()
   })
+
+  // External change (git checkout, formatter, another editor, the AI):
+  // a clean buffer takes the disk version in place — a minimal-range edit,
+  // so cursor, scroll and undo survive; a dirty buffer is left alone with a
+  // one-time warning, and the save path asks before overwriting.
+  async function syncFromDisk() {
+    if (!view || path === UNTITLED || loadError || rawMode) return
+    if (!mtime) {
+      // mtime unknown (remote project): can't tell — reload only when clean
+      if (!isModified()) load(path, get(currentThemeName), true)
+      return
+    }
+    const disk = await StatMtime(path).catch(() => 0)
+    if (!disk || disk === mtime || !view) return
+    if (isModified()) {
+      if (warnedMtime !== disk) {
+        warnedMtime = disk
+        toast.warning(`${path.split('/').pop()} changed on disk`, {
+          description: 'You have unsaved edits — saving will ask before overwriting.',
+        })
+      }
+      return
+    }
+    const text = await ReadFile(path).catch(() => null)
+    const v = view
+    if (text === null || !v || isModified()) return
+    replaceMinimal(v, text)
+    mtime = disk
+    setModified(false)
+    refreshBlame(v)
+    refreshDiff(v)
+    refreshTests(v)
+  }
+
+  // replace only the differing middle of the doc so unrelated cursor/scroll
+  // positions map through unchanged
+  function replaceMinimal(v: EditorView, text: string) {
+    const cur = v.state.doc.toString()
+    if (cur === text) return
+    let start = 0
+    const max = Math.min(cur.length, text.length)
+    while (start < max && cur.charCodeAt(start) === text.charCodeAt(start)) start++
+    let endCur = cur.length, endNew = text.length
+    while (endCur > start && endNew > start && cur.charCodeAt(endCur - 1) === text.charCodeAt(endNew - 1)) { endCur--; endNew-- }
+    v.dispatch({ changes: { from: start, to: endCur, insert: text.slice(start, endNew) } })
+  }
 
   // "Format Document" (built-in extension, or any future caller) — reuses
   // the exact formatter format-on-save already runs, then saves so the
@@ -592,17 +691,36 @@
         const dir = get(projectRoot) || get(cwd)
         const realPath = await SaveNewFile(view.state.doc.toString(), dir)
         if (realPath) {
+          mtime = await StatMtime(realPath).catch(() => 0)
           updateTabPath(tabId, realPath)
           setModified(false)
         }
       } else {
         if (get(formatOnSave)) await formatDocument(view, path).catch(e =>
           toast.error('Format failed', { description: String(e?.message ?? e) }))
-        await WriteFile(path, view.state.doc.toString())
-        setModified(false)
-        refreshBlame(view)
-        refreshDiff(view)
-        refreshTests(view)
+        const v = view
+        const text = v.state.doc.toString()
+        let newMtime: number
+        try {
+          newMtime = await WriteFileChecked(path, text, mtime)
+        } catch (e: any) {
+          if (!String(e).includes('conflict:')) throw e
+          const choice = await ConfirmFileConflict(path.split('/').pop() || path)
+          if (choice === 'reload') {
+            setModified(false)
+            load(path, get(currentThemeName), true)
+            return
+          }
+          if (choice !== 'overwrite') return
+          newMtime = await WriteFileChecked(path, text, 0)
+        }
+        mtime = newMtime
+        warnedMtime = 0
+        // edits typed while the write was in flight stay unsaved
+        if (view === v && v.state.doc.toString() === text) setModified(false)
+        refreshBlame(v)
+        refreshDiff(v)
+        refreshTests(v)
       }
       invalidateSymbols()
     } catch (e: any) {
@@ -614,6 +732,7 @@
 
   onDestroy(() => {
     panelObserver?.disconnect()
+    stash()
     view?.destroy()
   })
 
@@ -622,7 +741,12 @@
   // actual keypress, not during registration), so onMount avoids any risk
   // of this block re-running on unrelated component updates
   onMount(() => {
+    const onFocus = () => syncFromDisk()
+    window.addEventListener('focus', onFocus)
+    const offFs = on('fs:changed', (paths: string[]) => { if (paths?.includes(path)) syncFromDisk() })
     const offs = [
+      () => window.removeEventListener('focus', onFocus),
+      offFs,
       registerKeybind({ combo: 'mod+s', handler: (e) => { e.preventDefault(); save() } }),
       registerKeybind({
         combo: 'mod+shift+v',

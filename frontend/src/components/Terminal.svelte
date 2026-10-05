@@ -1,3 +1,26 @@
+<script module lang="ts">
+  // WebGL contexts are capped per page (~16 in WebKit, and older ones get
+  // force-lost past that), so only the most recently shown terminals keep a
+  // GPU renderer; the least recently used one falls back to DOM rendering
+  // and gets GL back the next time it's shown.
+  const GL_MAX = 4
+  const glOwners: { id: string; drop: () => void }[] = []
+
+  function glAcquire(id: string, drop: () => void) {
+    glRelease(id)
+    glOwners.unshift({ id, drop })
+    while (glOwners.length > GL_MAX) glOwners.pop()!.drop()
+  }
+  function glTouch(id: string) {
+    const i = glOwners.findIndex(o => o.id === id)
+    if (i > 0) glOwners.unshift(glOwners.splice(i, 1)[0])
+  }
+  function glRelease(id: string) {
+    const i = glOwners.findIndex(o => o.id === id)
+    if (i !== -1) glOwners.splice(i, 1)
+  }
+</script>
+
 <script lang="ts">
   import { Terminal } from '@xterm/xterm'
   import type { IMarker, IDecoration } from '@xterm/xterm'
@@ -8,7 +31,7 @@
   import '@xterm/xterm/css/xterm.css'
   import { focusedPane, theme, activeTabId, setTerminalTitle, terminalFontSize } from '../lib/stores'
   import { get } from 'svelte/store'
-  import { on, WritePTY, ResizePTY, WritePTYTab, ResizePTYTab, StashDropped } from '../lib/wails'
+  import { on, emit, WritePTY, ResizePTY, WritePTYTab, ResizePTYTab, StashDropped } from '../lib/wails'
   import { terminalLinkHandler, fileLinkProvider } from '../lib/termlinks'
   import { featureOn } from '../lib/features'
   import ContextMenu from './ContextMenu.svelte'
@@ -102,19 +125,28 @@
     // ~8-16, so hidden tabs must not each hold one.
     let gl: WebglAddon | undefined
     function loadGl() {
-      if (gl || !featureOn('terminalWebgl')) return
+      if (gl) { glTouch(terminalId); return }
+      if (!featureOn('terminalWebgl')) return
       try {
         const addon = new WebglAddon()
-        addon.onContextLoss(() => { addon.dispose(); gl = undefined })
+        addon.onContextLoss(() => {
+          try { addon.dispose() } catch {}
+          if (gl === addon) gl = undefined
+          glRelease(terminalId)
+          // context gone (GPU reset, sleep/wake): rebuild right away if visible
+          if (get(activeTabId) === terminalId) requestAnimationFrame(loadGl)
+        })
         term.loadAddon(addon)
         gl = addon
+        glAcquire(terminalId, dropGl)
       } catch (err) {
         console.error('webgl addon failed, using DOM renderer', err)
       }
     }
     function dropGl() {
+      glRelease(terminalId)
       if (!gl) return
-      // never let a renderer teardown escape: this runs inside
+      // never let a renderer teardown escape: this can run inside
       // activeTabId.set(), so an uncaught throw kills every tab switch
       try { gl.dispose() } catch {}
       gl = undefined
@@ -230,24 +262,68 @@
     // keep the cancellers: a leaked listener writes to a disposed terminal on
     // remount (close tab → Enter), throwing inside the event dispatch and
     // starving the new terminal of pty:data entirely
-    const offData = on(dataEvent, (data: string) => term.write(data))
-    const offExit = on(exitEvent, () => term.write('\r\n\x1b[2m[process exited]\x1b[0m\r\n'))
+    //
+    // Live data is ignored until the backend's backlog replay lands
+    // (pty:attach → pty:backlog:<id>): output flushed before the replay is
+    // already inside it, output after it arrives after it, so nothing is
+    // lost or doubled — and a terminal that mounts late (session restore,
+    // reopened main tab) shows its recent output instead of a blank screen.
+    let attached = false
+    const offData = on(dataEvent, (data: string) => { if (attached) term.write(data) })
+    const offExit = on(exitEvent, () => { if (attached) term.write('\r\n\x1b[2m[process exited]\x1b[0m\r\n') })
+    const offBacklog = on('pty:backlog:' + terminalId, (data: string) => {
+      if (attached) return
+      attached = true
+      if (data) term.write(data)
+    })
+    emit('pty:attach', terminalId)
 
-    const resizeObserver = new ResizeObserver(() => {
-      fitAddon.fit()
+    // Resize: refit locally once per frame, and tell the PTY only when the
+    // grid actually changed, trailing-debounced. Every SIGWINCH makes the
+    // shell/TUI repaint; a stream of them during a sidebar drag stacked
+    // half-drawn prompts into scrollback and left TUIs (vim, htop) garbled.
+    let fitFrame = 0
+    let ptyTimer: ReturnType<typeof setTimeout> | undefined
+    let sentRows = 0, sentCols = 0
+    function sendPtySize() {
+      ptyTimer = undefined
+      if (term.rows === sentRows && term.cols === sentCols) return
+      sentRows = term.rows
+      sentCols = term.cols
       if (isMain) ResizePTY(term.rows, term.cols)
       else ResizePTYTab(terminalId, term.rows, term.cols)
-    })
+    }
+    function scheduleFit(immediatePty = false) {
+      if (fitFrame) return
+      fitFrame = requestAnimationFrame(() => {
+        fitFrame = 0
+        // hidden (display:none) → zero box; fitting would compute garbage
+        if (!container.clientWidth || !container.clientHeight) return
+        try { fitAddon.fit() } catch { return }
+        clearTimeout(ptyTimer)
+        if (immediatePty) sendPtySize()
+        else ptyTimer = setTimeout(sendPtySize, 80)
+      })
+    }
+    const resizeObserver = new ResizeObserver(() => scheduleFit())
     resizeObserver.observe(container)
+    scheduleFit(true)
 
     // Focus + GPU renderer when this terminal's tab becomes active;
     // hidden tabs render via the DOM fallback (buffer/scrollback unaffected)
+    // Hidden tabs keep their WebGL renderer (see glAcquire) — tearing it
+    // down on every switch rebuilt the glyph atlas and swapped renderers
+    // each time, which is what flickered / painted stale or blank rows.
     const unsubActive = activeTabId.subscribe((id) => {
       if (id === terminalId) {
         loadGl()
-        requestAnimationFrame(() => { fitAddon.fit(); term.focus() })
-      } else {
-        dropGl()
+        requestAnimationFrame(() => {
+          scheduleFit(true)
+          // repaint rows written while hidden (the renderer skips frames
+          // for an invisible canvas)
+          term.refresh(0, term.rows - 1)
+          term.focus()
+        })
       }
     })
 
@@ -264,7 +340,7 @@
       if (firstFont) { firstFont = false; return } // initial value already applied at construction
       if (!term) return
       term.options.fontSize = sz
-      requestAnimationFrame(() => { try { fitAddon.fit() } catch {} })
+      scheduleFit(true)
     })
 
     // routed from the global OnFileDrop handler in events.ts; only the
@@ -283,6 +359,9 @@
     return () => {
       offData()
       offExit()
+      offBacklog()
+      cancelAnimationFrame(fitFrame)
+      clearTimeout(ptyTimer)
       unsubActive()
       unsubPane()
       unsubTheme()

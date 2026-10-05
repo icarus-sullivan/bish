@@ -508,6 +508,10 @@
     border-radius: 4px;
     margin: 0 4px;
     transition: background 0.08s;
+    /* offscreen rows skip layout/paint — large expanded trees stay cheap
+       to re-render without virtualizing (marquee/reveal query real rows) */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 24px;
   }
   .row:hover { background: var(--bg-hover); }
   .row.selected { background: var(--bg-selected); }

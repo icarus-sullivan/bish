@@ -23,6 +23,8 @@ export function AssistantRespondPermission(arg1:string,arg2:string,arg3:boolean,
 
 export function AssistantSend(arg1:string,arg2:string):Promise<void>;
 
+export function AssistantSendWithImages(arg1:string,arg2:string,arg3:Array<string>):Promise<void>;
+
 export function AssistantStart(arg1:string,arg2:string):Promise<string>;
 
 export function AssistantStop(arg1:string):Promise<void>;
@@ -40,6 +42,8 @@ export function CollapseAllTree():Promise<void>;
 export function CompletionSuggest(arg1:string,arg2:string):Promise<string>;
 
 export function ConfirmDiscardChanges(arg1:string):Promise<boolean>;
+
+export function ConfirmFileConflict(arg1:string):Promise<string>;
 
 export function DebugContinue():Promise<void>;
 
@@ -283,6 +287,8 @@ export function StartLiveShare(arg1:string):Promise<string>;
 
 export function StashDropped(arg1:Array<string>):Promise<Array<string>>;
 
+export function StatMtime(arg1:string):Promise<number>;
+
 export function StopAllCommandCenter():Promise<void>;
 
 export function StopCommandCenterRepo(arg1:string):Promise<void>;
@@ -304,6 +310,8 @@ export function TriggerPalette():Promise<void>;
 export function UninstallExtension(arg1:string):Promise<void>;
 
 export function WriteFile(arg1:string,arg2:string):Promise<void>;
+
+export function WriteFileChecked(arg1:string,arg2:string,arg3:number):Promise<number>;
 
 export function WritePTY(arg1:string):Promise<void>;
 

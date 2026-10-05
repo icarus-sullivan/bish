@@ -54,7 +54,7 @@ export const builtinPanels: Panel[] = [
 // Reactive: built-ins plus one sidebar entry per enabled extension's
 // contributed panel, so each extension can own its own icon instead of
 // being lumped into the single "Extensions" aggregate panel above.
-export const panels = derived(loadedExtensions, (exts) => [
+export const panels = derived(loadedExtensions, (exts): Panel[] => [
   ...builtinPanels,
   ...exts.filter(e => e.enabled).flatMap(e => (e.panels ?? []).map(p => ({
     id: `ext:${e.name}:${p.id}`,

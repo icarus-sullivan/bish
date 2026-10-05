@@ -7,6 +7,17 @@
   import { IconSettings } from '@tabler/icons-svelte'
   import ContextMenu from './ContextMenu.svelte'
   import { get } from 'svelte/store'
+  import { onDestroy } from 'svelte'
+
+  // Panels mount the first time they're shown, then stay mounted (hidden)
+  // so their scroll/selection survives switching. Mounting every panel up
+  // front made startup pay for Assistant, Debug, Command Center, etc. even
+  // when never opened. (Plain subscribe, not $effect: no reactive writes.)
+  let mountedIds = $state<string[]>([])
+  const unsubMounted = activeRightPanel.subscribe(id => {
+    if (id && !mountedIds.includes(id)) mountedIds = [...mountedIds, id]
+  })
+  onDestroy(unsubMounted)
 
   // re-evaluate gating when toggles change ($features touched for reactivity)
   const visible = $derived.by(() => {
@@ -73,12 +84,15 @@
 
 <div class="sidebar" class:leftside={$panelSide === 'left'}>
   <div class="panels">
-    <!-- keep every panel mounted (display:none) so FileTree scroll/selection
-         survives tab switches — same trick App.svelte uses for terminals -->
+    <!-- once shown, a panel stays mounted (display:none) so FileTree
+         scroll/selection survives tab switches — same trick App.svelte uses
+         for terminals -->
     {#each docked as p (p.id)}
-      <div class="panel-host" style="display:{$activeRightPanel === p.id ? 'flex' : 'none'}">
-        <p.component {...(p.props ?? {})} />
-      </div>
+      {#if mountedIds.includes(p.id)}
+        <div class="panel-host" style="display:{$activeRightPanel === p.id ? 'flex' : 'none'}">
+          <p.component {...(p.props ?? {})} />
+        </div>
+      {/if}
     {/each}
   </div>
   <div class="strip" class:leftside={$panelSide === 'left'}>
