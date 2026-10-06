@@ -24,17 +24,26 @@ func tgz(t *testing.T, files map[string]string) *bytes.Buffer {
 	return &buf
 }
 
-func TestExtractBinary(t *testing.T) {
-	out := filepath.Join(t.TempDir(), "codex")
-	// archive paths never steer the destination
-	if err := extractBinary(tgz(t, map[string]string{"../../evil/codex-aarch64-apple-darwin": "BIN"}), out); err != nil {
+func TestExtractPackage(t *testing.T) {
+	root := t.TempDir()
+	err := extractPackage(tgz(t, map[string]string{
+		"bin/codex":                   "BIN",
+		"./bin/codex-code-mode-host":  "HOST",
+		"codex-resources/zsh/bin/zsh": "ZSH",
+	}), root)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if b, _ := os.ReadFile(out); string(b) != "BIN" {
-		t.Fatalf("got %q", b)
+	for name, want := range map[string]string{"bin/codex": "BIN", "bin/codex-code-mode-host": "HOST", "codex-resources/zsh/bin/zsh": "ZSH"} {
+		if b, _ := os.ReadFile(filepath.Join(root, name)); string(b) != want {
+			t.Fatalf("%s: got %q", name, b)
+		}
 	}
-	if err := extractBinary(tgz(t, map[string]string{"README": "x"}), out+"2"); err == nil {
-		t.Fatal("expected error for archive without codex binary")
+	// archive paths never escape root
+	for _, bad := range []string{"../evil", "/abs/evil", "bin/../../evil"} {
+		if err := extractPackage(tgz(t, map[string]string{bad: "x"}), t.TempDir()); err == nil {
+			t.Fatalf("%q: expected error", bad)
+		}
 	}
 }
 

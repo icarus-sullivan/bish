@@ -24,6 +24,11 @@ import (
 // the Codex tab opens. The version and every archive's SHA-256 are pinned
 // here — nothing about what gets executed is decided at runtime by the
 // network. Bump all three together when updating.
+//
+// We fetch the full "codex-package" archive, not the bare binary: codex
+// expects its helpers (bin/codex-code-mode-host, codex-path/rg,
+// codex-resources/zsh, …) laid out around bin/codex, and fails closed
+// without them.
 const pinnedVersion = "0.160.1"
 
 const releaseBase = "https://github.com/openai/codex/releases/download/rust-v" + pinnedVersion + "/"
@@ -31,24 +36,32 @@ const releaseBase = "https://github.com/openai/codex/releases/download/rust-v" +
 type asset struct{ name, sha256 string }
 
 var pinnedAssets = map[string]asset{
-	"darwin/arm64": {"codex-aarch64-apple-darwin.tar.gz", "670af2b049d9c95afb74d7da385f30c5033d13a07175001dd8958c51944984d0"},
-	"darwin/amd64": {"codex-x86_64-apple-darwin.tar.gz", "8d938ddb93c4424b1d45f1606984ed514c5aa70e463302a6a2227fba7af02db7"},
-	"linux/arm64":  {"codex-aarch64-unknown-linux-musl.tar.gz", "f54dc5852042445bf41da3aa31156f3cb02f52c5a1a04074de73dc5598f7e1f7"},
-	"linux/amd64":  {"codex-x86_64-unknown-linux-musl.tar.gz", "9226581be592d18f7e7f740a352fdb63aa61e45e39f7eb9b09d3888c84bba33f"},
+	"darwin/arm64": {"codex-package-aarch64-apple-darwin.tar.gz", "f73527ee09c6db869acbb37b709866b339ea74ef91d2de255e9c74ec960c6314"},
+	"darwin/amd64": {"codex-package-x86_64-apple-darwin.tar.gz", "a98f330c9b1652cef2edc7bc2ee4c47a0fe19fa098b686381be3c8842abf0ac0"},
+	"linux/arm64":  {"codex-package-aarch64-unknown-linux-musl.tar.gz", "dff0954438fa455c2197ddb1f421d8d68625d98de610f76bedb6e5bc837ea35b"},
+	"linux/amd64":  {"codex-package-x86_64-unknown-linux-musl.tar.gz", "340801565906a7028f6baaa9ab6853addaef221f0016a1417a7c1ffdd96c21f0"},
 }
 
-const maxArchive = 400 << 20
+const (
+	maxArchive   = 400 << 20 // compressed download
+	maxExtracted = 2 << 30   // total unpacked bytes
+)
 
-func managedPath() (string, error) {
+// managedDir is the unpacked package root for the pinned version.
+func managedDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	name := "codex"
-	if runtime.GOOS == "windows" {
-		name += ".exe"
+	return filepath.Join(home, ".config", "bish", "tools", "codex", pinnedVersion), nil
+}
+
+func managedPath() (string, error) {
+	dir, err := managedDir()
+	if err != nil {
+		return "", err
 	}
-	return filepath.Join(home, ".config", "bish", "tools", "codex", pinnedVersion, name), nil
+	return entrypoint(dir), nil
 }
 
 // bundledPath is a codex binary shipped inside the app itself (release
@@ -103,14 +116,15 @@ func EnsureInstalled(progress func(done, total int64)) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("codex: no prebuilt Codex for %s/%s — install it yourself (npm i -g @openai/codex)", runtime.GOOS, runtime.GOARCH)
 	}
-	dst, err := managedPath()
+	dir, err := managedDir()
 	if err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+	parent := filepath.Dir(dir)
+	if err := os.MkdirAll(parent, 0o755); err != nil {
 		return "", err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(dst), "download-*")
+	tmp, err := os.CreateTemp(parent, "download-*")
 	if err != nil {
 		return "", err
 	}
@@ -141,48 +155,92 @@ func EnsureInstalled(progress func(done, total int64)) (string, error) {
 	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
 		return "", err
 	}
-	bin := dst + ".partial"
-	if err := extractBinary(tmp, bin); err != nil {
-		os.Remove(bin)
+	staging, err := os.MkdirTemp(parent, pinnedVersion+".partial-*")
+	if err != nil {
 		return "", err
 	}
-	if err := os.Rename(bin, dst); err != nil {
-		os.Remove(bin)
+	defer os.RemoveAll(staging) // no-op once renamed into place
+	if err := extractPackage(tmp, staging); err != nil {
 		return "", err
 	}
-	return dst, nil
+	if _, err := os.Stat(entrypoint(staging)); err != nil {
+		return "", fmt.Errorf("codex: package has no bin/codex")
+	}
+	// Replaces any older layout (e.g. a lone binary from earlier bish builds).
+	if err := os.RemoveAll(dir); err != nil {
+		return "", err
+	}
+	if err := os.Rename(staging, dir); err != nil {
+		return "", err
+	}
+	return entrypoint(dir), nil
 }
 
-// extractBinary writes the archive's single codex executable to out.
-// Only a regular file whose base name starts with "codex" is taken; paths
-// in the archive are never used to build a destination.
-func extractBinary(r io.Reader, out string) error {
+// entrypoint is the codex binary inside an unpacked package root.
+func entrypoint(dir string) string {
+	name := "codex"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	return filepath.Join(dir, "bin", name)
+}
+
+// extractPackage unpacks the codex package archive under root. Only
+// directories and regular files are written; links, devices, absolute
+// paths and anything escaping root are skipped or rejected.
+func extractPackage(r io.Reader, root string) error {
 	gz, err := gzip.NewReader(r)
 	if err != nil {
 		return fmt.Errorf("codex: bad archive: %w", err)
 	}
 	defer gz.Close()
 	tr := tar.NewReader(gz)
+	var total int64
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
-			return fmt.Errorf("codex: archive has no codex binary")
+			return nil
 		}
 		if err != nil {
 			return fmt.Errorf("codex: bad archive: %w", err)
 		}
-		if hdr.Typeflag != tar.TypeReg || !strings.HasPrefix(filepath.Base(hdr.Name), "codex") {
+		name := filepath.FromSlash(strings.TrimPrefix(hdr.Name, "./"))
+		if name == "" || name == "." {
 			continue
 		}
-		f, err := os.OpenFile(out, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
-		if err != nil {
-			return err
+		if !filepath.IsLocal(name) {
+			return fmt.Errorf("codex: unsafe path in archive: %q", hdr.Name)
 		}
-		_, err = io.Copy(f, io.LimitReader(tr, maxArchive))
-		if cerr := f.Close(); err == nil {
-			err = cerr
+		out := filepath.Join(root, name)
+		switch hdr.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(out, 0o755); err != nil {
+				return err
+			}
+		case tar.TypeReg:
+			total += hdr.Size
+			if total > maxExtracted {
+				return fmt.Errorf("codex: archive too large")
+			}
+			if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
+				return err
+			}
+			mode := os.FileMode(0o644)
+			if hdr.FileInfo().Mode()&0o111 != 0 {
+				mode = 0o755
+			}
+			f, err := os.OpenFile(out, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
+			if err != nil {
+				return err
+			}
+			_, err = io.Copy(f, io.LimitReader(tr, hdr.Size))
+			if cerr := f.Close(); err == nil {
+				err = cerr
+			}
+			if err != nil {
+				return err
+			}
 		}
-		return err
 	}
 }
 
