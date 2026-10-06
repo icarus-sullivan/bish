@@ -43,7 +43,7 @@ export const builtinPanels: Panel[] = [
   // contributed panels additionally get their own sidebar entry, below
   { id: 'extensions', title: 'Extensions', icon: IconPuzzle, component: ExtensionsPanel, feature: 'extensions' },
   { id: 'languages', title: 'Languages', icon: IconCode, component: LanguagesPanel, feature: 'languageExtensions' },
-  { id: 'assistant', title: 'Assistant', icon: IconSparkles, component: AssistantPanel, feature: 'assistant' },
+  { id: 'assistant', title: 'AI (Claude Code / Codex)', icon: IconSparkles, component: AssistantPanel, feature: 'assistant' },
   // panels stay mounted (display:none) when inactive, and processes run in the
   // Go backend anyway — switching/hiding never kills a running process
   { id: 'processes', title: 'Processes', icon: IconActivity, component: ProcessList },

@@ -2,12 +2,16 @@
   import { IconCpu } from '@tabler/icons-svelte'
   import { modalA11y } from '../lib/a11y'
 
-  let { current, onSelect, onClose }: { current: string; onSelect: (alias: string) => void; onClose: () => void } = $props()
+  let { current, onSelect, onClose, models: live = [] }: {
+    current: string; onSelect: (alias: string) => void; onClose: () => void
+    // the CLI's own model list from the initialize handshake, when a session is live
+    models?: { value: string; displayName: string; description: string }[]
+  } = $props()
 
   // Aliases the `claude` CLI itself resolves — same names work whether the
   // backing provider is the Anthropic API, Bedrock, or Vertex, so this list
   // never needs the actual (often account-specific) provider model ID.
-  const MODELS = [
+  const FALLBACK = [
     { alias: 'default', label: 'Default', desc: "Recommended model for your plan" },
     { alias: 'opus', label: 'Opus', desc: 'Most capable' },
     { alias: 'sonnet', label: 'Sonnet', desc: 'Balanced speed and capability' },
@@ -15,6 +19,9 @@
     { alias: 'opusplan', label: 'Opus Plan', desc: 'Opus for planning, Sonnet for execution' },
     { alias: 'fable', label: 'Fable', desc: 'Most capable, exploratory' },
   ]
+  const MODELS = $derived(live.length
+    ? live.map(m => ({ alias: m.value, label: m.displayName || m.value, desc: m.description ?? '' }))
+    : FALLBACK)
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->

@@ -30,6 +30,8 @@ export {
   GetLanguageOverride, SetLanguageOverride,
   DebugStart, DebugSetBreakpoints, DebugContinue, DebugStepOver, DebugStepIn, DebugStepOut, DebugStop,
   AssistantStart, AssistantSend, AssistantSendWithImages, AssistantRespondPermission, AssistantStop, AssistantInterrupt, AssistantSwitchMode, AssistantPickFiles,
+  AssistantStartWithOptions, AssistantSessionInfo, AssistantControl, AssistantRespondPermissionEx, AssistantListSessions, AssistantLoadTranscript,
+  CodexInstalled, CodexEnsureInstalled, CodexStart, CodexCall, CodexRespond, CodexStop,
   OllamaListModels,
   CompletionSuggest, ConfirmDiscardChanges,
   ReadFileBase64,

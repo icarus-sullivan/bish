@@ -6,6 +6,7 @@
 package assistant
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/csullivan/bish/internal/config"
@@ -65,6 +66,52 @@ func (m *Manager) current() Backend {
 
 func (m *Manager) Start(root, permissionMode string) (string, error) {
 	return m.current().Start(root, permissionMode)
+}
+
+// optionsStarter / controller / permissionResponder are implemented by the
+// `claude` CLI backend only. Ollama sessions fall back to the base Backend
+// behavior (or a clear "not supported" error) through the methods below.
+type optionsStarter interface {
+	StartWithOptions(root string, o StartOptions) (string, error)
+}
+
+type controller interface {
+	SessionInfo(id string) (string, error)
+	Control(id, subtype, argsJSON string) (string, error)
+}
+
+type permissionResponder interface {
+	RespondPermissionEx(id, requestID string, allow bool, message, updatedInputJSON string, suggestionIdx []int, interrupt bool) error
+}
+
+func (m *Manager) StartWithOptions(root string, o StartOptions) (string, error) {
+	b := m.current()
+	if st, ok := b.(optionsStarter); ok {
+		return st.StartWithOptions(root, o)
+	}
+	return b.Start(root, o.PermissionMode)
+}
+
+func (m *Manager) SessionInfo(id string) (string, error) {
+	if c, ok := m.current().(controller); ok {
+		return c.SessionInfo(id)
+	}
+	return "{}", nil
+}
+
+func (m *Manager) Control(id, subtype, argsJSON string) (string, error) {
+	if c, ok := m.current().(controller); ok {
+		return c.Control(id, subtype, argsJSON)
+	}
+	return "", fmt.Errorf("assistant: %s is not supported by this provider", subtype)
+}
+
+func (m *Manager) RespondPermissionEx(id, requestID string, allow bool, message, updatedInputJSON string, suggestionIdx []int, interrupt bool) error {
+	b := m.current()
+	if pr, ok := b.(permissionResponder); ok {
+		return pr.RespondPermissionEx(id, requestID, allow, message, updatedInputJSON, suggestionIdx, interrupt)
+	}
+	return b.RespondPermission(id, requestID, allow, message)
 }
 
 func (m *Manager) Send(id, text string) error {

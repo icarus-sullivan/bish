@@ -14,8 +14,20 @@ export function AddWorkspaceRoot() {
   return window['go']['app']['App']['AddWorkspaceRoot']();
 }
 
+export function AssistantControl(arg1, arg2, arg3) {
+  return window['go']['app']['App']['AssistantControl'](arg1, arg2, arg3);
+}
+
 export function AssistantInterrupt(arg1) {
   return window['go']['app']['App']['AssistantInterrupt'](arg1);
+}
+
+export function AssistantListSessions(arg1) {
+  return window['go']['app']['App']['AssistantListSessions'](arg1);
+}
+
+export function AssistantLoadTranscript(arg1, arg2) {
+  return window['go']['app']['App']['AssistantLoadTranscript'](arg1, arg2);
 }
 
 export function AssistantPickFiles() {
@@ -26,6 +38,10 @@ export function AssistantRespondPermission(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['AssistantRespondPermission'](arg1, arg2, arg3, arg4);
 }
 
+export function AssistantRespondPermissionEx(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
+  return window['go']['app']['App']['AssistantRespondPermissionEx'](arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+}
+
 export function AssistantSend(arg1, arg2) {
   return window['go']['app']['App']['AssistantSend'](arg1, arg2);
 }
@@ -34,8 +50,16 @@ export function AssistantSendWithImages(arg1, arg2, arg3) {
   return window['go']['app']['App']['AssistantSendWithImages'](arg1, arg2, arg3);
 }
 
+export function AssistantSessionInfo(arg1) {
+  return window['go']['app']['App']['AssistantSessionInfo'](arg1);
+}
+
 export function AssistantStart(arg1, arg2) {
   return window['go']['app']['App']['AssistantStart'](arg1, arg2);
+}
+
+export function AssistantStartWithOptions(arg1, arg2) {
+  return window['go']['app']['App']['AssistantStartWithOptions'](arg1, arg2);
 }
 
 export function AssistantStop(arg1) {
@@ -56,6 +80,30 @@ export function CloseProject() {
 
 export function CloseTerminal(arg1) {
   return window['go']['app']['App']['CloseTerminal'](arg1);
+}
+
+export function CodexCall(arg1, arg2, arg3) {
+  return window['go']['app']['App']['CodexCall'](arg1, arg2, arg3);
+}
+
+export function CodexEnsureInstalled() {
+  return window['go']['app']['App']['CodexEnsureInstalled']();
+}
+
+export function CodexInstalled() {
+  return window['go']['app']['App']['CodexInstalled']();
+}
+
+export function CodexRespond(arg1, arg2, arg3) {
+  return window['go']['app']['App']['CodexRespond'](arg1, arg2, arg3);
+}
+
+export function CodexStart(arg1) {
+  return window['go']['app']['App']['CodexStart'](arg1);
+}
+
+export function CodexStop(arg1) {
+  return window['go']['app']['App']['CodexStop'](arg1);
 }
 
 export function CollapseAllTree() {

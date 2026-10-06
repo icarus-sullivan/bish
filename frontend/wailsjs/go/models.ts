@@ -353,6 +353,28 @@ export namespace assistant {
 	        this.Quant = source["Quant"];
 	    }
 	}
+	export class SessionSummary {
+	    id: string;
+	    title: string;
+	    firstPrompt: string;
+	    gitBranch: string;
+	    modified: number;
+	    size: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new SessionSummary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.title = source["title"];
+	        this.firstPrompt = source["firstPrompt"];
+	        this.gitBranch = source["gitBranch"];
+	        this.modified = source["modified"];
+	        this.size = source["size"];
+	    }
+	}
 
 }
 

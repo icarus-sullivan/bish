@@ -22,6 +22,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 
 	"github.com/csullivan/bish/internal/assistant"
+	"github.com/csullivan/bish/internal/codex"
 	"github.com/csullivan/bish/internal/commandcenter"
 	"github.com/csullivan/bish/internal/commands"
 	"github.com/csullivan/bish/internal/completion"
@@ -89,6 +90,7 @@ type App struct {
 	dap                    *dap.Manager
 	liveShare              *liveshare.Manager
 	assistant              *assistant.Manager
+	codex                  *codex.Manager
 	completion             *completion.Manager
 	telemetry              *telemetry.Manager
 	prevProcStatus         map[string]process.Status // refreshLoop's crash/finish notification edge-detector
@@ -155,6 +157,9 @@ func (a *App) Startup(ctx context.Context) {
 	a.assistant = assistant.NewManager(func(event string, data ...interface{}) {
 		runtime.EventsEmit(a.ctx, event, data...)
 	}, a.cfg.Assistant)
+	a.codex = codex.NewManager(func(event string, data ...interface{}) {
+		runtime.EventsEmit(a.ctx, event, data...)
+	}, "1.0")
 	a.completion = completion.NewManager()
 	a.completion.SetConfig(a.cfg.Completion)
 	a.telemetry = telemetry.NewManager()
@@ -254,6 +259,7 @@ func (a *App) Shutdown(ctx context.Context) {
 	a.dap.Stop()
 	a.liveShare.StopAll()
 	a.assistant.StopAll()
+	a.codex.StopAll()
 	a.completion.Stop()
 	a.telemetry.Flush()
 	a.mgr.KillAll()
@@ -1358,6 +1364,51 @@ func (a *App) AssistantStart(root, permissionMode string) (string, error) {
 	return a.assistant.Start(root, permissionMode)
 }
 
+// AssistantStartWithOptions is AssistantStart with the rest of the spawn
+// options (model, effort, thinking, resume/fork) as a JSON object — see
+// assistant.StartOptions. Every field is validated before it reaches argv.
+func (a *App) AssistantStartWithOptions(root, optionsJSON string) (string, error) {
+	var o assistant.StartOptions
+	if err := json.Unmarshal([]byte(optionsJSON), &o); err != nil {
+		return "", fmt.Errorf("assistant: bad options: %w", err)
+	}
+	a.telemetry.Count("assistant_session")
+	return a.assistant.StartWithOptions(root, o)
+}
+
+// AssistantSessionInfo returns the CLI's initialize response for a session
+// (slash commands, available models, agents, account) as JSON.
+func (a *App) AssistantSessionInfo(sessionID string) (string, error) {
+	return a.assistant.SessionInfo(sessionID)
+}
+
+// AssistantControl sends one whitelisted control request (set_model,
+// get_context_usage, mcp_status, rewind_files, …) and returns its JSON
+// response. argsJSON is an object of extra request fields, or "".
+func (a *App) AssistantControl(sessionID, subtype, argsJSON string) (string, error) {
+	return a.assistant.Control(sessionID, subtype, argsJSON)
+}
+
+// AssistantRespondPermissionEx answers a permission ask with the full
+// decision: updatedInputJSON (AskUserQuestion answers / edited plan only),
+// suggestionIdx (which of the CLI's own "always allow" suggestions to
+// apply), and interrupt (deny and stop the turn).
+func (a *App) AssistantRespondPermissionEx(sessionID, requestID string, allow bool, message, updatedInputJSON string, suggestionIdx []int, interrupt bool) error {
+	return a.assistant.RespondPermissionEx(sessionID, requestID, allow, message, updatedInputJSON, suggestionIdx, interrupt)
+}
+
+// AssistantListSessions lists this project's past Claude conversations
+// (read from the CLI's own transcript store), newest first.
+func (a *App) AssistantListSessions(root string) ([]assistant.SessionSummary, error) {
+	return assistant.ListSessions(root)
+}
+
+// AssistantLoadTranscript returns one past conversation's messages as a JSON
+// array so the panel can show it before resuming.
+func (a *App) AssistantLoadTranscript(root, sessionID string) (string, error) {
+	return assistant.LoadTranscript(root, sessionID)
+}
+
 // AssistantSend writes one user turn to the session's stdin.
 func (a *App) AssistantSend(sessionID, text string) error {
 	return a.assistant.Send(sessionID, text)
@@ -1392,6 +1443,42 @@ func (a *App) AssistantInterrupt(sessionID string) error {
 func (a *App) AssistantSwitchMode(sessionID, mode string) error {
 	return a.assistant.SwitchMode(sessionID, mode)
 }
+
+// -- Codex methods --
+
+// CodexInstalled reports whether a runnable codex exists (the user's own,
+// one bundled with the app, or bish's managed copy).
+func (a *App) CodexInstalled() bool { return codex.Installed() }
+
+// CodexEnsureInstalled downloads bish's pinned, checksum-verified Codex if
+// no codex is available yet. Progress arrives as codex:install events
+// ({done, total} bytes).
+func (a *App) CodexEnsureInstalled() error {
+	_, err := codex.EnsureInstalled(func(done, total int64) {
+		runtime.EventsEmit(a.ctx, "codex:install", map[string]int64{"done": done, "total": total})
+	})
+	return err
+}
+
+// CodexStart spawns `codex app-server` for one Codex conversation rooted at
+// root and returns its handle; events arrive as codex:msg:<handle>.
+func (a *App) CodexStart(root string) (string, error) {
+	a.telemetry.Count("codex_session")
+	return a.codex.Start(root)
+}
+
+// CodexCall invokes one allowlisted app-server method (thread/start,
+// turn/start, thread/list, …) with sanitized params; returns the JSON result.
+func (a *App) CodexCall(handle, method, paramsJSON string) (string, error) {
+	return a.codex.Call(handle, method, paramsJSON)
+}
+
+// CodexRespond answers a pending approval / user-input request from Codex.
+func (a *App) CodexRespond(handle, requestID, resultJSON string) error {
+	return a.codex.Respond(handle, requestID, resultJSON)
+}
+
+func (a *App) CodexStop(handle string) { a.codex.Stop(handle) }
 
 // OllamaListModels queries an Ollama server's /api/tags so Settings can
 // offer a model picker instead of a freeform text field.
