@@ -1,10 +1,14 @@
 <script lang="ts">
   import { get } from 'svelte/store'
+  import { onDestroy } from 'svelte'
   import {
     IconPlus, IconSlash, IconAt, IconPlayerStopFilled, IconArrowUp, IconX, IconEye, IconEyeOff,
-    IconFile, IconPhoto, IconChevronDown, IconCpu, IconCheck,
+    IconFile, IconPhoto, IconChevronDown, IconCpu, IconCheck, IconMicrophone, IconLoader2,
   } from '@tabler/icons-svelte'
   import { AssistantPickFiles, StashDropped, GetAllFiles } from '../../lib/wails'
+  import { toast } from '../../lib/toast'
+  import { features, featureOn } from '../../lib/features'
+  import type { DictationSession } from '../../lib/dictation'
   import { tabs, activeTabId, activeSelection } from '../../lib/stores'
   import { fuzzyMatch } from '../../lib/fuzzy'
     import { basename, relPath, fmtTokens } from '../../lib/claude/format'
@@ -150,6 +154,7 @@
   let histIdx = -1
 
   export async function send() {
+    if (dictSession) cancelDictation() // sending with the mic live: send what's shown, stop streaming
     const text = input.trim()
     if (!text) return
     const [cmd, ...rest] = text.split(/\s+/)
@@ -190,6 +195,64 @@
     for (const p of paths ?? []) if (!attached.includes(p)) attached.push(p)
   }
 
+  // ─── voice dictation (vosk-browser, fully local) ─────────────────────────
+  // Streams into the textarea as you speak: `dictBase` is the text that was
+  // there before the mic opened, `dictDone` the finalized utterances since,
+  // and the live partial hypothesis is rendered after them on every update.
+  const dictationOn = $derived($features && featureOn('dictation'))
+  let dictation = $state<'idle' | 'loading' | 'recording' | 'stopping'>('idle')
+  let dictSession: DictationSession | null = null
+  let dictBase = ''
+  let dictDone = ''
+
+  function renderDictation(partial: string) {
+    input = dictBase + dictDone + partial
+    requestAnimationFrame(() => {
+      if (!textareaEl) return
+      textareaEl.selectionStart = textareaEl.selectionEnd = caret = input.length
+      textareaEl.scrollTop = textareaEl.scrollHeight
+    })
+  }
+
+  async function toggleDictation() {
+    if (dictation === 'loading' || dictation === 'stopping') return
+    if (dictation === 'recording') { stopDictation(); return }
+    dictation = 'loading'
+    dictBase = input ? input.replace(/\s*$/, ' ') : ''
+    dictDone = ''
+    try {
+      const { startDictation } = await import('../../lib/dictation')
+      const session = await startDictation({
+        onPartial: t => renderDictation(t),
+        onResult: t => { dictDone += t + ' '; renderDictation('') },
+      })
+      if (destroyed) { session.cancel(); return } // tab closed while the model loaded
+      dictSession = session
+      dictation = 'recording'
+      textareaEl?.focus()
+    } catch (e) {
+      dictation = 'idle'
+      toast.error(e instanceof Error ? e.message : String(e))
+    }
+  }
+  async function stopDictation() {
+    if (!dictSession) return
+    dictation = 'stopping'
+    await dictSession.stop()
+    dictSession = null
+    input = input.trimEnd()
+    dictation = 'idle'
+  }
+  // keep whatever is in the box, drop the in-flight utterance
+  function cancelDictation() {
+    if (!dictSession) return
+    dictSession.cancel()
+    dictSession = null
+    dictation = 'idle'
+  }
+  let destroyed = false
+  onDestroy(() => { destroyed = true; cancelDictation() })
+
   function cycleMode() {
     const i = conv.modeCycle.indexOf(conv.mode)
     selectMode(conv.modeCycle[(i + 1) % conv.modeCycle.length])
@@ -216,6 +279,7 @@
     }
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); return }
     if (e.key === 'Tab' && e.shiftKey) { e.preventDefault(); cycleMode(); return }
+    if (e.key === 'Escape' && dictation === 'recording') { e.preventDefault(); cancelDictation(); input = (dictBase + dictDone).trimEnd(); return }
     if (e.key === 'Escape' && conv.busy) { e.preventDefault(); conv.interrupt(); return }
     if (e.key === 'ArrowUp' && (!input || histIdx >= 0) && history.length) {
       e.preventDefault(); histIdx = Math.min(histIdx + 1, history.length - 1); input = history[histIdx]; return
@@ -225,6 +289,8 @@
     }
   }
   function onInput() {
+    // typing while dictating: the user owns the text now — stop streaming over it
+    if (dictSession) cancelDictation()
     caret = textareaEl.selectionStart
     if (!input) { slashDismissed = false; histIdx = -1 }
     mentionDismissed = false
@@ -343,6 +409,12 @@
             {Math.round(ctxPct)}%
           </span>
         {/if}
+        {#if dictationOn}
+          <button class="ib mic" class:rec={dictation === 'recording'} disabled={dictation === 'loading' || dictation === 'stopping'} onclick={toggleDictation}
+                  title={dictation === 'recording' ? 'Stop dictation (Esc to discard the current phrase)' : dictation === 'loading' ? 'Loading speech model…' : dictation === 'stopping' ? 'Finishing…' : 'Dictate'}>
+            {#if dictation === 'loading' || dictation === 'stopping'}<IconLoader2 size={15} class="spin" />{:else}<IconMicrophone size={15} />{/if}
+          </button>
+        {/if}
         <button class="pill model" onclick={onModel} title="Switch model"><IconCpu size={11} /> {modelLabel}</button>
         {#if conv.busy}
           <button class="send stop" onclick={() => conv.interrupt()} title="Stop (Esc)"><IconPlayerStopFilled size={14} /></button>
@@ -387,6 +459,11 @@
     color: var(--muted); cursor: pointer; padding: 3px 4px; border-radius: 3px; transition: color 0.1s, background 0.1s;
   }
   .ib:hover { color: var(--foreground); background: var(--bg-hover); }
+  .ib.mic.rec { color: var(--error); animation: mic-pulse 1.2s ease-in-out infinite; }
+  .ib.mic:disabled { cursor: default; }
+  .ib.mic :global(.spin) { animation: mic-spin 0.8s linear infinite; }
+  @keyframes mic-pulse { 50% { opacity: 0.45; } }
+  @keyframes mic-spin { to { transform: rotate(360deg); } }
   .pill {
     display: flex; align-items: center; gap: 4px; white-space: nowrap; max-width: 150px; overflow: hidden;
     background: none; border: 1px solid transparent; border-radius: 4px; color: var(--muted);
