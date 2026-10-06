@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { loadedExtensions, extensionPanelHTML, extensionPanelSelect, sendPanelInput, sendPanelSelect, runExtensionCommand } from '../lib/extensions'
+  import { loadedExtensions, extensionPanelHTML, extensionPanelSelect, sendPanelInput, sendPanelSelect, sendPanelClick, runExtensionCommand } from '../lib/extensions'
   import { BrowserOpenURL } from '../../wailsjs/runtime/runtime'
   import { IconChevronDown, IconRefresh } from '@tabler/icons-svelte'
 
@@ -35,11 +35,24 @@
     runExtensionCommand(extName, 'refresh')
   }
 
+  // Panel HTML must never navigate the webview: http(s) links open in the
+  // user's default browser, any other <a> is swallowed, and elements marked
+  // `data-action` are forwarded to the extension's worker as click messages.
   function onBodyClick(e: MouseEvent) {
-    const a = (e.target as HTMLElement).closest('a')
-    if (!a) return
-    const href = a.getAttribute('href')
-    if (href && /^https?:\/\//i.test(href)) { e.preventDefault(); BrowserOpenURL(href) }
+    const target = e.target as Element
+    const a = target.closest('a')
+    if (a) {
+      e.preventDefault()
+      e.stopPropagation()
+      const href = a.getAttribute('href')
+      if (href && /^https?:\/\//i.test(href)) BrowserOpenURL(href)
+      return
+    }
+    const el = target.closest<HTMLElement>('[data-action]')
+    if (el) {
+      e.preventDefault()
+      sendPanelClick(extName, panelId, el.dataset.action ?? '', el.dataset.value ?? '')
+    }
   }
 </script>
 
@@ -87,6 +100,9 @@
     text-transform: uppercase; color: var(--muted);
   }
   .body { flex: 1; overflow-y: auto; font-size: 12px; color: var(--foreground); }
+  .body :global([data-action]) { cursor: pointer; }
+  .body :global(.ext-row[data-action]:hover) { background: var(--bg-hover); }
+  .body :global(a) { cursor: pointer; }
   .body :global(.ext-waiting) { color: var(--muted); padding: 8px 12px; display: inline-block; }
   .footer {
     display: flex; align-items: center; gap: 6px; flex-shrink: 0;

@@ -47,6 +47,13 @@ export function sendPanelSelect(extName: string, panelId: string, value: string)
   workers.get(extName)?.postMessage({ type: 'select', panelId, value })
 }
 
+// Forwards a click on a `data-action` element inside a panel's HTML to that
+// extension's worker — lets panels be interactive (open a detail view, go
+// back, etc.) without ever navigating the webview.
+export function sendPanelClick(extName: string, panelId: string, action: string, value: string) {
+  workers.get(extName)?.postMessage({ type: 'click', panelId, action, value })
+}
+
 // Runs one of the extension's manifest-declared commands directly (e.g. a
 // panel's refresh icon), same message a Command Palette invocation sends.
 export function runExtensionCommand(extName: string, commandId: string) {
