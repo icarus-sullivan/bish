@@ -7,6 +7,7 @@
 // and show up in the Command Palette — before the worker even starts.
 import { writable, get } from 'svelte/store'
 import DOMPurify from 'dompurify'
+import { BrowserOpenURL } from '../../wailsjs/runtime/runtime'
 import { GetExtensions, SetExtensionEnabled, UninstallExtension, InstallExtensionFromZip, InstallExtensionFromDirectory } from './wails'
 import type { Extension } from './wails'
 import { registerCommand } from './commands'
@@ -52,6 +53,28 @@ export function sendPanelSelect(extName: string, panelId: string, value: string)
 // back, etc.) without ever navigating the webview.
 export function sendPanelClick(extName: string, panelId: string, action: string, value: string) {
   workers.get(extName)?.postMessage({ type: 'click', panelId, action, value })
+}
+
+// Click handler for any element that renders a panel's `{@html}` body.
+// Panel HTML must never navigate the webview: http(s) links open in the
+// user's default browser, any other <a> is swallowed, and elements marked
+// `data-action` are forwarded to the extension's worker as click messages.
+export function handlePanelClick(e: MouseEvent, extName: string, panelId: string) {
+  const target = e.target as Element | null
+  if (!target?.closest) return
+  const a = target.closest('a')
+  if (a) {
+    e.preventDefault()
+    e.stopPropagation()
+    const href = a.getAttribute('href')
+    if (href && /^https?:\/\//i.test(href)) BrowserOpenURL(href)
+    return
+  }
+  const el = target.closest<HTMLElement>('[data-action]')
+  if (el) {
+    e.preventDefault()
+    sendPanelClick(extName, panelId, el.dataset.action ?? '', el.dataset.value ?? '')
+  }
 }
 
 // Runs one of the extension's manifest-declared commands directly (e.g. a

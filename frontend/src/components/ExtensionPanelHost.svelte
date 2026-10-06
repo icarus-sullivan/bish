@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { loadedExtensions, extensionPanelHTML, extensionPanelSelect, sendPanelInput, sendPanelSelect, sendPanelClick, runExtensionCommand } from '../lib/extensions'
-  import { BrowserOpenURL } from '../../wailsjs/runtime/runtime'
+  import { loadedExtensions, extensionPanelHTML, extensionPanelSelect, sendPanelInput, sendPanelSelect, handlePanelClick, runExtensionCommand } from '../lib/extensions'
   import { IconChevronDown, IconRefresh } from '@tabler/icons-svelte'
 
   let { extName, panelId }: { extName: string; panelId: string } = $props()
@@ -35,24 +34,8 @@
     runExtensionCommand(extName, 'refresh')
   }
 
-  // Panel HTML must never navigate the webview: http(s) links open in the
-  // user's default browser, any other <a> is swallowed, and elements marked
-  // `data-action` are forwarded to the extension's worker as click messages.
   function onBodyClick(e: MouseEvent) {
-    const target = e.target as Element
-    const a = target.closest('a')
-    if (a) {
-      e.preventDefault()
-      e.stopPropagation()
-      const href = a.getAttribute('href')
-      if (href && /^https?:\/\//i.test(href)) BrowserOpenURL(href)
-      return
-    }
-    const el = target.closest<HTMLElement>('[data-action]')
-    if (el) {
-      e.preventDefault()
-      sendPanelClick(extName, panelId, el.dataset.action ?? '', el.dataset.value ?? '')
-    }
+    handlePanelClick(e, extName, panelId)
   }
 </script>
 

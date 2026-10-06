@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { loadedExtensions, extensionPanelHTML, sendPanelInput, setExtensionEnabled, uninstallExtension, installExtensionFromZip, installExtensionFromDirectory } from '../lib/extensions'
+  import { loadedExtensions, extensionPanelHTML, sendPanelInput, handlePanelClick, setExtensionEnabled, uninstallExtension, installExtensionFromZip, installExtensionFromDirectory } from '../lib/extensions'
   import { panelSide } from '../lib/stores'
   import { IconPuzzle, IconPower, IconTrash, IconUpload } from '@tabler/icons-svelte'
   import ContextMenu from './ContextMenu.svelte'
@@ -83,7 +83,9 @@
           {:else}
             {#each ext.panels as p (p.id)}
               <div class="ext-panel-title">{p.title}</div>
-              <div class="ext-panel-body">
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <div class="ext-panel-body" onclick={(e) => handlePanelClick(e, ext.name, p.id)}>
                 {@html $extensionPanelHTML.get(`${ext.name}:${p.id}`) ?? '<span class="ext-waiting">…</span>'}
               </div>
               <input
@@ -169,6 +171,9 @@
   }
   .ext-panel-body { font-size: 12px; color: var(--foreground); }
   .ext-panel-body :global(.ext-waiting) { color: var(--muted); }
+  .ext-panel-body :global([data-action]) { cursor: pointer; }
+  .ext-panel-body :global(.ext-row[data-action]:hover) { background: var(--bg-hover); }
+  .ext-panel-body :global(a) { cursor: pointer; }
   .ext-panel-input {
     width: 100%; box-sizing: border-box; margin-top: 6px;
     background: var(--bg-raised); border: 1px solid var(--border); border-radius: 5px;
