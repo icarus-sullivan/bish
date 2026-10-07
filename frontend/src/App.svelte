@@ -29,6 +29,7 @@
   import ActionPalette from './components/ActionPalette.svelte'
   import GlobalSearch from './components/GlobalSearch.svelte'
   import ProcessLogs from './components/ProcessLogs.svelte'
+  import Preview from './components/Preview.svelte'
   import Settings from './components/Settings.svelte'
   import DiffViewer from './components/DiffViewer.svelte'
   import MergeConflict from './components/MergeConflict.svelte'
@@ -308,6 +309,12 @@
             {#if tab.type === 'terminal'}
               <div class="tab-pane" style="display:{$activeTabId === tab.id ? 'flex' : 'none'}">
                 <Terminal terminalId={tab.id} />
+              </div>
+            {:else if tab.type === 'preview'}
+              <!-- kept mounted like terminals: unmounting the iframe would
+                   reload the app (and drop its state) on every tab switch -->
+              <div class="tab-pane" style="display:{$activeTabId === tab.id ? 'flex' : 'none'}">
+                <Preview url={tab.url ?? ''} />
               </div>
             {:else if $activeTabId === tab.id}
               <div class="tab-pane">

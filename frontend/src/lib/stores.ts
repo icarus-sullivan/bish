@@ -7,7 +7,7 @@ export type Pane = 'processes' | 'commands' | 'terminal' | 'tree'
 export const focusedPane = writable<Pane>('terminal')
 export const processes = writable<Process[]>([])
 export const commands = writable<SavedCommand[]>([])
-export const commandCenter = writable<CCSnapshot>({ definition: { repos: [] }, state: { targets: {} }, statuses: {} })
+export const commandCenter = writable<CCSnapshot>({ definition: { repos: [] }, state: { targets: {}, envs: [], active: 'default' }, statuses: {}, running: {}, drift: {} })
 export const treeNodes = writable<TreeNode[]>([])
 export const cwd = writable<string>('')
 export const theme = writable<Theme | null>(null)
@@ -133,12 +133,13 @@ export const rightWidth = writable<number>(220)
 
 export interface Tab {
   id: string
-  type: 'terminal' | 'file' | 'logs' | 'media' | 'settings' | 'diff' | 'conflict'
+  type: 'terminal' | 'file' | 'logs' | 'media' | 'settings' | 'diff' | 'conflict' | 'preview'
   label: string
   baseLabel?: string  // terminal tabs: original label, restored when title clears
   renamed?: boolean   // terminal tabs: user double-click-renamed — OSC titles (cwd/running command) no longer override label
   path?: string       // file + media tabs
   processId?: string  // logs tabs
+  url?: string        // preview tabs
   modified?: boolean  // file tabs: unsaved changes
 }
 
@@ -214,6 +215,18 @@ export function openLogsTab(processId: string, label: string) {
   }
   const id = 'logs:' + processId
   tabs.update(ts => [...ts, { id, type: 'logs', label, processId }])
+  activeTabId.set(id)
+}
+
+// Preview tabs are keyed by origin, so re-clicking a port badge focuses the
+// existing tab instead of stacking duplicates.
+export function openPreviewTab(url: string, label: string) {
+  let origin = url
+  try { origin = new URL(url).origin } catch {}
+  const existing = get(tabs).find(t => t.type === 'preview' && t.id === 'preview:' + origin)
+  if (existing) { activeTabId.set(existing.id); return }
+  const id = 'preview:' + origin
+  tabs.update(ts => [...ts, { id, type: 'preview', label, url }])
   activeTabId.set(id)
 }
 

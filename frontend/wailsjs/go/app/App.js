@@ -14,6 +14,10 @@ export function AddWorkspaceRoot() {
   return window['go']['app']['App']['AddWorkspaceRoot']();
 }
 
+export function ApplyRepoProposal(arg1, arg2) {
+  return window['go']['app']['App']['ApplyRepoProposal'](arg1, arg2);
+}
+
 export function AssistantControl(arg1, arg2, arg3) {
   return window['go']['app']['App']['AssistantControl'](arg1, arg2, arg3);
 }
@@ -74,6 +78,10 @@ export function CdToPath(arg1) {
   return window['go']['app']['App']['CdToPath'](arg1);
 }
 
+export function ClearStepCache(arg1) {
+  return window['go']['app']['App']['ClearStepCache'](arg1);
+}
+
 export function CloseProject() {
   return window['go']['app']['App']['CloseProject']();
 }
@@ -122,6 +130,10 @@ export function ConfirmFileConflict(arg1) {
   return window['go']['app']['App']['ConfirmFileConflict'](arg1);
 }
 
+export function CreateEnv(arg1, arg2) {
+  return window['go']['app']['App']['CreateEnv'](arg1, arg2);
+}
+
 export function DebugContinue() {
   return window['go']['app']['App']['DebugContinue']();
 }
@@ -150,12 +162,24 @@ export function DebugStop() {
   return window['go']['app']['App']['DebugStop']();
 }
 
+export function DefaultCommandCenterDBSpec(arg1) {
+  return window['go']['app']['App']['DefaultCommandCenterDBSpec'](arg1);
+}
+
 export function DeleteCommand(arg1) {
   return window['go']['app']['App']['DeleteCommand'](arg1);
 }
 
 export function DeleteProjectCommand(arg1) {
   return window['go']['app']['App']['DeleteProjectCommand'](arg1);
+}
+
+export function DestroyEnv(arg1, arg2, arg3) {
+  return window['go']['app']['App']['DestroyEnv'](arg1, arg2, arg3);
+}
+
+export function DetectRepoEnv(arg1) {
+  return window['go']['app']['App']['DetectRepoEnv'](arg1);
 }
 
 export function EditShareBroadcast(arg1, arg2) {
@@ -438,6 +462,10 @@ export function LSPStop(arg1) {
   return window['go']['app']['App']['LSPStop'](arg1);
 }
 
+export function ListEnvs() {
+  return window['go']['app']['App']['ListEnvs']();
+}
+
 export function ListLanguageExtensions() {
   return window['go']['app']['App']['ListLanguageExtensions']();
 }
@@ -468,6 +496,10 @@ export function OpenRecentProject(arg1) {
 
 export function OpenRemoteProject(arg1, arg2) {
   return window['go']['app']['App']['OpenRemoteProject'](arg1, arg2);
+}
+
+export function PreviewFrameBlocked(arg1) {
+  return window['go']['app']['App']['PreviewFrameBlocked'](arg1);
 }
 
 export function ReadFile(arg1) {
@@ -558,6 +590,10 @@ export function SearchInFiles(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
   return window['go']['app']['App']['SearchInFiles'](arg1, arg2, arg3, arg4, arg5, arg6, arg7);
 }
 
+export function SetActiveEnv(arg1) {
+  return window['go']['app']['App']['SetActiveEnv'](arg1);
+}
+
 export function SetCommandCenterTarget(arg1, arg2) {
   return window['go']['app']['App']['SetCommandCenterTarget'](arg1, arg2);
 }
@@ -598,6 +634,10 @@ export function StartEditShare(arg1) {
   return window['go']['app']['App']['StartEditShare'](arg1);
 }
 
+export function StartEnv(arg1) {
+  return window['go']['app']['App']['StartEnv'](arg1);
+}
+
 export function StartLiveShare(arg1) {
   return window['go']['app']['App']['StartLiveShare'](arg1);
 }
@@ -620,6 +660,10 @@ export function StopCommandCenterRepo(arg1) {
 
 export function StopEditShare(arg1) {
   return window['go']['app']['App']['StopEditShare'](arg1);
+}
+
+export function StopEnv(arg1) {
+  return window['go']['app']['App']['StopEnv'](arg1);
 }
 
 export function StopLiveShare(arg1) {

@@ -242,7 +242,7 @@ func (m *Manager) Restart(id string) error {
 	// that escaped the group kill (setsid/detach) can't block the new run
 	// with EADDRINUSE.
 	for _, port := range old.Ports {
-		killPort(port)
+		KillPort(port)
 	}
 	np := &Process{ID: old.ID, Name: old.Name, Log: logs.NewBuffer()}
 	if err := m.spawnLocked(np, old.Cmd, old.CWD); err != nil {

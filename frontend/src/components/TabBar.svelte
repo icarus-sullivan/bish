@@ -3,7 +3,7 @@
            closeTabsToRight, closeTabsToLeft, closeOtherTabs, closeAllTabs,
            reorderTabs, shareDialogTerminalId, shareDialogFilePath, activeExtPanel, type Tab } from '../lib/stores'
   import { NewTerminal, CloseTerminal } from '../lib/wails'
-  import { IconTerminal2, IconFile, IconListDetails, IconPlus, IconX, IconSettings, IconFileDiff } from '@tabler/icons-svelte'
+  import { IconTerminal2, IconFile, IconListDetails, IconPlus, IconX, IconSettings, IconFileDiff, IconBrowser } from '@tabler/icons-svelte'
   import ContextMenu from './ContextMenu.svelte'
   import PanelIcon from './PanelIcon.svelte'
   import { extensionPanels } from '../lib/panels'
@@ -48,6 +48,7 @@
     if (tab.type === 'logs') return IconListDetails
     if (tab.type === 'settings') return IconSettings
     if (tab.type === 'diff') return IconFileDiff
+    if (tab.type === 'preview') return IconBrowser
     return IconFile
   }
 

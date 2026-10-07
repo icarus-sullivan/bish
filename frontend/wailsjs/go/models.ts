@@ -398,10 +398,41 @@ export namespace commandcenter {
 	        this.remote = source["remote"];
 	    }
 	}
+	export class DBSpec {
+	    mode: string;
+	    file?: string;
+	    template?: string;
+	    port?: number;
+	    create: string;
+	    drop: string;
+	    ready: string;
+	    urlEnv: string;
+	    url: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DBSpec(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.mode = source["mode"];
+	        this.file = source["file"];
+	        this.template = source["template"];
+	        this.port = source["port"];
+	        this.create = source["create"];
+	        this.drop = source["drop"];
+	        this.ready = source["ready"];
+	        this.urlEnv = source["urlEnv"];
+	        this.url = source["url"];
+	    }
+	}
 	export class Service {
 	    name: string;
 	    cmd: string;
 	    port: number;
+	    health?: health.Spec;
+	    portEnv?: string;
+	    portArgs?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Service(source);
@@ -412,7 +443,28 @@ export namespace commandcenter {
 	        this.name = source["name"];
 	        this.cmd = source["cmd"];
 	        this.port = source["port"];
+	        this.health = this.convertValues(source["health"], health.Spec);
+	        this.portEnv = source["portEnv"];
+	        this.portArgs = source["portArgs"];
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class Step {
 	    name: string;
@@ -420,6 +472,9 @@ export namespace commandcenter {
 	    default: boolean;
 	    destructive?: boolean;
 	    supersedes?: string[];
+	    kind?: string;
+	    cacheInputs?: string[];
+	    stateful?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new Step(source);
@@ -432,6 +487,9 @@ export namespace commandcenter {
 	        this.default = source["default"];
 	        this.destructive = source["destructive"];
 	        this.supersedes = source["supersedes"];
+	        this.kind = source["kind"];
+	        this.cacheInputs = source["cacheInputs"];
+	        this.stateful = source["stateful"];
 	    }
 	}
 	export class Repo {
@@ -449,6 +507,8 @@ export namespace commandcenter {
 	    env: Record<string, string>;
 	    steps: Step[];
 	    services: Service[];
+	    compose?: string;
+	    db?: DBSpec;
 	
 	    static createFrom(source: any = {}) {
 	        return new Repo(source);
@@ -470,6 +530,8 @@ export namespace commandcenter {
 	        this.env = source["env"];
 	        this.steps = this.convertValues(source["steps"], Step);
 	        this.services = this.convertValues(source["services"], Service);
+	        this.compose = source["compose"];
+	        this.db = this.convertValues(source["db"], DBSpec);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -520,28 +582,6 @@ export namespace commandcenter {
 		    return a;
 		}
 	}
-	
-	
-	export class ServiceStatus {
-	    key: string;
-	    processId: string;
-	    pid: number;
-	    status: string;
-	    ports: number[];
-	
-	    static createFrom(source: any = {}) {
-	        return new ServiceStatus(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.key = source["key"];
-	        this.processId = source["processId"];
-	        this.pid = source["pid"];
-	        this.status = source["status"];
-	        this.ports = source["ports"];
-	    }
-	}
 	export class Target {
 	    mode: string;
 	    path: string;
@@ -564,8 +604,81 @@ export namespace commandcenter {
 	        this.env = source["env"];
 	    }
 	}
-	export class State {
+	export class Env {
+	    name: string;
+	    branch: string;
+	    portOffset: number;
+	    dbName?: string;
 	    targets: Record<string, Target>;
+	    // Go type: time
+	    createdAt: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new Env(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.branch = source["branch"];
+	        this.portOffset = source["portOffset"];
+	        this.dbName = source["dbName"];
+	        this.targets = this.convertValues(source["targets"], Target, true);
+	        this.createdAt = this.convertValues(source["createdAt"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
+	export class ServiceStatus {
+	    key: string;
+	    processId: string;
+	    pid: number;
+	    status: string;
+	    ports: number[];
+	    ready: boolean;
+	    phase: string;
+	    detail: string;
+	    port: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ServiceStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.processId = source["processId"];
+	        this.pid = source["pid"];
+	        this.status = source["status"];
+	        this.ports = source["ports"];
+	        this.ready = source["ready"];
+	        this.phase = source["phase"];
+	        this.detail = source["detail"];
+	        this.port = source["port"];
+	    }
+	}
+	export class State {
+	    targets?: Record<string, Target>;
+	    envs: Env[];
+	    active: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new State(source);
@@ -574,6 +687,8 @@ export namespace commandcenter {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.targets = this.convertValues(source["targets"], Target, true);
+	        this.envs = this.convertValues(source["envs"], Env);
+	        this.active = source["active"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -598,6 +713,8 @@ export namespace commandcenter {
 	    definition?: Definition;
 	    state?: State;
 	    statuses: Record<string, ServiceStatus>;
+	    running: Record<string, number>;
+	    drift: Record<string, Array<string>>;
 	
 	    static createFrom(source: any = {}) {
 	        return new Snapshot(source);
@@ -608,6 +725,8 @@ export namespace commandcenter {
 	        this.definition = this.convertValues(source["definition"], Definition);
 	        this.state = this.convertValues(source["state"], State);
 	        this.statuses = this.convertValues(source["statuses"], ServiceStatus, true);
+	        this.running = source["running"];
+	        this.drift = source["drift"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -864,6 +983,108 @@ export namespace config {
 	
 	
 	
+
+}
+
+export namespace envdetect {
+	
+	export class Candidate {
+	    name: string;
+	    cmd: string;
+	    port?: number;
+	    portEnv?: string;
+	    portArgs?: string;
+	    kind: string;
+	    destructive?: boolean;
+	    supersedes: string[];
+	    source: string;
+	    confidence: number;
+	    accept: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Candidate(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.cmd = source["cmd"];
+	        this.port = source["port"];
+	        this.portEnv = source["portEnv"];
+	        this.portArgs = source["portArgs"];
+	        this.kind = source["kind"];
+	        this.destructive = source["destructive"];
+	        this.supersedes = source["supersedes"];
+	        this.source = source["source"];
+	        this.confidence = source["confidence"];
+	        this.accept = source["accept"];
+	    }
+	}
+	export class Proposal {
+	    repoId: string;
+	    toolchain: string;
+	    services: Candidate[];
+	    steps: Candidate[];
+	    compose?: string;
+	    notes: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new Proposal(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.repoId = source["repoId"];
+	        this.toolchain = source["toolchain"];
+	        this.services = this.convertValues(source["services"], Candidate);
+	        this.steps = this.convertValues(source["steps"], Candidate);
+	        this.compose = source["compose"];
+	        this.notes = source["notes"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
+export namespace health {
+	
+	export class Spec {
+	    http?: string;
+	    status?: number;
+	    logMatch?: string;
+	    cmd?: string;
+	    timeoutSec?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Spec(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.http = source["http"];
+	        this.status = source["status"];
+	        this.logMatch = source["logMatch"];
+	        this.cmd = source["cmd"];
+	        this.timeoutSec = source["timeoutSec"];
+	    }
+	}
 
 }
 

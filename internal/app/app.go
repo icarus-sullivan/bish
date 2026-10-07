@@ -168,6 +168,7 @@ func (a *App) Startup(ctx context.Context) {
 	go search.PruneStaleIndexes()
 	a.telemetry.StartLoop(ctx.Done())
 	a.prevProcStatus = map[string]process.Status{}
+	a.cc.SetFeatures(a.cfg.Features)
 	if !a.cfg.BuiltinExtensionsSeeded {
 		if extensions.SeedBuiltins(extensions.Dir()) == nil {
 			a.cfg.BuiltinExtensionsSeeded = true
@@ -1567,6 +1568,7 @@ func (a *App) GetConfig() config.Config {
 
 func (a *App) SaveConfig(cfg config.Config) error {
 	a.cfg = cfg
+	a.cc.SetFeatures(cfg.Features)
 	th := a.GetTheme()
 	runtime.EventsEmit(a.ctx, "theme:update", th)
 	a.assistant.SetConfig(cfg.Assistant)
@@ -1575,6 +1577,7 @@ func (a *App) SaveConfig(cfg config.Config) error {
 	a.langextFormatter.SetOverrides(cfg.Languages)
 	a.telemetry.SetConfig(cfg.Telemetry.Enabled, cfg.Telemetry.Endpoint)
 	applySearchConfig(cfg)
+	a.emitCC() // harness flags change what the snapshot exposes (active env)
 	return config.Save(cfg)
 }
 

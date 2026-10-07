@@ -25,10 +25,13 @@ import { OnFileDrop } from '../../wailsjs/runtime/runtime'
 // fetch or a later cc:update event — normalize at both write sites so the
 // store's shape stays the safe one from its own default, never null.
 function normalizeCC(snap: any): CCSnapshot {
+  const envs = (snap?.state?.envs ?? []).map((e: any) => ({ ...e, targets: e?.targets ?? {} }))
   return {
     definition: { repos: snap?.definition?.repos ?? [] },
-    state: { targets: snap?.state?.targets ?? {} },
+    state: { targets: snap?.state?.targets ?? {}, envs, active: snap?.state?.active || 'default' },
     statuses: snap?.statuses ?? {},
+    running: snap?.running ?? {},
+    drift: snap?.drift ?? {},
   }
 }
 

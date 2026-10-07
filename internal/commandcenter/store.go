@@ -50,6 +50,17 @@ func normalizeDefinition(def *Definition) {
 		if r.Services == nil {
 			r.Services = []*Service{}
 		}
+		if r.Env == nil {
+			r.Env = map[string]string{}
+		}
+		for _, st := range r.Steps {
+			if st.Supersedes == nil {
+				st.Supersedes = []string{}
+			}
+			if st.CacheInputs == nil {
+				st.CacheInputs = []string{}
+			}
+		}
 	}
 }
 
@@ -76,26 +87,56 @@ func statePath(projectRoot string) string {
 }
 
 func loadState(projectRoot string) (*State, error) {
-	st := &State{Targets: map[string]*Target{}}
+	st := &State{}
 	data, err := os.ReadFile(statePath(projectRoot))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return st, nil
-		}
-		return st, err
+	if err != nil && !os.IsNotExist(err) {
+		return normalizeState(st), err
 	}
-	if err := json.Unmarshal(data, st); err != nil {
-		return st, err
-	}
-	if st.Targets == nil {
-		st.Targets = map[string]*Target{}
-	}
-	for _, t := range st.Targets {
-		if t.Services == nil {
-			t.Services = []string{}
+	if err == nil {
+		if err := json.Unmarshal(data, st); err != nil {
+			return normalizeState(st), err
 		}
 	}
-	return st, nil
+	return normalizeState(st), nil
+}
+
+// normalizeState migrates a pre-Env state file (a bare Targets map) into a
+// "default" env at offset 0, guarantees the default env and a valid Active
+// exist, and replaces nil maps/slices the frontend would index unguarded.
+func normalizeState(st *State) *State {
+	if len(st.Envs) == 0 {
+		targets := st.Targets
+		if targets == nil {
+			targets = map[string]*Target{}
+		}
+		st.Envs = []*Env{{Name: defaultEnv, Targets: targets}}
+		st.Active = defaultEnv
+	}
+	st.Targets = nil // legacy field: read once, never written again
+	if st.env(defaultEnv) == nil {
+		st.Envs = append([]*Env{{Name: defaultEnv, Targets: map[string]*Target{}}}, st.Envs...)
+	}
+	if st.env(st.Active) == nil {
+		st.Active = defaultEnv
+	}
+	for _, e := range st.Envs {
+		if e.Targets == nil {
+			e.Targets = map[string]*Target{}
+		}
+		for _, t := range e.Targets {
+			normalizeTarget(t)
+		}
+	}
+	return st
+}
+
+func normalizeTarget(t *Target) {
+	if t.Services == nil {
+		t.Services = []string{}
+	}
+	if t.Env == nil {
+		t.Env = map[string]string{}
+	}
 }
 
 func saveState(projectRoot string, st *State) error {

@@ -7,11 +7,11 @@ import (
 	"strings"
 )
 
-// killPort force-kills whatever's listening on port, if anything. Used to
+// KillPort force-kills whatever's listening on port, if anything. Used to
 // preempt a stale listener (one that escaped the killed process's group via
 // setsid/detach, or a prior run's straggler) before a process is restarted
 // on a port it's known to have bound before.
-func killPort(port int) {
+func KillPort(port int) {
 	if port <= 0 {
 		return
 	}

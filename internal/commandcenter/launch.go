@@ -1,24 +1,24 @@
 package commandcenter
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
-const (
-	depWaitSeconds   = 600 // a cold dependency boot (install + migrate + build) can be slow
-	depSettleSeconds = 3
-)
+// depSettle is the grace period after a dependency that only has a plain
+// port probe starts accepting connections — binding a port comes before
+// serving on it for most dev servers.
+const depSettle = 3 * time.Second
 
 // startOrder lists repo IDs so a repo's dependsOn entries come first (Kahn;
 // a dependency cycle just falls back to definition order for the repos in it).
-func startOrder(def *Definition, st *State) []string {
+func startOrder(def *Definition, targets map[string]*Target) []string {
 	var pending []string
 	for _, rp := range def.Repos {
-		if _, ok := st.Targets[rp.ID]; ok {
+		if _, ok := targets[rp.ID]; ok {
 			pending = append(pending, rp.ID)
 		}
 	}
@@ -30,7 +30,7 @@ func startOrder(def *Definition, st *State) []string {
 		for _, id := range pending {
 			ready := true
 			for _, dep := range def.repo(id).DependsOn {
-				if _, ok := st.Targets[dep]; ok && !done[dep] && dep != id {
+				if _, ok := targets[dep]; ok && !done[dep] && dep != id {
 					ready = false
 				}
 			}
@@ -49,41 +49,6 @@ func startOrder(def *Definition, st *State) []string {
 	return order
 }
 
-// depWaitCmd blocks until every dependency's selected service ports accept
-// connections, so a dependent's build/dev servers don't fire before its
-// dependencies are up. Empty when the dependencies are off or aren't
-// running any ports.
-//
-// This is a port-listening + settle probe, not a real health check — good
-// enough for "the process bound its port," not "it's serving correctly."
-func depWaitCmd(def *Definition, st *State, rp *Repo) string {
-	var parts []string
-	for _, dep := range rp.DependsOn {
-		dt, drp := st.Targets[dep], def.repo(dep)
-		if dt == nil || drp == nil || dt.Mode == "off" || dep == rp.ID {
-			continue
-		}
-		for _, svcName := range dt.Services {
-			svc := drp.service(svcName)
-			if svc == nil || svc.Port <= 0 {
-				continue
-			}
-			// both stacks: some servers bind *:port, others bind [::1] only —
-			// a v4-only probe would wait forever on the latter
-			probe := fmt.Sprintf("{ nc -z 127.0.0.1 %d || nc -z ::1 %d; } >/dev/null 2>&1", svc.Port, svc.Port)
-			parts = append(parts, fmt.Sprintf(
-				`echo "[command-center] waiting for %s %s :%d"; `+
-					`for i in $(seq 1 %d); do %s && break; sleep 1; done; `+
-					`%s || { echo "[command-center] timed out waiting for %s :%d"; exit 1; }`,
-				dep, svcName, svc.Port, depWaitSeconds, probe, probe, dep, svc.Port))
-		}
-	}
-	if len(parts) == 0 {
-		return ""
-	}
-	return strings.Join(parts, "; ") + fmt.Sprintf("; sleep %d", depSettleSeconds)
-}
-
 // hasLink reports whether dir's node_modules is a symlink into the main
 // checkout, i.e. whether an install there would mutate the shared tree.
 func hasLink(dir string) bool {
@@ -92,8 +57,10 @@ func hasLink(dir string) bool {
 }
 
 // prestartCmd chains the enabled pre-start steps and reports which were
-// skipped (superseded, or a redundant install into a linked node_modules).
-func prestartCmd(r *Repo, t *Target, dir string) (cmd string, skipped []string) {
+// skipped (superseded, a redundant install into a linked node_modules, or a
+// step-cache hit) plus the cacheable steps that will actually run, so a
+// successful prestart can record them. cache is nil when step caching is off.
+func prestartCmd(r *Repo, t *Target, dir string, cache *stepCacher) (cmd string, skipped []string, ran []*Step) {
 	enabled := func(st *Step) bool {
 		on, set := t.Steps[st.Name]
 		if !set {
@@ -125,9 +92,23 @@ func prestartCmd(r *Repo, t *Target, dir string) (cmd string, skipped []string) 
 			skipped = append(skipped, st.Name+" (node_modules is symlinked from "+r.Path+")")
 			continue
 		}
+		if cache != nil && cacheable(st) {
+			if cache.hit(st) {
+				// never a silent skip — the line lands in the prestart log
+				cmds = append(cmds, "echo "+shellQuote("[command-center] "+st.Name+": skipped (cached)"))
+				skipped = append(skipped, st.Name+" (cached)")
+				continue
+			}
+			ran = append(ran, st)
+		}
 		cmds = append(cmds, st.Cmd)
 	}
-	return strings.Join(cmds, " && "), skipped
+	return strings.Join(cmds, " && "), skipped, ran
+}
+
+// shellQuote single-quotes s for sh/zsh/bash/fish.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // mergeEnv layers per-target overrides on top of repo-wide ones.
