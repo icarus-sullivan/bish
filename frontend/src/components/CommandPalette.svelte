@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { blockNativeViews } from '../lib/nativeview'
   import { get } from 'svelte/store'
   import { cwd, projectRoot, openFileTab, pendingReveal } from '../lib/stores'
   import { GetAllFiles, GetWorkspaceRoots, RevealInTree } from '../lib/wails'
@@ -154,6 +155,7 @@
   onMount(() => {
     inputEl?.focus()
   })
+  onMount(() => blockNativeViews())
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->

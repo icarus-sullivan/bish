@@ -45,6 +45,8 @@ guard, OFF = zero cost). See `.claude/plans/` for the full gap analysis.
 - [x] Readiness in Go (status phases; rich probes toggle: `harnessHealth`)
 - [x] Env auto-detection — "Detect services" (toggle: `harnessDetect`)
 - [x] Preview tab — in-app iframe for launched web UIs (toggle: `harnessPreview`; auto-open: `harnessPreviewAuto`)
+- [x] Native Preview browser (macOS) — WKWebView overlay so logins/cookies/localStorage persist and framing-refused sites load; back/forward, ⌘-key forwarding, OAuth popups (toggle: `nativePreview`; iframe fallback elsewhere)
+- [ ] Native Preview browser on Linux (WebKitGTK overlay) / Windows (WebView2)
 - [x] Ephemeral environments — side-by-side envs with port offsets (toggle: `harnessEnvs`)
 - [x] Database lifecycle — per-env template/compose databases (toggle: `harnessDb`)
 - [x] Step caching — content-hash skip for install/codegen (toggle: `harnessCache`)

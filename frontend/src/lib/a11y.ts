@@ -2,10 +2,13 @@
 // inside the dialog, Escape closes, and focus returns to whatever had it
 // before the dialog opened. Apply to the dialog panel itself (not the
 // backdrop) via `use:modalA11y={onClose}`.
+import { blockNativeViews } from './nativeview'
+
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
 export function modalA11y(node: HTMLElement, onClose: () => void) {
   const prevActive = document.activeElement as HTMLElement | null
+  const unblock = blockNativeViews()
 
   function focusables(): HTMLElement[] {
     return Array.from(node.querySelectorAll<HTMLElement>(FOCUSABLE))
@@ -27,6 +30,7 @@ export function modalA11y(node: HTMLElement, onClose: () => void) {
   return {
     destroy() {
       node.removeEventListener('keydown', onKeydown)
+      unblock()
       prevActive?.focus?.()
     },
   }

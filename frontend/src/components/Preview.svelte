@@ -1,12 +1,26 @@
 <script lang="ts">
-  import { IconRefresh, IconExternalLink, IconChevronDown, IconAlertTriangle } from '@tabler/icons-svelte'
+  import { onMount, onDestroy } from 'svelte'
+  import { IconRefresh, IconExternalLink, IconChevronDown, IconAlertTriangle, IconArrowLeft, IconArrowRight } from '@tabler/icons-svelte'
   import { BrowserOpenURL } from '../../wailsjs/runtime/runtime'
-  import { PreviewFrameBlocked } from '../lib/wails'
+  import {
+    PreviewFrameBlocked, on, BrowserSupported, BrowserOpen, BrowserSetFrame, BrowserSetVisible,
+    BrowserNavigate, BrowserReload, BrowserBack, BrowserForward, BrowserClose,
+  } from '../lib/wails'
+  import { featureOn } from '../lib/features'
+  import { nativeViewBlockers, forwardNativeViewKeys } from '../lib/nativeview'
 
-  let { url: initialUrl }: { url: string } = $props()
+  let { url: initialUrl, tabId, active }: { url: string; tabId: string; active: boolean } = $props()
 
-  // the frame is cross-origin to bish: no console, no DOM, no route sync —
-  // just the page. Anything that needs devtools opens externally.
+  // Two renderers. Native (macOS, `nativePreview`): a real top-level WebKit
+  // view laid over .stage by Go — first-party, so cookies/localStorage/
+  // logins work and persist, and X-Frame-Options doesn't apply. Iframe
+  // (fallback): a third-party frame under wails://, so WebKit drops its
+  // cookies; also cross-origin to bish: no console, no DOM, no route sync.
+  // null = still asking Go which one this platform has.
+  let native = $state<boolean | null>(null)
+  let nativeOpened = false
+  let placeholder = $state<HTMLDivElement | undefined>()
+  let editingAddr = false
   let url = $state(initialUrl)
   let draft = $state(initialUrl)
   let width = $state('responsive')
@@ -30,18 +44,72 @@
   function go() {
     url = normalize(draft)
     draft = url
-    reload()
+    if (native) { probe(url); BrowserNavigate(tabId, url) }
+    else reload()
   }
 
   function reload() {
-    reloadNonce++
+    if (native) { probe(url); BrowserReload(tabId) }
+    else reloadNonce++
   }
+
+  // the native view renders its own error pages, but "nothing listening
+  // yet" deserves the friendlier hint below
+  function probe(target: string) {
+    failure = ''
+    fetch(target, { mode: 'no-cors', cache: 'no-store' })
+      .catch(() => { if (target === url) failure = 'unreachable' })
+  }
+
+  onMount(async () => {
+    const ok = featureOn('nativePreview') && await BrowserSupported().catch(() => false)
+    native = ok
+    if (!ok || destroyed) return
+    forwardNativeViewKeys()
+    probe(url)
+    BrowserOpen(tabId, url)
+    nativeOpened = true
+  })
+
+  let destroyed = false
+  onDestroy(() => { destroyed = true; if (nativeOpened) BrowserClose(tabId) })
+
+  $effect(() => {
+    if (!native) return
+    return on('browser:nav', (n: { id: string; url: string }) => {
+      if (n.id !== tabId || !n.url || n.url === 'about:blank') return
+      url = n.url
+      if (!editingAddr) draft = n.url
+    })
+  })
+
+  // keep the native view glued to the placeholder: size changes come from
+  // the ResizeObserver, pure moves (window resize) from the window listener
+  $effect(() => {
+    const el = placeholder
+    if (!native || !el) return
+    const sync = () => {
+      const r = el.getBoundingClientRect()
+      if (r.width && r.height) BrowserSetFrame(tabId, r.left, r.top, r.width, r.height)
+    }
+    const ro = new ResizeObserver(sync)
+    ro.observe(el)
+    window.addEventListener('resize', sync)
+    sync()
+    return () => { ro.disconnect(); window.removeEventListener('resize', sync) }
+  })
+
+  $effect(() => {
+    if (!native) return
+    BrowserSetVisible(tabId, active && $nativeViewBlockers === 0 && failure !== 'unreachable' && !!placeholder)
+  })
 
   // a frame that refuses framing (X-Frame-Options / frame-ancestors) never
   // reports an error event — it just stays blank, which reads as "bish is
   // broken". Probe reachability first, then check what actually loaded.
   $effect(() => {
     void reloadNonce
+    if (native !== false) return
     const target = url
     failure = ''
     loaded = false
@@ -78,8 +146,13 @@
 
 <div class="preview">
   <div class="bar">
+    {#if native}
+      <button class="hdr-btn" onclick={() => BrowserBack(tabId)} title="Back"><IconArrowLeft size={13} /></button>
+      <button class="hdr-btn" onclick={() => BrowserForward(tabId)} title="Forward"><IconArrowRight size={13} /></button>
+    {/if}
     <button class="hdr-btn" onclick={reload} title="Reload"><IconRefresh size={13} /></button>
     <input class="addr" bind:value={draft} spellcheck="false" autocapitalize="none" autocomplete="off"
+      onfocus={() => { editingAddr = true }} onblur={() => { editingAddr = false }}
       onkeydown={(e) => { if (e.key === 'Enter') go() }} />
     <span class="select-wrap">
       <select bind:value={width} title="Viewport width">
@@ -113,12 +186,17 @@
         <div class="slow">Still loading… <button class="link" onclick={openExternal}>open in browser</button></div>
       {/if}
       <div class="frame-wrap" style={width === 'responsive' ? '' : `width:${width}px`}>
+        {#if native}
+          <!-- Go lays the native view over this box -->
+          <div class="native-slot" bind:this={placeholder}></div>
+        {:else if native === false}
         {#key reloadNonce}
           <!-- no allow-top-navigation: a framed dev page must never be able
                to navigate the bish window itself -->
           <iframe bind:this={frame} src={url} title="Preview" onload={onLoad}
             sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads"></iframe>
         {/key}
+        {/if}
       </div>
     {/if}
   </div>
@@ -183,6 +261,7 @@
   }
   .frame-wrap { flex: 1; width: 100%; max-width: 100%; display: flex; }
   .frame-wrap[style*="width"] { border-left: 1px solid var(--border); border-right: 1px solid var(--border); }
+  .native-slot { flex: 1; }
   iframe { flex: 1; width: 100%; height: 100%; border: none; background: #fff; }
 
   .slow {

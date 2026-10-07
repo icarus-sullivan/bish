@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { blockNativeViews } from '../lib/nativeview'
   import { listCommands, type Command } from '../lib/commands'
   import { fuzzyMatch } from '../lib/fuzzy'
   import { customKeybinds } from '../lib/keymap'
@@ -43,6 +44,7 @@
   }
 
   onMount(() => inputEl?.focus())
+  onMount(() => blockNativeViews())
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->

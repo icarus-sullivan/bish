@@ -314,7 +314,7 @@
               <!-- kept mounted like terminals: unmounting the iframe would
                    reload the app (and drop its state) on every tab switch -->
               <div class="tab-pane" style="display:{$activeTabId === tab.id ? 'flex' : 'none'}">
-                <Preview url={tab.url ?? ''} />
+                <Preview url={tab.url ?? ''} tabId={tab.id} active={$activeTabId === tab.id} />
               </div>
             {:else if $activeTabId === tab.id}
               <div class="tab-pane">

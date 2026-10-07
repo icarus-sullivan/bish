@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { registerKeybind } from '../lib/keybinds'
+  import { blockNativeViews } from '../lib/nativeview'
 
   interface MenuItem {
     label: string
@@ -27,6 +28,8 @@
     item.action()
     onClose()
   }
+
+  onMount(() => blockNativeViews())
 
   onMount(() => {
     registerKeybind({ combo: 'escape', handler: onClose })

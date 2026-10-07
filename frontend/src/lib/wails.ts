@@ -57,6 +57,7 @@ import {
   DefaultCommandCenterDBSpec as _DefaultCommandCenterDBSpec,
 } from '../../wailsjs/go/app/App'
 export { SetActiveEnv, StartEnv, StopEnv, DestroyEnv, ClearStepCache, PreviewFrameBlocked } from '../../wailsjs/go/app/App'
+export { BrowserSupported, BrowserOpen, BrowserSetFrame, BrowserSetVisible, BrowserNavigate, BrowserReload, BrowserBack, BrowserForward, BrowserClose } from '../../wailsjs/go/app/App'
 
 // The generated .d.ts types these four with the wailsjs/go/models.ts classes
 // (which require a convertValues method nothing at runtime actually
