@@ -1,0 +1,20 @@
+{
+  "repos": [
+    {
+      "id": "bish",
+      "name": "bish",
+      "path": "/Users/csullivan/Desktop/bish",
+      "mainBranch": "master",
+      "dependsOn": [],
+      "worktreeIn": "/Users/csullivan/Desktop",
+      "prefix": "bish-",
+      "overrides": "",
+      "setup": "",
+      "link": [],
+      "copy": [],
+      "env": {},
+      "steps": [],
+      "services": []
+    }
+  ]
+}

@@ -9,10 +9,12 @@ package extensions
 
 import (
 	"embed"
+	"encoding/base64"
 	"encoding/json"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type Contribution struct {
@@ -22,10 +24,62 @@ type Contribution struct {
 	// the moment the contributing extension's worker starts — no separate
 	// Settings step needed, unlike user-defined keybinds (keymap.ts).
 	Key string `json:"key,omitempty"`
-	// Icon names a @tabler/icons-svelte icon (e.g. "IconTimeline") for this
-	// panel's own sidebar entry. Only meaningful on panel contributions —
-	// unknown/empty falls back to a generic icon on the frontend.
+	// Icon is this panel's own icon (tab bar / sidebar entry): a
+	// @tabler/icons-svelte name ("IconTimeline"), an http(s) URL, base64
+	// image data, or a local image file. Only meaningful on panel
+	// contributions — unknown/empty falls back to a generic icon.
 	Icon string `json:"icon,omitempty"`
+	// Icon may also be an http(s) URL or base64 (data: URI or raw) — those
+	// the frontend handles itself. When it's a local image file path
+	// (relative to the extension's dir, absolute, or ~/…), Discover reads it
+	// here since the webview has no filesystem access: SVGs become raw
+	// markup in IconSVG (inlined, so they pick up the theme color; the
+	// frontend sanitizes it), rasters become a data: URI in IconSrc.
+	IconSVG string `json:"iconSvg,omitempty"`
+	IconSrc string `json:"iconSrc,omitempty"`
+}
+
+// maxIconFile caps a manifest-referenced icon file — icons are tiny; anything
+// bigger is a mistake (or not an icon) and is just ignored.
+const maxIconFile = 256 << 10
+
+var iconMIME = map[string]string{
+	".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+	".gif": "image/gif", ".webp": "image/webp", ".ico": "image/x-icon",
+}
+
+// readIconFile loads a panel's icon when it names a local image file. Any
+// failure (not a file path, missing, too big) returns empty strings and the
+// frontend falls back to its other icon forms / a generic icon.
+func readIconFile(dir, icon string) (svg, src string) {
+	lower := strings.ToLower(icon)
+	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") || strings.HasPrefix(lower, "data:") {
+		return "", ""
+	}
+	ext := filepath.Ext(lower)
+	mime, raster := iconMIME[ext]
+	if ext != ".svg" && !raster {
+		return "", ""
+	}
+	p := icon
+	if strings.HasPrefix(p, "~/") {
+		home, _ := os.UserHomeDir()
+		p = filepath.Join(home, p[2:])
+	} else if !filepath.IsAbs(p) {
+		p = filepath.Join(dir, p)
+	}
+	info, err := os.Stat(p)
+	if err != nil || !info.Mode().IsRegular() || info.Size() > maxIconFile {
+		return "", ""
+	}
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return "", ""
+	}
+	if !raster {
+		return string(data), ""
+	}
+	return "", "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data)
 }
 
 type Manifest struct {
@@ -74,6 +128,9 @@ func Discover(root string) []Extension {
 		script, err := os.ReadFile(filepath.Join(dir, m.Main))
 		if err != nil {
 			continue
+		}
+		for i := range m.Panels {
+			m.Panels[i].IconSVG, m.Panels[i].IconSrc = readIconFile(dir, m.Panels[i].Icon)
 		}
 		out = append(out, Extension{Manifest: m, Dir: dir, Script: string(script)})
 	}

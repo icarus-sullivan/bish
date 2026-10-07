@@ -1,10 +1,23 @@
 <script lang="ts">
   import { tabs, activeTabId, closeTab, addTerminalTab, setTabLabel,
            closeTabsToRight, closeTabsToLeft, closeOtherTabs, closeAllTabs,
-           reorderTabs, shareDialogTerminalId, shareDialogFilePath, type Tab } from '../lib/stores'
+           reorderTabs, shareDialogTerminalId, shareDialogFilePath, activeExtPanel, type Tab } from '../lib/stores'
   import { NewTerminal, CloseTerminal } from '../lib/wails'
   import { IconTerminal2, IconFile, IconListDetails, IconPlus, IconX, IconSettings, IconFileDiff } from '@tabler/icons-svelte'
   import ContextMenu from './ContextMenu.svelte'
+  import PanelIcon from './PanelIcon.svelte'
+  import { extensionPanels } from '../lib/panels'
+  import { featureOn, features } from '../lib/features'
+
+  // each extension panel's own icon, right of the tabs — click opens that
+  // extension alone in ExtensionDock, click again closes it
+  const extIcons = $derived.by(() => {
+    void $features
+    return featureOn('extensionTopbar') ? $extensionPanels : []
+  })
+  function toggleExt(id: string) {
+    activeExtPanel.update(cur => cur === id ? null : id)
+  }
 
   async function newTerminal() {
     try {
@@ -142,60 +155,76 @@
 </script>
 
 <div class="tabbar">
-  {#each $tabs as tab (tab.id)}
-    {@const TabIcon = tabIcon(tab)}
-    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-    <div
-      class="tab"
-      class:active={$activeTabId === tab.id}
-      class:dragging={dragSrcId === tab.id}
-      class:drop-before={dragSrcId !== null && dragSrcId !== tab.id && dropBeforeId === tab.id}
-      role="tab"
-      tabindex="0"
-      aria-selected={$activeTabId === tab.id}
-      draggable="true"
-      ondragstart={(e) => onDragStart(e, tab)}
-      ondragover={(e) => onDragOver(e, tab)}
+  <div class="tabs">
+    {#each $tabs as tab (tab.id)}
+      {@const TabIcon = tabIcon(tab)}
+      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+      <div
+        class="tab"
+        class:active={$activeTabId === tab.id}
+        class:dragging={dragSrcId === tab.id}
+        class:drop-before={dragSrcId !== null && dragSrcId !== tab.id && dropBeforeId === tab.id}
+        role="tab"
+        tabindex="0"
+        aria-selected={$activeTabId === tab.id}
+        draggable="true"
+        ondragstart={(e) => onDragStart(e, tab)}
+        ondragover={(e) => onDragOver(e, tab)}
+        ondrop={onDrop}
+        ondragend={onDragEnd}
+        onclick={() => activeTabId.set(tab.id)}
+        onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activeTabId.set(tab.id) } }}
+        oncontextmenu={(e) => showTabMenu(e, tab)}
+      >
+        <TabIcon size={11} />
+        {#if editingId === tab.id}
+          <!-- svelte-ignore a11y_autofocus -->
+          <input
+            class="tab-rename"
+            bind:value={editValue}
+            autofocus
+            onclick={(e) => e.stopPropagation()}
+            onblur={commitRename}
+            onkeydown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); commitRename() }
+              else if (e.key === 'Escape') { e.preventDefault(); editingId = null }
+            }}
+          />
+        {:else}
+          <span class="tab-label" title={tab.label} ondblclick={(e) => { e.stopPropagation(); startRename(tab) }} role="presentation">{tab.label}</span>
+        {/if}
+        {#if tab.type !== 'terminal' || $tabs.filter(t => t.type === 'terminal').length > 1}
+          <button class="tab-close" onclick={(e) => handleClose(e, tab)} title="Close">
+            <IconX size={10} />
+          </button>
+        {/if}
+      </div>
+    {/each}
+    <button
+      class="new-terminal"
+      class:drop-end={dragSrcId !== null && dropBeforeId === '__end__'}
+      ondragover={onDragOverEnd}
       ondrop={onDrop}
-      ondragend={onDragEnd}
-      onclick={() => activeTabId.set(tab.id)}
-      onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activeTabId.set(tab.id) } }}
-      oncontextmenu={(e) => showTabMenu(e, tab)}
+      onclick={newTerminal}
+      title="New Terminal"
     >
-      <TabIcon size={11} />
-      {#if editingId === tab.id}
-        <!-- svelte-ignore a11y_autofocus -->
-        <input
-          class="tab-rename"
-          bind:value={editValue}
-          autofocus
-          onclick={(e) => e.stopPropagation()}
-          onblur={commitRename}
-          onkeydown={(e) => {
-            if (e.key === 'Enter') { e.preventDefault(); commitRename() }
-            else if (e.key === 'Escape') { e.preventDefault(); editingId = null }
-          }}
-        />
-      {:else}
-        <span class="tab-label" title={tab.label} ondblclick={(e) => { e.stopPropagation(); startRename(tab) }} role="presentation">{tab.label}</span>
-      {/if}
-      {#if tab.type !== 'terminal' || $tabs.filter(t => t.type === 'terminal').length > 1}
-        <button class="tab-close" onclick={(e) => handleClose(e, tab)} title="Close">
-          <IconX size={10} />
+      <IconPlus size={12} />
+    </button>
+  </div>
+  {#if extIcons.length}
+    <div class="ext-icons">
+      {#each extIcons as p (p.id)}
+        <button
+          class="hdr-btn"
+          class:active={$activeExtPanel === p.id}
+          onclick={() => toggleExt(p.id)}
+          title={p.title}
+        >
+          <PanelIcon panel={p} size={13} />
         </button>
-      {/if}
+      {/each}
     </div>
-  {/each}
-  <button
-    class="new-terminal"
-    class:drop-end={dragSrcId !== null && dropBeforeId === '__end__'}
-    ondragover={onDragOverEnd}
-    ondrop={onDrop}
-    onclick={newTerminal}
-    title="New Terminal"
-  >
-    <IconPlus size={12} />
-  </button>
+  {/if}
 </div>
 
 {#if tabMenu}
@@ -214,12 +243,41 @@
     height: 32px;
     background: var(--bg-raised);
     border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  /* tabs scroll on their own so the extension icons stay pinned right */
+  .tabs {
+    display: flex;
+    align-items: stretch;
+    flex: 1;
+    min-width: 0;
     overflow-x: auto;
     overflow-y: hidden;
-    flex-shrink: 0;
     scrollbar-width: none;
   }
-  .tabbar::-webkit-scrollbar { display: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+
+  .ext-icons {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 0 8px;
+    flex-shrink: 0;
+  }
+  .hdr-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 3px 4px;
+    border-radius: 3px;
+    transition: color 0.1s, background 0.1s;
+  }
+  .hdr-btn:hover { color: var(--foreground); background: var(--bg-hover); }
+  .hdr-btn.active { color: var(--foreground); }
 
   .tab {
     display: flex;

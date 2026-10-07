@@ -16,7 +16,7 @@ import ExtensionPanelHost from '../components/ExtensionPanelHost.svelte'
 import LanguagesPanel from '../components/LanguagesPanel.svelte'
 import AssistantPanel from '../components/AssistantPanel.svelte'
 import { loadedExtensions } from './extensions'
-import { resolveExtensionIcon } from './extensionIcons'
+import { resolveExtensionIcon, extensionIconSource } from './extensionIcons'
 
 // The built-in "plugin" registry: a future plugin API pushes onto this array.
 export interface Panel {
@@ -51,16 +51,35 @@ export const builtinPanels: Panel[] = [
   { id: 'commandCenter', title: 'Command Center', icon: IconRocket, component: CommandCenter, feature: 'commandCenter' },
 ]
 
-// Reactive: built-ins plus one sidebar entry per enabled extension's
-// contributed panel, so each extension can own its own icon instead of
-// being lumped into the single "Extensions" aggregate panel above.
-export const panels = derived(loadedExtensions, (exts): Panel[] => [
-  ...builtinPanels,
-  ...exts.filter(e => e.enabled).flatMap(e => (e.panels ?? []).map(p => ({
-    id: `ext:${e.name}:${p.id}`,
-    title: p.title,
-    icon: resolveExtensionIcon(p.icon),
-    component: ExtensionPanelHost,
-    props: { extName: e.name, panelId: p.id },
-  } satisfies Panel))),
-])
+export interface ExtensionPanel extends Panel {
+  // non-tabler icon forms (see extensionIcons.ts); both '' = render `icon`
+  iconSvg: string  // sanitized inline svg markup
+  iconSrc: string  // <img> source (URL / data URI)
+  extName: string
+  panelId: string
+}
+
+// One entry per enabled extension's contributed panel, so each extension
+// owns its own icon instead of being lumped into the single "Extensions"
+// aggregate panel above. Shown in the tab bar (→ ExtensionDock) when the
+// extensionTopbar feature is on, otherwise in the sidebar strip.
+export const extensionPanels = derived(loadedExtensions, (exts): ExtensionPanel[] =>
+  exts.filter(e => e.enabled).flatMap(e => (e.panels ?? []).map(p => {
+    const { svg, src } = extensionIconSource(p)
+    return {
+      id: `ext:${e.name}:${p.id}`,
+      title: p.title,
+      icon: resolveExtensionIcon(p.icon),
+      iconSvg: svg,
+      iconSrc: src,
+      component: ExtensionPanelHost,
+      props: { extName: e.name, panelId: p.id },
+      extName: e.name,
+      panelId: p.id,
+    }
+  })),
+)
+
+// Reactive: built-ins plus every extension panel (FloatingWindow looks
+// panels up here regardless of where their icon lives).
+export const panels = derived(extensionPanels, (ext): Panel[] => [...builtinPanels, ...ext])

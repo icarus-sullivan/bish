@@ -12,7 +12,7 @@ import { GetExtensions, SetExtensionEnabled, UninstallExtension, InstallExtensio
 import type { Extension } from './wails'
 import { registerCommand } from './commands'
 import { registerKeybind } from './keybinds'
-import { tabs, activeTabId, pendingFormatDocument, activeRightPanel } from './stores'
+import { tabs, activeTabId, pendingFormatDocument, activeRightPanel, activeExtPanel } from './stores'
 
 export const loadedExtensions = writable<Extension[]>([])
 // `${extensionName}:${panelId}` -> sanitized HTML
@@ -183,7 +183,14 @@ export function setExtensionEnabled(name: string, enabled: boolean) {
     if (ext) startWorker(ext)
   } else {
     stopWorker(name)
+    closeExtDock(name)
   }
+}
+
+// Closes ExtensionDock if it's showing one of this extension's panels, so it
+// never points at a panel that's been disabled or removed.
+function closeExtDock(name: string) {
+  if (get(activeExtPanel)?.startsWith(`ext:${name}:`)) activeExtPanel.set(null)
 }
 
 // Deletes the extension's directory under ~/.bish/extensions and drops it
@@ -196,6 +203,7 @@ export async function uninstallExtension(name: string) {
   stopWorker(name)
   await UninstallExtension(name)
   loadedExtensions.update(list => list.filter(e => e.name !== name))
+  closeExtDock(name)
   // if the panel we just deleted was showing, fall back so the sidebar
   // doesn't point at a panel that no longer exists
   if (get(activeRightPanel).startsWith(`ext:${name}:`)) {

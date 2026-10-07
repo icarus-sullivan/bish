@@ -6,6 +6,7 @@
   import { featureOn, features } from '../lib/features'
   import { IconSettings } from '@tabler/icons-svelte'
   import ContextMenu from './ContextMenu.svelte'
+  import PanelIcon from './PanelIcon.svelte'
   import { get } from 'svelte/store'
   import { onDestroy } from 'svelte'
 
@@ -19,10 +20,13 @@
   })
   onDestroy(unsubMounted)
 
-  // re-evaluate gating when toggles change ($features touched for reactivity)
+  // re-evaluate gating when toggles change ($features touched for reactivity).
+  // With extensionTopbar on, extension panels get their icons in the tab bar
+  // (and open in ExtensionDock) instead of this strip.
   const visible = $derived.by(() => {
     void $features
-    return $panels.filter(p => !p.feature || featureOn(p.feature))
+    const extInTopbar = featureOn('extensionTopbar')
+    return $panels.filter(p => (!p.feature || featureOn(p.feature)) && !(extInTopbar && p.id.startsWith('ext:')))
   })
 
   const floatingIds = $derived(new Set($floatingPanels.map(f => f.panelId)))
@@ -105,7 +109,7 @@
         oncontextmenu={(e) => showMenu(e, p.id)}
         title={p.title}
       >
-        <p.icon size={20} />
+        <PanelIcon panel={p} size={20} />
       </button>
     {/each}
     <button class="hdr-btn settings" onclick={openSettingsTab} title="Settings">

@@ -1,8 +1,9 @@
 <script lang="ts">
   import { loadedExtensions, extensionPanelHTML, extensionPanelSelect, sendPanelInput, sendPanelSelect, handlePanelClick, runExtensionCommand } from '../lib/extensions'
-  import { IconChevronDown, IconRefresh } from '@tabler/icons-svelte'
+  import { IconChevronDown, IconRefresh, IconX } from '@tabler/icons-svelte'
 
-  let { extName, panelId }: { extName: string; panelId: string } = $props()
+  // onClose: set when hosted in ExtensionDock — adds a close button to the header
+  let { extName, panelId, onClose }: { extName: string; panelId: string; onClose?: () => void } = $props()
 
   let input = $state('')
 
@@ -42,6 +43,11 @@
 <div class="panel">
   <div class="header">
     <span class="header-label">{title}</span>
+    {#if onClose}
+      <button class="hdr-btn" onclick={onClose} title="Close">
+        <IconX size={13} />
+      </button>
+    {/if}
   </div>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -79,6 +85,7 @@
     flex-shrink: 0; background: var(--bg-raised); border-bottom: 1px solid var(--border);
   }
   .header-label {
+    flex: 1;
     font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
     text-transform: uppercase; color: var(--muted);
   }

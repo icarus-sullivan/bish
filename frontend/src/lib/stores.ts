@@ -95,6 +95,11 @@ export const showRight = writable<boolean>(true)
 // active panel in the right sidebar (ids from lib/panels.ts)
 export const activeRightPanel = writable<string>('files')
 
+// extension panel shown in its own dock beside the editor (opened from the
+// tab bar's extension icons): `ext:<name>:<panelId>`, or null = dock closed
+export const activeExtPanel = writable<string | null>(null)
+export const extDockWidth = writable<number>(320)
+
 // which edge the dockable sidebar lives on (config.json `panel_side`, global — not per-project)
 export const panelSide = writable<'left' | 'right'>('right')
 

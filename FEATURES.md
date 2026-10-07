@@ -39,3 +39,4 @@ guard, OFF = zero cost). See `.claude/plans/` for the full gap analysis.
 - [x] Voice dictation in the AI panel composer (Claude + Codex): mic button → offline speech recognition in the webview (vosk-browser, bundled small en-US model) → words stream into the prompt live as you talk
 - [ ] Non-macOS support (heavy `_darwin.go` / `open`/`dscl`/`ps` reliance)
 - [x] Per-extension sidebar panel icons (each contributed panel gets its own gutter icon, not just the aggregate Extensions panel)
+- [x] Extension icons in the tab bar (right-aligned; click opens that extension alone in its own dock beside the editor). Manifest panel `icon` = tabler name, http(s) URL, base64 / data: URI, or local image file (svg/png/jpg/gif/webp/ico). Toggle: `extensionTopbar` — off = icons back in the sidebar strip

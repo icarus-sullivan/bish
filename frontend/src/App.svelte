@@ -4,15 +4,16 @@
            rightWidth, currentThemeName, panelSide, floatingPanels,
            showPalette, showActionPalette, showGlobalSearch, searchScopeDir, tabs, activeTabId, closeTab, reopenMainTab,
            addTerminalTab, cycleTab, gitBranch, activeSelection, showOpenRemote, shareDialogTerminalId,
-           shareDialogFilePath, showWelcomeTour, showShortcutsOverlay } from './lib/stores'
+           shareDialogFilePath, showWelcomeTour, showShortcutsOverlay, activeExtPanel, extDockWidth } from './lib/stores'
   import { get } from 'svelte/store'
   import { initEvents } from './lib/events'
   import { registerKeybind } from './lib/keybinds'
-  import { featureOn } from './lib/features'
+  import { featureOn, features } from './lib/features'
   import { registerBuiltinCommands } from './lib/builtinCommands'
   import { applyCustomKeybinds } from './lib/keymap'
   import Terminal from './components/Terminal.svelte'
   import RightSidebar from './components/RightSidebar.svelte'
+  import ExtensionDock from './components/ExtensionDock.svelte'
   import FloatingWindow from './components/FloatingWindow.svelte'
   import { panels } from './lib/panels'
   import FileViewer from './components/FileViewer.svelte'
@@ -61,6 +62,8 @@
     return indent === '\t' ? 'Tab Size: 4' : `Spaces: ${indent.length}`
   }
   const activeTab = $derived($tabs.find(t => t.id === $activeTabId))
+  // $features touched so flipping the toggle in Settings re-evaluates
+  const showExtDock = $derived.by(() => { void $features; return !!$activeExtPanel && featureOn('extensionTopbar') })
 
   let recentProjects: RecentEntry[] = $state([])
 
@@ -178,12 +181,19 @@
   }
 
   function startResize(e: MouseEvent) {
-    e.preventDefault()
-    const startX = e.clientX
-    const startRight = $rightWidth
     // dragging the handle grows the sidebar toward the center-col — that's
     // leftward motion when docked right, rightward motion when docked left
-    const sign = $panelSide === 'left' ? 1 : -1
+    dragResize(e, rightWidth, $panelSide === 'left' ? 1 : -1)
+  }
+
+  // the extension dock always sits right of the center-col, so it always
+  // grows leftward
+  function startExtDockResize(e: MouseEvent) { dragResize(e, extDockWidth, -1) }
+
+  function dragResize(e: MouseEvent, width: typeof rightWidth, sign: 1 | -1) {
+    e.preventDefault()
+    const startX = e.clientX
+    const startRight = get(width)
 
     function onMove(ev: MouseEvent) {
       // 220 is the narrowest a Processes row (play/stop/dot/port badge/trash,
@@ -191,7 +201,7 @@
       // Upper bound leaves 100px for the center column so it never fully
       // collapses.
       const maxWidth = window.innerWidth - 100
-      rightWidth.set(Math.max(220, Math.min(maxWidth, startRight + sign * (ev.clientX - startX))))
+      width.set(Math.max(220, Math.min(maxWidth, startRight + sign * (ev.clientX - startX))))
     }
     function onUp() {
       window.removeEventListener('mousemove', onMove)
@@ -320,6 +330,18 @@
         </div>
       {/if}
     </div>
+
+    <!-- extension opened from its tab-bar icon: its own column, right of
+         the editor, independent of the main sidebar -->
+    {#if showExtDock}
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <div class="hsplit-handle"
+         onmousedown={startExtDockResize}
+         role="separator" tabindex="-1"></div>
+    <div class="right-col" style="width:{$extDockWidth}px">
+      <ExtensionDock />
+    </div>
+    {/if}
 
     {#if $showRight && $panelSide === 'right'}
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->

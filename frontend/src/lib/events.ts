@@ -11,7 +11,7 @@ import {
 } from './stores'
 import { get } from 'svelte/store'
 import type { CCSnapshot } from './wails'
-import { loadFeatures } from './features'
+import { loadFeatures, featureOn } from './features'
 import { setUserSnippets } from './snippets'
 import { loadExtensions } from './extensions'
 import { loadLanguageExtensions } from './languageExtensions'
@@ -163,7 +163,11 @@ async function loadProjectUI() {
     const p = get(persistPrefs)
     if (p.panel_width && ui.right_width) rightWidth.set(ui.right_width)
     if (p.right_sidebar && ui.show_right != null) showRight.set(ui.show_right)
-    if (p.right_panel && ui.right_panel) activeRightPanel.set(ui.right_panel)
+    // an extension panel saved from before extensionTopbar was on lives in
+    // ExtensionDock now, not the sidebar — restoring it would leave it blank
+    if (p.right_panel && ui.right_panel && !(featureOn('extensionTopbar') && ui.right_panel.startsWith('ext:'))) {
+      activeRightPanel.set(ui.right_panel)
+    }
     if (p.tabs) {
       for (const t of ui.tabs ?? []) {
         // forceText when a media-extension path was open as a text tab
