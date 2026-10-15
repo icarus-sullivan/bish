@@ -71,42 +71,55 @@ type App struct {
 	// multi-root workspace: additional folders beyond the primary project
 	// root, each with its own Tree. Guarded by treeMu (tree-display state,
 	// not project identity) — order is add-order, matching the sidebar.
-	extraRoots             []string
-	extraTrees             map[string]*tree.Tree
-	selectedPath           string
-	fsw                    *fsnotify.Watcher
-	cwd                    string
-	cwdFile                string
-	wFilePath              string
-	wFilePos               int64
-	galleryFile            string
-	galleryCur             string
-	projectRoot            string
-	projectCfg             *project.Config
-	projectMu              sync.Mutex
-	remoteDest             string // "" = local project; else an SSH destination ("user@host")
-	lsp                    *lsp.Manager
-	langextFormatter       *langext.FormatterManager
-	dap                    *dap.Manager
-	liveShare              *liveshare.Manager
-	assistant              *assistant.Manager
-	codex                  *codex.Manager
-	completion             *completion.Manager
-	telemetry              *telemetry.Manager
-	prevProcStatus         map[string]process.Status // refreshLoop's crash/finish notification edge-detector
-	cfg                    config.Config
-	ctx                    context.Context
+	extraRoots       []string
+	extraTrees       map[string]*tree.Tree
+	selectedPath     string
+	fsw              *fsnotify.Watcher
+	cwd              string
+	cwdFile          string
+	wFilePath        string
+	wFilePos         int64
+	galleryFile      string
+	galleryCur       string
+	projectRoot      string
+	projectCfg       *project.Config
+	projectMu        sync.Mutex
+	remoteDest       string // "" = local project; else an SSH destination ("user@host")
+	lsp              *lsp.Manager
+	langextFormatter *langext.FormatterManager
+	dap              *dap.Manager
+	liveShare        *liveshare.Manager
+	assistant        *assistant.Manager
+	codex            *codex.Manager
+	completion       *completion.Manager
+	telemetry        *telemetry.Manager
+	prevProcStatus   map[string]process.Status // refreshLoop's crash/finish notification edge-detector
+	cfg              config.Config
+	ctx              context.Context
+	desktopOpenMu    sync.Mutex
+	desktopStarted   bool
+	// startupDone closes once resolveStartup has decided (and, for a
+	// project, loaded) what this window shows — the frontend's initial
+	// getters wait on it so a known project never flashes the empty state.
+	startupDone chan struct{}
+	startupOnce sync.Once
+	// LaunchSettled, if set, fires once the native app has finished
+	// launching — on macOS that's when cold-start openFile events (Dock
+	// recents, Finder) have been delivered. nil means settle immediately.
+	LaunchSettled          <-chan struct{}
 	DockMenuUpdater        func()
 	QuitInterceptInstaller func()
 	// PromoteInstance signals another live bish window (by pid) to take
 	// over Dock-icon/menu-bar representation — see Shutdown and
 	// promote_darwin.go.
-	PromoteInstance func(pid int)
-	StartupProject  string
-	StartupFile     string
-	MediaBase       string
-	NoRestore       bool
-	quitRequested   atomic.Bool
+	PromoteInstance   func(pid int)
+	StartupProject    string
+	StartupFile       string
+	StartupExtraPaths []string
+	StartupNewFile    bool
+	MediaBase         string
+	NoRestore         bool
+	quitRequested     atomic.Bool
 	// ChildWindow is true when this window launched without its own Dock
 	// icon (collapsed under another window's — see launchNewInstance). Flips
 	// to false in place if this window is later promoted to take over Dock
@@ -123,6 +136,7 @@ func (a *App) SetQuitRequested() {
 func New(cfg config.Config, mgr *process.Manager, store *commands.Store,
 	shell *bishpty.PTY, cwd, cwdFile, wFilePath, galleryFile string) *App {
 	return &App{
+		startupDone: make(chan struct{}),
 		mgr:         mgr,
 		cc:          commandcenter.New(mgr),
 		cmdStore:    store,
@@ -194,24 +208,86 @@ func (a *App) Startup(ctx context.Context) {
 	if a.QuitInterceptInstaller != nil {
 		a.QuitInterceptInstaller()
 	}
-	if a.StartupProject != "" {
-		go a.openProjectDir(a.StartupProject) //nolint
-	} else {
-		// no project directory to show — leave a.fileTree empty (its zero value)
-		// rather than falling back to a.cwd, which used to leak whatever
-		// directory the process happened to launch from (often the install
-		// dir) into the tree/sidebar on a truly blank launch
-		if a.StartupFile != "" {
-			project.AddRecentFile(a.StartupFile) //nolint
-		}
-		// skip session restore when a bare file was passed on the command line —
-		// restoring a prior project would clear the tab we're about to open for it
-		if !a.NoRestore && a.StartupFile == "" {
-			go a.restoreSession()
-		}
+	a.installRaiseHandler()
+	go a.resolveStartup()
+}
+
+// newFileSentinel is the frontend's tab id for an unsaved buffer — the same
+// id File > New opens (openFileTab('__new__')).
+const newFileSentinel = "__new__"
+
+// resolveStartup decides what this window opens on launch and loads it
+// before releasing the frontend's initial getters (see awaitStartup). It
+// first waits for the native launch to settle so a macOS cold-start openFile
+// (Dock recent, Finder Open With) is folded in instead of racing session
+// restore and spawning a second window.
+func (a *App) resolveStartup() {
+	defer a.markStartupResolved()
+	// only a bare launch (Dock/Finder click, no CLI target) can carry a
+	// pending openFile; explicit targets and spawned windows skip the wait
+	a.desktopOpenMu.Lock()
+	bare := a.StartupProject == "" && a.StartupFile == "" && !a.StartupNewFile && !a.NoRestore
+	a.desktopOpenMu.Unlock()
+	if bare {
+		a.waitLaunchSettled()
 	}
+	a.desktopOpenMu.Lock()
+	a.desktopStarted = true
+	startupProject, startupFile := a.StartupProject, a.StartupFile
+	noRestore := a.NoRestore || a.StartupNewFile
+	a.desktopOpenMu.Unlock()
+	switch {
+	case startupProject != "":
+		a.openProjectDir(startupProject) //nolint
+	case startupFile != "":
+		// no project directory to show — leave a.fileTree empty (its zero
+		// value) rather than falling back to a.cwd, which used to leak
+		// whatever directory the process launched from into the sidebar
+		project.AddRecentFile(startupFile) //nolint
+	case !noRestore:
+		a.restoreSession()
+	}
+	a.markStartupResolved()
 	if a.DockMenuUpdater != nil {
 		a.DockMenuUpdater()
+	}
+	// Linux desktop launchers use %F, so one activation can contain several
+	// selected files/folders. Keep the first in this window and give each
+	// additional path its own window instead of rejecting the entire launch.
+	for _, path := range a.StartupExtraPaths {
+		if info, err := os.Stat(path); err == nil && info.IsDir() {
+			launchNewInstance("--project", path) //nolint
+		} else {
+			launchNewInstance(path) //nolint
+		}
+	}
+}
+
+// waitLaunchSettled blocks until LaunchSettled fires (plus a short grace for
+// Wails' buffered openFile channel to drain), capped so a missed native
+// notification can never wedge startup.
+func (a *App) waitLaunchSettled() {
+	if a.LaunchSettled == nil {
+		return
+	}
+	select {
+	case <-a.LaunchSettled:
+		time.Sleep(200 * time.Millisecond)
+	case <-time.After(2 * time.Second):
+	}
+}
+
+func (a *App) markStartupResolved() {
+	a.startupOnce.Do(func() { close(a.startupDone) })
+}
+
+// awaitStartup blocks the frontend's initial state reads until
+// resolveStartup has loaded the startup project, with a timeout so a slow
+// or failed open degrades to the old behavior instead of hanging the UI.
+func (a *App) awaitStartup() {
+	select {
+	case <-a.startupDone:
+	case <-time.After(5 * time.Second):
 	}
 }
 
@@ -785,6 +861,7 @@ func (a *App) StopAllCommandCenter() {
 // -- Tree methods --
 
 func (a *App) GetTreeNodes() []TreeNodeDTO {
+	a.awaitStartup()
 	a.treeMu.Lock()
 	defer a.treeMu.Unlock()
 	return a.flatNodes()
@@ -1954,6 +2031,71 @@ func (a *App) NewWindow() error {
 	return launchNewInstance("--no-restore")
 }
 
+// NewFileWindow opens a new window with an untitled buffer — the Dock
+// menu's "New File" and the Linux launcher's new-file action.
+func (a *App) NewFileWindow() error {
+	return launchNewInstance("--new-file")
+}
+
+// HandleDesktopOpen handles paths opened by the desktop shell (a macOS Dock
+// Recent item or Finder's Open With). Folders use the same focus-or-launch
+// behavior as Open Recent; files open in a separate window, matching VS
+// Code's desktop-launch behavior. A blank window is reused for either.
+func (a *App) HandleDesktopOpen(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	// A cold-start Finder/Dock event arrives before resolveStartup has
+	// decided what to open (it waits for the launch to settle). Fold it into
+	// startup so we neither restore the old session nor show a blank window
+	// and then spawn a second one for the requested path.
+	a.desktopOpenMu.Lock()
+	if !a.desktopStarted {
+		a.NoRestore = true
+		if info.IsDir() {
+			a.StartupProject, a.StartupFile = path, ""
+		} else if a.StartupProject == "" {
+			a.StartupFile = path
+		}
+		a.desktopOpenMu.Unlock()
+		return nil
+	}
+	a.desktopOpenMu.Unlock()
+	a.projectMu.Lock()
+	blank := a.projectRoot == ""
+	a.projectMu.Unlock()
+	if info.IsDir() {
+		if pid, ok := project.FindWindowPID(path); ok && pid != os.Getpid() && activateWindow(pid) {
+			return nil
+		}
+		if blank {
+			return a.openProjectDir(path)
+		}
+		return a.OpenRecentProject(path)
+	}
+	if blank {
+		project.AddRecentFile(path) //nolint
+		runtime.EventsEmit(a.ctx, "desktop:open-file", path)
+		if a.DockMenuUpdater != nil {
+			a.DockMenuUpdater()
+		}
+		return nil
+	}
+	return a.OpenRecentFileInNewWindow(path)
+}
+
+// FocusExistingProjectWindow raises the live window (another process) that
+// already has path open, if any — so a launcher/CLI open of an already-open
+// project focuses it instead of spawning a duplicate window.
+func FocusExistingProjectWindow(path string) bool {
+	pid, ok := project.FindWindowPID(path)
+	if !ok || pid == os.Getpid() {
+		return false
+	}
+	return activateWindow(pid)
+}
+
 // OpenRecentFileInNewWindow opens a standalone file (no project) in a new
 // window — used by the Dock menu's "Recent Files" section. launchNewInstance
 // with just the path matches the CLI's own positional-arg-as-file handling
@@ -2003,6 +2145,10 @@ func (a *App) TriggerNewFile() {
 // GetStartupFile returns the file passed on the command line (`bish <file>`),
 // if any. Read once by the frontend at startup, same as GetProjectRoot.
 func (a *App) GetStartupFile() string {
+	a.awaitStartup()
+	if a.StartupNewFile {
+		return newFileSentinel
+	}
 	return a.StartupFile
 }
 
@@ -2140,6 +2286,7 @@ func (a *App) OpenRemoteProject(dest, path string) error {
 // IsRemoteProject reports whether the open project lives on an SSH
 // destination (fetched once at startup, mirroring GetProjectRoot).
 func (a *App) IsRemoteProject() bool {
+	a.awaitStartup()
 	a.projectMu.Lock()
 	defer a.projectMu.Unlock()
 	return a.remoteDest != ""
@@ -2330,6 +2477,7 @@ func (a *App) CloseProject() {
 // GetTasks returns the git-shareable .bish/tasks.json run buttons for the
 // open project (nil if none open or no tasks file present).
 func (a *App) GetTasks() []*project.Task {
+	a.awaitStartup()
 	a.projectMu.Lock()
 	root := a.projectRoot
 	a.projectMu.Unlock()
@@ -2367,6 +2515,7 @@ func (a *App) RunTask(id string) error {
 }
 
 func (a *App) GetProjectCommands() []*project.Cmd {
+	a.awaitStartup()
 	a.projectMu.Lock()
 	defer a.projectMu.Unlock()
 	if a.projectCfg == nil {
@@ -2494,6 +2643,7 @@ func (a *App) GetRecentFiles() []*project.RecentFile {
 }
 
 func (a *App) GetProjectRoot() string {
+	a.awaitStartup()
 	a.projectMu.Lock()
 	defer a.projectMu.Unlock()
 	return a.projectRoot

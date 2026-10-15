@@ -26,3 +26,7 @@ import "C"
 func activateWindow(pid int) bool {
 	return C.bishActivatePID(C.int(pid)) != 0
 }
+
+// installRaiseHandler is a no-op on macOS — activateWindow raises other
+// windows directly through NSRunningApplication.
+func (a *App) installRaiseHandler() {}

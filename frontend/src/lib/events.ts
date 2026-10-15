@@ -129,6 +129,7 @@ export async function initEvents() {
     [showRight, rightWidth, tabs, activeTabId, activeRightPanel]
   uiStores.forEach(s => s.subscribe(scheduleSaveUI))
   on('file:new', () => openFileTab('__new__'))
+  on('desktop:open-file', (path: string) => openFileTab(path))
   on('palette:open', () => showPalette.set(true))
   on('gallery:open', async (dirPath: string) => {
     const imgs = await GetGalleryImages(dirPath).catch(() => [])

@@ -6,3 +6,7 @@ package app
 func activateWindow(pid int) bool {
 	return false
 }
+
+// installRaiseHandler is a no-op on Windows — activateWindow isn't
+// supported there yet.
+func (a *App) installRaiseHandler() {}

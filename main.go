@@ -11,6 +11,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/menu/keys"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/linux"
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
 
 	"github.com/csullivan/bish/internal/app"
@@ -40,25 +41,31 @@ func main() {
 	var install bool
 	var noRestore bool
 	var childWindow bool
+	var newFile bool
+	var extraPaths []string
 
 	root := &cobra.Command{
-		Use:     cliName + " [path]",
+		Use:     cliName + " [paths...]",
 		Short:   cliDescription,
 		Version: version,
-		Args:    cobra.MaximumNArgs(1),
+		Args:    cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if install {
 				return runInstall()
 			}
 			openFilePath := ""
-			if len(args) == 1 {
-				abs, err := filepath.Abs(args[0])
+			for i, arg := range args {
+				abs, err := filepath.Abs(arg)
 				if err != nil {
-					return fmt.Errorf("resolving %q: %w", args[0], err)
+					return fmt.Errorf("resolving %q: %w", arg, err)
 				}
 				info, err := os.Stat(abs)
 				if err != nil {
-					return fmt.Errorf("%s: %w", args[0], err)
+					return fmt.Errorf("%s: %w", arg, err)
+				}
+				if i > 0 {
+					extraPaths = append(extraPaths, abs)
+					continue
 				}
 				if info.IsDir() {
 					projectPath = abs
@@ -66,7 +73,19 @@ func main() {
 					openFilePath = abs
 				}
 			}
-			return run(themeName, shellPath, projectPath, openFilePath, noRestore, childWindow)
+			// A launcher/CLI open of a project that already has a window
+			// focuses that window rather than spawning a duplicate (VS Code
+			// behavior). Spawned child windows already went through this
+			// check in the parent (OpenRecentProject).
+			if projectPath != "" && !childWindow && len(extraPaths) == 0 {
+				if abs, err := filepath.Abs(projectPath); err == nil {
+					projectPath = abs
+					if app.FocusExistingProjectWindow(abs) {
+						return nil
+					}
+				}
+			}
+			return run(themeName, shellPath, projectPath, openFilePath, extraPaths, noRestore || newFile, newFile, childWindow)
 		},
 	}
 
@@ -75,6 +94,8 @@ func main() {
 	root.Flags().StringVar(&projectPath, "project", "", "open project at path on startup")
 	root.Flags().BoolVar(&install, "install", false, "print shell setup to stdout")
 	root.Flags().BoolVar(&noRestore, "no-restore", false, "skip session restore on startup (used internally for New Window)")
+	root.Flags().BoolVarP(&noRestore, "new-window", "n", false, "open a new empty window")
+	root.Flags().BoolVar(&newFile, "new-file", false, "open a new window with an untitled file")
 	root.Flags().BoolVar(&childWindow, "child-window", false, "run without own Dock icon (used internally for extra windows)")
 	root.Flags().MarkHidden("child-window") //nolint
 
@@ -129,13 +150,23 @@ func buildMenu(a *app.App) *menu.Menu {
 	})
 	recentMenu := fileMenu.AddSubmenu("Open Recent")
 	recents, _ := project.LoadRecent()
-	if len(recents) == 0 {
+	recentFiles, _ := project.LoadRecentFiles()
+	if len(recents) == 0 && len(recentFiles) == 0 {
 		recentMenu.AddText("No Recent Projects", nil, nil)
 	} else {
 		for _, entry := range recents {
 			e := entry
 			recentMenu.AddText(e.Name, nil, func(_ *menu.CallbackData) {
 				a.OpenRecentProject(e.Path) //nolint
+			})
+		}
+		if len(recents) > 0 && len(recentFiles) > 0 {
+			recentMenu.AddSeparator()
+		}
+		for _, entry := range recentFiles {
+			e := entry
+			recentMenu.AddText(e.Name, nil, func(_ *menu.CallbackData) {
+				a.OpenRecentFileInNewWindow(e.Path) //nolint
 			})
 		}
 	}
@@ -152,7 +183,7 @@ func buildMenu(a *app.App) *menu.Menu {
 	return appMenu
 }
 
-func run(themeName, shellPath, projectPath, openFilePath string, noRestore, childWindow bool) error {
+func run(themeName, shellPath, projectPath, openFilePath string, extraPaths []string, noRestore, newFile, childWindow bool) error {
 	// GUI launches get launchd's minimal env; recover PATH etc. from a login shell.
 	if err := shellenv.LoadLoginEnv(shellenv.DefaultShell()); err != nil {
 		fmt.Fprintf(os.Stderr, "shellenv: %v\n", err)
@@ -205,8 +236,11 @@ func run(themeName, shellPath, projectPath, openFilePath string, noRestore, chil
 	a := app.New(cfg, mgr, store, shell, cwd, cwdFile, wFilePath, galleryFile)
 	a.StartupProject = projectPath
 	a.StartupFile = openFilePath
+	a.StartupExtraPaths = extraPaths
 	a.MediaBase = startMediaServer()
 	a.NoRestore = noRestore
+	a.StartupNewFile = newFile
+	a.LaunchSettled = observeLaunch()
 	a.ChildWindow.Store(childWindow)
 	globalApp = a
 	a.DockMenuUpdater = func() {
@@ -240,6 +274,16 @@ func run(themeName, shellPath, projectPath, openFilePath string, noRestore, chil
 			TitleBar:             mac.TitleBarHiddenInset(),
 			WebviewIsTransparent: false,
 			WindowIsTranslucent:  false,
+			OnFileOpen: func(path string) {
+				if globalApp != nil {
+					globalApp.HandleDesktopOpen(path) //nolint
+				}
+			},
+		},
+		Linux: &linux.Options{
+			// Must match StartupWMClass in packaging/bish.desktop.in so every
+			// independently spawned bish window stays grouped under the launcher.
+			ProgramName: "bish",
 		},
 	})
 }

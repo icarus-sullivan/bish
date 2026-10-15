@@ -46,6 +46,24 @@ export function AssistantStop(arg1:string):Promise<void>;
 
 export function AssistantSwitchMode(arg1:string,arg2:string):Promise<void>;
 
+export function BrowserBack(arg1:string):Promise<void>;
+
+export function BrowserClose(arg1:string):Promise<void>;
+
+export function BrowserForward(arg1:string):Promise<void>;
+
+export function BrowserNavigate(arg1:string,arg2:string):Promise<void>;
+
+export function BrowserOpen(arg1:string,arg2:string):Promise<void>;
+
+export function BrowserReload(arg1:string):Promise<void>;
+
+export function BrowserSetFrame(arg1:string,arg2:number,arg3:number,arg4:number,arg5:number):Promise<void>;
+
+export function BrowserSetVisible(arg1:string,arg2:boolean):Promise<void>;
+
+export function BrowserSupported():Promise<boolean>;
+
 export function CdToPath(arg1:string):Promise<void>;
 
 export function ClearStepCache(arg1:string):Promise<void>;
@@ -214,6 +232,8 @@ export function GitUnstage(arg1:string):Promise<void>;
 
 export function GitWorktrees(arg1:string):Promise<Array<app.GitWorktree>>;
 
+export function HandleDesktopOpen(arg1:string):Promise<void>;
+
 export function ImportSettingsFile():Promise<string>;
 
 export function InstallExtensionFromDirectory():Promise<string>;
@@ -243,6 +263,8 @@ export function LSPStop(arg1:string):Promise<void>;
 export function ListEnvs():Promise<Array<commandcenter.Env>>;
 
 export function ListLanguageExtensions():Promise<Array<app.LanguageExtensionDTO>>;
+
+export function NewFileWindow():Promise<void>;
 
 export function NewTerminal():Promise<string>;
 

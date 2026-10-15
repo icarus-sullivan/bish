@@ -14,34 +14,30 @@ import (
 	"github.com/csullivan/bish/internal/project"
 )
 
-//export goOpenRecentDock
-func goOpenRecentDock(path *C.char) {
+//export goNewWindowDock
+func goNewWindowDock() {
 	if globalApp != nil {
-		// OpenRecentProject focuses the project's window if it's already
-		// open, otherwise spawns one — same entry point File > Open Recent
-		// uses (buildMenu in main.go), so the Dock menu can't diverge again.
-		go globalApp.OpenRecentProject(C.GoString(path)) //nolint
+		go globalApp.NewWindow() //nolint
 	}
 }
 
-//export goOpenRecentFileDock
-func goOpenRecentFileDock(path *C.char) {
+//export goNewFileDock
+func goNewFileDock() {
 	if globalApp != nil {
-		go globalApp.OpenRecentFileInNewWindow(C.GoString(path)) //nolint
+		go globalApp.NewFileWindow() //nolint
 	}
 }
 
 func setBishDockMenuFromRecents(projects []*project.RecentEntry, files []*project.RecentFile) {
-	if len(projects) == 0 && len(files) == 0 {
-		return
-	}
 	pn := len(projects)
 	if pn > 8 {
 		pn = 8
 	}
 	fn := len(files)
-	if fn > 8 {
-		fn = 8
+	// macOS defaults to ten recent documents. Prefer project folders, as VS
+	// Code does for workspaces, and use any remaining slots for files.
+	if fn > 10-pn {
+		fn = 10 - pn
 	}
 
 	projPaths := make([]*C.char, pn)

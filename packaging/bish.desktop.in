@@ -2,7 +2,22 @@
 Type=Application
 Name=@NAME@
 Comment=@DESC@
-Exec=@EXEC@ %f
+GenericName=Text Editor
+Exec=@EXEC@ %F
 Icon=@ICON@
 Terminal=false
-Categories=Development;
+StartupNotify=false
+StartupWMClass=bish
+Categories=TextEditor;Development;IDE;
+Actions=new-window;new-file;
+Keywords=bish;editor;development;ide;
+
+[Desktop Action new-window]
+Name=New Window
+Exec=@EXEC@ --new-window
+Icon=@ICON@
+
+[Desktop Action new-file]
+Name=New File
+Exec=@EXEC@ --new-file
+Icon=@ICON@

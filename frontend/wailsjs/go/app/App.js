@@ -74,6 +74,42 @@ export function AssistantSwitchMode(arg1, arg2) {
   return window['go']['app']['App']['AssistantSwitchMode'](arg1, arg2);
 }
 
+export function BrowserBack(arg1) {
+  return window['go']['app']['App']['BrowserBack'](arg1);
+}
+
+export function BrowserClose(arg1) {
+  return window['go']['app']['App']['BrowserClose'](arg1);
+}
+
+export function BrowserForward(arg1) {
+  return window['go']['app']['App']['BrowserForward'](arg1);
+}
+
+export function BrowserNavigate(arg1, arg2) {
+  return window['go']['app']['App']['BrowserNavigate'](arg1, arg2);
+}
+
+export function BrowserOpen(arg1, arg2) {
+  return window['go']['app']['App']['BrowserOpen'](arg1, arg2);
+}
+
+export function BrowserReload(arg1) {
+  return window['go']['app']['App']['BrowserReload'](arg1);
+}
+
+export function BrowserSetFrame(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['app']['App']['BrowserSetFrame'](arg1, arg2, arg3, arg4, arg5);
+}
+
+export function BrowserSetVisible(arg1, arg2) {
+  return window['go']['app']['App']['BrowserSetVisible'](arg1, arg2);
+}
+
+export function BrowserSupported() {
+  return window['go']['app']['App']['BrowserSupported']();
+}
+
 export function CdToPath(arg1) {
   return window['go']['app']['App']['CdToPath'](arg1);
 }
@@ -410,6 +446,10 @@ export function GitWorktrees(arg1) {
   return window['go']['app']['App']['GitWorktrees'](arg1);
 }
 
+export function HandleDesktopOpen(arg1) {
+  return window['go']['app']['App']['HandleDesktopOpen'](arg1);
+}
+
 export function ImportSettingsFile() {
   return window['go']['app']['App']['ImportSettingsFile']();
 }
@@ -468,6 +508,10 @@ export function ListEnvs() {
 
 export function ListLanguageExtensions() {
   return window['go']['app']['App']['ListLanguageExtensions']();
+}
+
+export function NewFileWindow() {
+  return window['go']['app']['App']['NewFileWindow']();
 }
 
 export function NewTerminal() {
