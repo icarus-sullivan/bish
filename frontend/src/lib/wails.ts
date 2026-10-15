@@ -80,6 +80,17 @@ let mediaBase = ''
 export async function initMediaBase() {
   mediaBase = await GetMediaBase().catch(() => '')
 }
+// Terminal websocket on the same token-gated loopback server as mediaUrl
+// (see app.PTYSocketHandler). '' → server unavailable, use Wails events.
+let ptyBase: Promise<string> | undefined
+export function ptySocketUrl(id: string): Promise<string> {
+  ptyBase ??= GetMediaBase().catch(() => '').then((base) => {
+    if (!base) return ''
+    const u = new URL(base)
+    return `ws://${u.host}/pty?t=${encodeURIComponent(u.searchParams.get('t') ?? '')}&id=`
+  })
+  return ptyBase.then((base) => base && base + encodeURIComponent(id))
+}
 export function mediaUrl(path: string): string {
   const enc = encodeURIComponent(path)
   return mediaBase ? mediaBase + enc : `/localfile?path=${enc}`

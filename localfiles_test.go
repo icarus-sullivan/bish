@@ -10,7 +10,7 @@ import (
 )
 
 func TestMediaServer(t *testing.T) {
-	base := startMediaServer()
+	base := startMediaServer(nil)
 	if base == "" {
 		t.Fatal("media server failed to start")
 	}

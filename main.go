@@ -237,7 +237,7 @@ func run(themeName, shellPath, projectPath, openFilePath string, extraPaths []st
 	a.StartupProject = projectPath
 	a.StartupFile = openFilePath
 	a.StartupExtraPaths = extraPaths
-	a.MediaBase = startMediaServer()
+	a.MediaBase = startMediaServer(app.PTYSocketHandler(a))
 	a.NoRestore = noRestore
 	a.StartupNewFile = newFile
 	a.LaunchSettled = observeLaunch()

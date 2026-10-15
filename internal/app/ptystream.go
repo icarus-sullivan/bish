@@ -20,12 +20,16 @@ const (
 	ptyBacklogMax = 512 * 1024
 )
 
-// ptyStream is one terminal's output fan-out: live events plus a bounded
-// backlog. mu serializes flushes against attach so a replay never
-// interleaves with (or duplicates) a live event.
+// ptyStream is one terminal's output fan-out: live socket subscribers (and
+// Wails events for the fallback transport) plus a bounded backlog. mu
+// serializes flushes against attach so a replay never interleaves with (or
+// duplicates) live output.
 type ptyStream struct {
 	mu      sync.Mutex
 	backlog []byte
+	subs    map[*ptySub]struct{}
+	events  bool // an xterm attached over Wails events (see attachPTY)
+	exited  bool
 }
 
 var (
@@ -38,7 +42,7 @@ func streamFor(id string) *ptyStream {
 	defer ptyStreamsMu.Unlock()
 	s, ok := ptyStreams[id]
 	if !ok {
-		s = &ptyStream{}
+		s = &ptyStream{subs: map[*ptySub]struct{}{}}
 		ptyStreams[id] = s
 	}
 	return s
@@ -102,6 +106,7 @@ func (a *App) attachPTY(id string) {
 	s := streamFor(id)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.events = true
 	runtime.EventsEmit(a.ctx, "pty:backlog:"+id, string(s.backlog))
 }
 
@@ -142,12 +147,15 @@ func (a *App) readPTYLoopFor(id string, p *bishpty.PTY) {
 		if n <= 0 {
 			return
 		}
-		out := string(pending[:n]) // copies — pending's backing array gets reused below
+		chunk := append([]byte(nil), pending[:n]...) // pending's backing array gets reused below
 		s.mu.Lock()
-		s.appendBacklog(pending[:n])
-		runtime.EventsEmit(a.ctx, dataEvent, out)
+		s.appendBacklog(chunk)
+		s.publish(chunk)
+		if s.events {
+			runtime.EventsEmit(a.ctx, dataEvent, string(chunk))
+		}
 		s.mu.Unlock()
-		a.liveShare.Broadcast(id, []byte(out)) // no-op unless this terminal is currently shared
+		a.liveShare.Broadcast(id, chunk) // no-op unless this terminal is currently shared
 		pending = append(pending[:0], pending[n:]...)
 	}
 
@@ -165,6 +173,8 @@ func (a *App) readPTYLoopFor(id string, p *bishpty.PTY) {
 				flush(true)
 				s.mu.Lock()
 				s.appendBacklog([]byte("\r\n\x1b[2m[process exited]\x1b[0m\r\n"))
+				s.exited = true
+				s.closeSubs()
 				runtime.EventsEmit(a.ctx, exitEvent)
 				s.mu.Unlock()
 				a.liveShare.Stop(id)

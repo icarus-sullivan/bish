@@ -31,7 +31,7 @@
   import '@xterm/xterm/css/xterm.css'
   import { focusedPane, theme, activeTabId, setTerminalTitle, terminalFontSize } from '../lib/stores'
   import { get } from 'svelte/store'
-  import { on, emit, WritePTY, ResizePTY, WritePTYTab, ResizePTYTab, StashDropped } from '../lib/wails'
+  import { on, emit, WritePTY, ResizePTY, WritePTYTab, ResizePTYTab, StashDropped, ptySocketUrl } from '../lib/wails'
   import { terminalLinkHandler, fileLinkProvider } from '../lib/termlinks'
   import { featureOn } from '../lib/features'
   import ContextMenu from './ContextMenu.svelte'
@@ -179,7 +179,15 @@
     })
 
     const isMain = terminalId === 'main'
-    term.onData((data) => isMain ? WritePTY(data) : WritePTYTab(terminalId, data))
+    // input rides the terminal socket once it's open (see attachSocket);
+    // until then, or on the event fallback, the Wails bindings
+    let ws: WebSocket | null = null
+    function sendInput(data: string) {
+      if (ws?.readyState === WebSocket.OPEN) ws.send(data)
+      else if (isMain) WritePTY(data)
+      else WritePTYTab(terminalId, data)
+    }
+    term.onData(sendInput)
     // copy-on-select (opt-in): mirror the selection to the clipboard
     term.onSelectionChange(() => {
       if (!featureOn('copyOnSelect')) return
@@ -236,8 +244,7 @@
               { label: 'Copy Command', action: () => navigator.clipboard.writeText(block.command) },
               { label: 'Copy Output', action: () => navigator.clipboard.writeText(blockOutput(block)) },
               { label: 'Rerun', action: () => {
-                const cmd = block.command + '\n'
-                isMain ? WritePTY(cmd) : WritePTYTab(terminalId, cmd)
+                sendInput(block.command + '\n')
               } },
             ],
           }
@@ -268,15 +275,54 @@
     // already inside it, output after it arrives after it, so nothing is
     // lost or doubled — and a terminal that mounts late (session restore,
     // reopened main tab) shows its recent output instead of a blank screen.
+    //
+    // Preferred transport is the binary terminal socket (app.PTYSocketHandler):
+    // raw bytes straight into xterm, no JSON/UTF-16 round trip per chunk. Its
+    // first frame is the same backlog replay. The events path above remains
+    // as the fallback when the socket can't be reached.
     let attached = false
-    const offData = on(dataEvent, (data: string) => { if (attached) term.write(data) })
-    const offExit = on(exitEvent, () => { if (attached) term.write('\r\n\x1b[2m[process exited]\x1b[0m\r\n') })
-    const offBacklog = on('pty:backlog:' + terminalId, (data: string) => {
-      if (attached) return
-      attached = true
-      if (data) term.write(data)
-    })
-    emit('pty:attach', terminalId)
+    let disposed = false
+    let offData = () => {}, offExit = () => {}, offBacklog = () => {}
+    function attachEvents() {
+      if (disposed) return
+      offData = on(dataEvent, (data: string) => { if (attached) term.write(data) })
+      offExit = on(exitEvent, () => { if (attached) term.write('\r\n\x1b[2m[process exited]\x1b[0m\r\n') })
+      offBacklog = on('pty:backlog:' + terminalId, (data: string) => {
+        if (attached) return
+        attached = true
+        if (data) term.write(data)
+      })
+      emit('pty:attach', terminalId)
+    }
+    // reconnect=true: the server dropped us mid-stream (we fell too far
+    // behind); the backlog replay redraws from scratch, so reset first
+    function attachSocket(url: string, reconnect: boolean) {
+      if (disposed) return
+      const sock = new WebSocket(url)
+      sock.binaryType = 'arraybuffer'
+      let opened = false, first = true, done = false
+      sock.onopen = () => { opened = true; ws = sock }
+      sock.onmessage = (ev) => {
+        if (typeof ev.data === 'string') { // "exit" | "exited"
+          done = true
+          if (ev.data === 'exit') term.write('\r\n\x1b[2m[process exited]\x1b[0m\r\n')
+          return
+        }
+        if (first) {
+          first = false
+          if (reconnect) term.reset()
+          attached = true
+        }
+        if (ev.data.byteLength) term.write(new Uint8Array(ev.data))
+      }
+      sock.onclose = () => {
+        if (ws === sock) ws = null
+        if (disposed || done) return
+        if (!opened) { if (!attached) attachEvents(); return } // unreachable / terminal gone
+        setTimeout(() => attachSocket(url, true), 100)
+      }
+    }
+    ptySocketUrl(terminalId).then((url) => url ? attachSocket(url, false) : attachEvents())
 
     // Resize: refit locally once per frame, and tell the PTY only when the
     // grid actually changed, trailing-debounced. Every SIGWINCH makes the
@@ -351,12 +397,14 @@
       // pasting — the original vanishes when the drag thumbnail dismisses
       const paths = await StashDropped(dropped).catch(() => dropped)
       const text = paths.map(p => `"${p}"`).join(' ')
-      if (isMain) { WritePTY(text) } else { WritePTYTab(terminalId, text) }
+      sendInput(text)
       term.focus()
     }
     container.addEventListener('bish:filedrop', onDrop)
 
     return () => {
+      disposed = true
+      ws?.close()
       offData()
       offExit()
       offBacklog()
