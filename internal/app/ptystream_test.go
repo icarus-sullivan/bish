@@ -83,6 +83,9 @@ func TestWriteFileCheckedConflict(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := a.StatMtime(p)
+	if m <= 0 || m > 1<<53 {
+		t.Fatalf("mtime %d not a JS-safe integer", m)
+	}
 	m2, err := a.WriteFileChecked(p, "v2", m)
 	if err != nil {
 		t.Fatal(err)

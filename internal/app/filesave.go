@@ -14,9 +14,11 @@ import (
 // disk since the editor loaded it; the frontend matches on this prefix.
 const ErrFileConflict = "conflict: file changed on disk"
 
-// StatMtime returns path's modification time in Unix nanoseconds, or 0 when
+// StatMtime returns path's modification time in Unix microseconds, or 0 when
 // it can't be known (missing file, remote project). 0 disables the editor's
-// conflict check rather than failing it.
+// conflict check rather than failing it. Microseconds, not nanoseconds: the
+// value round-trips through JS, and UnixNano exceeds 2^53 — the rounded value
+// sent back would never match disk, flagging every save as a conflict.
 func (a *App) StatMtime(path string) int64 {
 	if a.remoteDest != "" {
 		return 0
@@ -25,7 +27,7 @@ func (a *App) StatMtime(path string) int64 {
 	if err != nil {
 		return 0
 	}
-	return fi.ModTime().UnixNano()
+	return fi.ModTime().UnixMicro()
 }
 
 // WriteFileChecked saves content only if path's mtime still equals
