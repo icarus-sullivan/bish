@@ -1,6 +1,6 @@
 <script lang="ts">
   import { ReadFile, WriteFile, GitStage } from '../lib/wails'
-  import { closeTab } from '../lib/stores'
+  import { closeTab, pendingExternalReload } from '../lib/stores'
   import { IconGitMerge, IconCheck } from '@tabler/icons-svelte'
 
   let { path, tabId }: { path: string; tabId: string } = $props()
@@ -72,6 +72,8 @@
     saving = true; error = ''
     try {
       await WriteFile(path, rebuild(segments))
+      // an open editor tab for this file syncs instead of going stale
+      pendingExternalReload.set(path)
       await GitStage(path)
       closeTab(tabId)
     } catch (e: any) {

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { showGlobalSearch, searchScopeDir, openFileTab, cwd, projectRoot, pendingGoto } from '../lib/stores'
+  import { showGlobalSearch, searchScopeDir, openFileTab, cwd, projectRoot, pendingGoto, pendingExternalReload, tabs, activeTabId } from '../lib/stores'
   import { SearchInFiles, ReplaceInFiles, GetWorkspaceRoots } from '../lib/wails'
   import { get } from 'svelte/store'
   import type { SearchResultDTO } from '../lib/wails'
@@ -105,6 +105,10 @@
       const counts = await Promise.all(dirs.map(d =>
         ReplaceInFiles(d, query, replaceText, caseSensitive, wholeWord, useRegex, includeGlob, excludeGlob).catch(() => 0)))
       replaceCount = counts.reduce((a, b) => a + b, 0)
+      // only the active tab has a mounted editor; inactive ones re-check
+      // disk on activation
+      const active = get(tabs).find(t => t.id === get(activeTabId))
+      if (replaceCount && active?.type === 'file' && active.path) pendingExternalReload.set(active.path)
       // re-trigger search by bumping gen through a dummy state write
       gen++ // stale guard — next $effect tick re-runs naturally via query deps
       results = await searchAll(query, caseSensitive, wholeWord, useRegex, includeGlob, excludeGlob)

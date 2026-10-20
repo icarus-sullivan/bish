@@ -21,6 +21,7 @@ export interface CachedEditor {
   json: any
   scroll: StateEffect<unknown>  // view.scrollSnapshot() — position-anchored, survives remount
   mtime: number      // disk mtime the buffer was loaded/saved against (0 = unknown)
+  diskHash?: string  // hash of the disk text at that mtime ('' = unknown)
   modified: boolean
   warnedMtime?: number  // external change already announced for this buffer
 }

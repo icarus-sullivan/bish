@@ -418,6 +418,19 @@
   // disk mtime we already warned about (unsaved buffer vs changed file), so
   // the warning shows once per external change, not on every tab switch
   let warnedMtime = 0
+  // hash of the disk text at `mtime` — an mtime bump whose bytes still match
+  // (touch, git checkout of identical content) isn't an external change
+  let diskHash = ''
+
+  // FNV-1a + length; only compared against this buffer's own baseline
+  function hashText(s: string): string {
+    let h = 0x811c9dc5
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i)
+      h = Math.imul(h, 0x01000193)
+    }
+    return `${s.length}:${h >>> 0}`
+  }
 
   const isModified = () => !!get(tabs).find(t => t.id === tabId)?.modified
 
@@ -429,6 +442,7 @@
       json: serializeState(view.state),
       scroll: view.scrollSnapshot(),
       mtime,
+      diskHash,
       warnedMtime,
       modified: isModified(),
     })
@@ -455,17 +469,23 @@
       // disk meanwhile, the disk version wins (same as a fresh open)
       const disk = await StatMtime(p).catch(() => 0)
       if (seq !== loadSeq) return
-      if (!cached.modified && disk && cached.mtime && disk !== cached.mtime) cached = null
-      else if (cached.modified && disk && cached.mtime && disk !== cached.mtime && cached.warnedMtime !== disk) {
-        warnedMtime = disk
-        toast.warning(`${p.split('/').pop()} changed on disk`, {
-          description: 'You have unsaved edits — saving will ask before overwriting.',
-        })
+      if (disk && cached.mtime && disk !== cached.mtime) {
+        const text = cached.diskHash ? await ReadFile(p).catch(() => null) : null
+        if (seq !== loadSeq) return
+        if (text !== null && hashText(text) === cached.diskHash) cached.mtime = disk
+        else if (!cached.modified) cached = null
+        else if (cached.warnedMtime !== disk) {
+          warnedMtime = disk
+          toast.warning(`${p.split('/').pop()} changed on disk`, {
+            description: 'You have unsaved edits — saving will ask before overwriting.',
+          })
+        }
       }
     }
     if (cached) {
       content = cached.json.doc
       mtime = cached.mtime
+      diskHash = cached.diskHash ?? ''
     } else if (p !== UNTITLED) {
       const [text, m] = await Promise.all([
         ReadFile(p).catch((e: any) => { loadError = String(e); return '' }),
@@ -474,6 +494,9 @@
       if (seq !== loadSeq) return
       content = text
       mtime = m
+      diskHash = loadError ? '' : hashText(text)
+    } else {
+      diskHash = ''
     }
     setModified(cached?.modified ?? false)
     // never mount an editor for a failed read — saving would clobber the file.
@@ -628,6 +651,12 @@
     }
     const disk = await StatMtime(path).catch(() => 0)
     if (!disk || disk === mtime || !view) return
+    const text = await ReadFile(path).catch(() => null)
+    const v = view
+    if (text === null || !v) return
+    const hash = hashText(text)
+    // mtime moved but the bytes didn't — nothing to sync or warn about
+    if (hash === diskHash) { mtime = disk; return }
     if (isModified()) {
       if (warnedMtime !== disk) {
         warnedMtime = disk
@@ -637,11 +666,9 @@
       }
       return
     }
-    const text = await ReadFile(path).catch(() => null)
-    const v = view
-    if (text === null || !v || isModified()) return
     replaceMinimal(v, text)
     mtime = disk
+    diskHash = hash
     setModified(false)
     refreshBlame(v)
     refreshDiff(v)
@@ -689,9 +716,11 @@
     try {
       if (path === UNTITLED) {
         const dir = get(projectRoot) || get(cwd)
-        const realPath = await SaveNewFile(view.state.doc.toString(), dir)
+        const text = view.state.doc.toString()
+        const realPath = await SaveNewFile(text, dir)
         if (realPath) {
           mtime = await StatMtime(realPath).catch(() => 0)
+          diskHash = hashText(text)
           updateTabPath(tabId, realPath)
           setModified(false)
         }
@@ -705,7 +734,11 @@
           newMtime = await WriteFileChecked(path, text, mtime)
         } catch (e: any) {
           if (!String(e).includes('conflict:')) throw e
-          const choice = await ConfirmFileConflict(path.split('/').pop() || path)
+          // only ask when the bytes actually differ — from what this buffer
+          // was based on, and from what we're about to write
+          const disk = await ReadFile(path).catch(() => null)
+          const same = disk !== null && (disk === text || hashText(disk) === diskHash)
+          const choice = same ? 'overwrite' : await ConfirmFileConflict(path.split('/').pop() || path)
           if (choice === 'reload') {
             setModified(false)
             load(path, get(currentThemeName), true)
@@ -715,6 +748,7 @@
           newMtime = await WriteFileChecked(path, text, 0)
         }
         mtime = newMtime
+        diskHash = hashText(text)
         warnedMtime = 0
         // edits typed while the write was in flight stay unsaved
         if (view === v && v.state.doc.toString() === text) setModified(false)
