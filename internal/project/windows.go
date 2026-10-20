@@ -47,10 +47,26 @@ func saveWindows(m map[string]int) error {
 	return os.WriteFile(windowsPath(), data, 0o644)
 }
 
+// windowKey canonicalizes a project path for the registry, so the same folder
+// reached via a trailing slash, a relative path, or a symlink (e.g. /tmp vs
+// /private/tmp, or a Finder/Dock path vs a dialog path) maps to one entry —
+// otherwise "is this project already open?" misses and a duplicate window
+// opens instead of focusing the existing one.
+func windowKey(path string) string {
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	}
+	path = filepath.Clean(path)
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		path = real
+	}
+	return path
+}
+
 // RegisterWindow records pid as the window with path open.
 func RegisterWindow(path string, pid int) error {
 	m, _ := loadWindows()
-	m[path] = pid
+	m[windowKey(path)] = pid
 	return saveWindows(m)
 }
 
@@ -58,10 +74,11 @@ func RegisterWindow(path string, pid int) error {
 // project (switches away, closes it, or the process exits).
 func UnregisterWindow(path string) error {
 	m, _ := loadWindows()
-	if _, ok := m[path]; !ok {
+	key := windowKey(path)
+	if _, ok := m[key]; !ok {
 		return nil
 	}
-	delete(m, path)
+	delete(m, key)
 	return saveWindows(m)
 }
 
@@ -71,12 +88,13 @@ func UnregisterWindow(path string) error {
 // found rather than trusted.
 func FindWindowPID(path string) (int, bool) {
 	m, _ := loadWindows()
-	pid, ok := m[path]
+	key := windowKey(path)
+	pid, ok := m[key]
 	if !ok {
 		return 0, false
 	}
 	if !processAlive(pid) {
-		delete(m, path)
+		delete(m, key)
 		saveWindows(m) //nolint
 		return 0, false
 	}

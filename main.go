@@ -42,6 +42,7 @@ func main() {
 	var noRestore bool
 	var childWindow bool
 	var newFile bool
+	var remoteTarget string
 	var extraPaths []string
 
 	root := &cobra.Command{
@@ -85,7 +86,7 @@ func main() {
 					}
 				}
 			}
-			return run(themeName, shellPath, projectPath, openFilePath, extraPaths, noRestore || newFile, newFile, childWindow)
+			return run(themeName, shellPath, projectPath, openFilePath, remoteTarget, extraPaths, noRestore || newFile, newFile, childWindow)
 		},
 	}
 
@@ -96,6 +97,8 @@ func main() {
 	root.Flags().BoolVar(&noRestore, "no-restore", false, "skip session restore on startup (used internally for New Window)")
 	root.Flags().BoolVarP(&noRestore, "new-window", "n", false, "open a new empty window")
 	root.Flags().BoolVar(&newFile, "new-file", false, "open a new window with an untitled file")
+	root.Flags().StringVar(&remoteTarget, "remote", "", "open an SSH project (dest<TAB>path; used internally)")
+	root.Flags().MarkHidden("remote") //nolint
 	root.Flags().BoolVar(&childWindow, "child-window", false, "run without own Dock icon (used internally for extra windows)")
 	root.Flags().MarkHidden("child-window") //nolint
 
@@ -183,7 +186,7 @@ func buildMenu(a *app.App) *menu.Menu {
 	return appMenu
 }
 
-func run(themeName, shellPath, projectPath, openFilePath string, extraPaths []string, noRestore, newFile, childWindow bool) error {
+func run(themeName, shellPath, projectPath, openFilePath, remoteTarget string, extraPaths []string, noRestore, newFile, childWindow bool) error {
 	// GUI launches get launchd's minimal env; recover PATH etc. from a login shell.
 	if err := shellenv.LoadLoginEnv(shellenv.DefaultShell()); err != nil {
 		fmt.Fprintf(os.Stderr, "shellenv: %v\n", err)
@@ -236,6 +239,7 @@ func run(themeName, shellPath, projectPath, openFilePath string, extraPaths []st
 	a := app.New(cfg, mgr, store, shell, cwd, cwdFile, wFilePath, galleryFile)
 	a.StartupProject = projectPath
 	a.StartupFile = openFilePath
+	a.StartupRemote = remoteTarget
 	a.StartupExtraPaths = extraPaths
 	a.MediaBase = startMediaServer(app.PTYSocketHandler(a))
 	a.NoRestore = noRestore
@@ -248,6 +252,7 @@ func run(themeName, shellPath, projectPath, openFilePath string, extraPaths []st
 		files, _ := project.LoadRecentFiles()
 		setBishDockMenuFromRecents(projects, files)
 	}
+	a.AppMenuBuilder = func() *menu.Menu { return buildMenu(a) }
 	a.QuitInterceptInstaller = installQuitIntercept
 	a.PromoteInstance = sendPromoteSignal
 	installPromoteHandler(a)

@@ -40,6 +40,7 @@ import (
 	"github.com/csullivan/bish/internal/telemetry"
 	"github.com/csullivan/bish/internal/theme"
 	"github.com/csullivan/bish/internal/tree"
+	"github.com/wailsapp/wails/v2/pkg/menu"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -98,6 +99,10 @@ type App struct {
 	ctx              context.Context
 	desktopOpenMu    sync.Mutex
 	desktopStarted   bool
+	// openMu serializes "which window shows this project?" decisions so two
+	// opens landing in a blank window at once can't both claim it in place
+	// (the second would replace the first).
+	openMu sync.Mutex
 	// startupDone closes once resolveStartup has decided (and, for a
 	// project, loaded) what this window shows — the frontend's initial
 	// getters wait on it so a known project never flashes the empty state.
@@ -106,8 +111,12 @@ type App struct {
 	// LaunchSettled, if set, fires once the native app has finished
 	// launching — on macOS that's when cold-start openFile events (Dock
 	// recents, Finder) have been delivered. nil means settle immediately.
-	LaunchSettled          <-chan struct{}
-	DockMenuUpdater        func()
+	LaunchSettled   <-chan struct{}
+	DockMenuUpdater func()
+	// AppMenuBuilder rebuilds the menu bar (main.go buildMenu) so File >
+	// Open Recent reflects projects opened since launch.
+	AppMenuBuilder         func() *menu.Menu
+	menuMu                 sync.Mutex
 	QuitInterceptInstaller func()
 	// PromoteInstance signals another live bish window (by pid) to take
 	// over Dock-icon/menu-bar representation — see Shutdown and
@@ -117,9 +126,12 @@ type App struct {
 	StartupFile       string
 	StartupExtraPaths []string
 	StartupNewFile    bool
-	MediaBase         string
-	NoRestore         bool
-	quitRequested     atomic.Bool
+	// StartupRemote is "dest\tpath" for a window spawned to show an SSH
+	// project (see OpenRemoteProject).
+	StartupRemote string
+	MediaBase     string
+	NoRestore     bool
+	quitRequested atomic.Bool
 	// ChildWindow is true when this window launched without its own Dock
 	// icon (collapsed under another window's — see launchNewInstance). Flips
 	// to false in place if this window is later promoted to take over Dock
@@ -226,7 +238,7 @@ func (a *App) resolveStartup() {
 	// only a bare launch (Dock/Finder click, no CLI target) can carry a
 	// pending openFile; explicit targets and spawned windows skip the wait
 	a.desktopOpenMu.Lock()
-	bare := a.StartupProject == "" && a.StartupFile == "" && !a.StartupNewFile && !a.NoRestore
+	bare := a.StartupProject == "" && a.StartupFile == "" && a.StartupRemote == "" && !a.StartupNewFile && !a.NoRestore
 	a.desktopOpenMu.Unlock()
 	if bare {
 		a.waitLaunchSettled()
@@ -237,6 +249,12 @@ func (a *App) resolveStartup() {
 	noRestore := a.NoRestore || a.StartupNewFile
 	a.desktopOpenMu.Unlock()
 	switch {
+	case a.StartupRemote != "":
+		if dest, path, ok := strings.Cut(a.StartupRemote, "\t"); ok {
+			if err := a.openRemoteProjectHere(dest, path); err != nil {
+				fmt.Fprintf(os.Stderr, "remote: %v\n", err)
+			}
+		}
 	case startupProject != "":
 		a.openProjectDir(startupProject) //nolint
 	case startupFile != "":
@@ -248,9 +266,7 @@ func (a *App) resolveStartup() {
 		a.restoreSession()
 	}
 	a.markStartupResolved()
-	if a.DockMenuUpdater != nil {
-		a.DockMenuUpdater()
-	}
+	a.updateMenus()
 	// Linux desktop launchers use %F, so one activation can contain several
 	// selected files/folders. Keep the first in this window and give each
 	// additional path its own window instead of rejecting the entire launch.
@@ -274,6 +290,19 @@ func (a *App) waitLaunchSettled() {
 	case <-a.LaunchSettled:
 		time.Sleep(200 * time.Millisecond)
 	case <-time.After(2 * time.Second):
+	}
+}
+
+// updateMenus refreshes the recents shown in the Dock menu and in the menu
+// bar's File > Open Recent after the recent lists change.
+func (a *App) updateMenus() {
+	a.menuMu.Lock()
+	defer a.menuMu.Unlock()
+	if a.DockMenuUpdater != nil {
+		a.DockMenuUpdater()
+	}
+	if a.AppMenuBuilder != nil && a.ctx != nil {
+		runtime.MenuSetApplicationMenu(a.ctx, a.AppMenuBuilder())
 	}
 }
 
@@ -2062,24 +2091,17 @@ func (a *App) HandleDesktopOpen(path string) error {
 		return nil
 	}
 	a.desktopOpenMu.Unlock()
-	a.projectMu.Lock()
-	blank := a.projectRoot == ""
-	a.projectMu.Unlock()
+	// Startup is decided but session restore may still be loading a project
+	// into this window — judging "blank" now would open path in place and
+	// then have the restored project replace it.
+	<-a.startupDone
 	if info.IsDir() {
-		if pid, ok := project.FindWindowPID(path); ok && pid != os.Getpid() && activateWindow(pid) {
-			return nil
-		}
-		if blank {
-			return a.openProjectDir(path)
-		}
 		return a.OpenRecentProject(path)
 	}
-	if blank {
+	if a.isBlank() {
 		project.AddRecentFile(path) //nolint
 		runtime.EventsEmit(a.ctx, "desktop:open-file", path)
-		if a.DockMenuUpdater != nil {
-			a.DockMenuUpdater()
-		}
+		a.updateMenus()
 		return nil
 	}
 	return a.OpenRecentFileInNewWindow(path)
@@ -2237,9 +2259,7 @@ func (a *App) openProjectDirOpts(dir string, resetExtra bool) error {
 	runtime.EventsEmit(a.ctx, "project:tasks", project.LoadTasks(dir))
 	project.AddRecent(dir)    //nolint
 	project.AddToSession(dir) //nolint
-	if a.DockMenuUpdater != nil {
-		go a.DockMenuUpdater()
-	}
+	go a.updateMenus()
 	return nil
 }
 
@@ -2260,6 +2280,17 @@ func (a *App) OpenRemoteProject(dest, path string) error {
 	if isDir, err := remote.Stat(dest, path); err != nil || !isDir {
 		return fmt.Errorf("%s:%s is not a directory", dest, path)
 	}
+	// same rule as OpenRecentProject: never replace an open project
+	a.openMu.Lock()
+	defer a.openMu.Unlock()
+	if !a.isBlank() {
+		return launchNewInstance("--remote", dest+"\t"+path)
+	}
+	return a.openRemoteProjectHere(dest, path)
+}
+
+// openRemoteProjectHere loads the SSH project into this window.
+func (a *App) openRemoteProjectHere(dest, path string) error {
 	a.lsp.StopAll()
 	a.dap.Stop()
 	a.projectMu.Lock()
@@ -2423,28 +2454,51 @@ func (a *App) OpenProject() (string, error) {
 	if err != nil || dir == "" {
 		return "", err
 	}
-	return dir, a.openProjectDir(dir)
+	return dir, a.OpenRecentProject(dir)
 }
 
-// OpenRecentProject opens a recent project. It never replaces the current
-// window's project in place — if path is already open in some window (found
-// via the live registry in internal/project/windows.go), that window is
-// brought to front; otherwise a new window is spawned. This is the single
-// entry point for both the File > Open Recent menu (main.go) and the Dock
-// menu (dock_darwin.go) — they used to diverge (one replaced in place, the
-// other always spawned new), which made the behavior look random depending
-// on which menu was used.
+// OpenRecentProject opens a project folder. It never replaces the current
+// window's project — if path is already open in some window (found via the
+// live registry in internal/project/windows.go), that window is brought to
+// front; if this window has no project yet (welcome screen) it's used;
+// otherwise a new window is spawned. This is the single entry point for
+// File > Open Project…, File > Open Recent, the welcome screen, and Dock /
+// Finder opens (HandleDesktopOpen), so they all behave the same.
 func (a *App) OpenRecentProject(path string) error {
 	info, err := os.Stat(path)
 	if err != nil || !info.IsDir() {
 		return fmt.Errorf("project path not found: %s", path)
 	}
+	a.openMu.Lock()
+	defer a.openMu.Unlock()
 	if pid, ok := project.FindWindowPID(path); ok {
+		if pid == os.Getpid() {
+			a.raiseSelf()
+			return nil
+		}
 		if activateWindow(pid) {
 			return nil
 		}
 	}
+	if a.isBlank() {
+		return a.openProjectDir(path)
+	}
 	return launchNewInstance("--project", path)
+}
+
+// isBlank reports whether this window has no project (local or remote) open,
+// so an open can use it instead of spawning another window.
+func (a *App) isBlank() bool {
+	a.projectMu.Lock()
+	defer a.projectMu.Unlock()
+	return a.projectRoot == "" && a.remoteDest == ""
+}
+
+// raiseSelf brings this window to the front (un-minimizing it) — the
+// already-open project being requested is this window's own.
+func (a *App) raiseSelf() {
+	runtime.WindowUnminimise(a.ctx)
+	runtime.WindowShow(a.ctx)
 }
 
 func (a *App) CloseProject() {
